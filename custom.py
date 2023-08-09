@@ -9,7 +9,7 @@ Created on Sat Aug 19 2017
 from abc import ABC, ABCMeta
 from collections import OrderedDict as ODict
 
-from utilities.dispatchers import typedispatcher
+from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"

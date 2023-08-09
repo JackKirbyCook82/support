@@ -14,8 +14,8 @@ from abc import ABC, ABCMeta
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
-from utilities.mixins import Node
-from utilities.dispatchers import typedispatcher
+from support.mixins import Node
+from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"

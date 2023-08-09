@@ -17,8 +17,8 @@ import dask.dataframe as dk
 from functools import reduce
 from abc import ABC, abstractmethod
 
-from utilities.mixins import Locking
-from utilities.dispatchers import typedispatcher, valuedispatcher
+from support.mixins import Locking
+from support.dispatchers import typedispatcher, valuedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
