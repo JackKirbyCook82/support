@@ -20,24 +20,9 @@ __license__ = ""
 
 Style = ntuple("Style", "branch terminate run blank")
 aslist = lambda x: [x] if not isinstance(x, (list, tuple)) else list(x)
-double = Style("╠══", "╚══",  "║  ", "   ")
+double = Style("╠══", "╚══", "║  ", "   ")
 single = Style("├──", "└──", "│  ", "   ")
 curved = Style("├──", "╰──", "│  ", "   ")
-
-
-def renderer(node, layers=[], style=single):
-    assert hasattr(node, "size") and hasattr(node, "children")
-    last = lambda i, x: i == x
-    pre = lambda i, x: style.terminate if last(i, x) else style.blank
-    pads = lambda: ''.join([style.blank if layer else style.run for layer in layers])
-    func = lambda i, x: "".join([pads(), pre(index, count)])
-    if not layers:
-        yield "", None, str(node)
-    count = len(node.size) - 1
-    for index, (key, values) in enumerate(iter(node.children)):
-        for value in aslist(values):
-            yield func(index, count), str(key), str(value)
-            yield from renderer(value, layers=[*layers, last(index, count)], style=style)
 
 
 class Mixin(object):
@@ -100,6 +85,18 @@ class Node(Mixin):
             yield value
             yield from value.transverse()
 
+    def renderer(self, layers=[]):
+        last = lambda i, x: i == x
+        func = lambda i, x: "".join([pads(), pre(i, x)])
+        pre = lambda i, x: self.style.terminate if last(i, x) else self.style.blank
+        pads = lambda: "".join([self.style.blank if layer else self.style.run for layer in layers])
+        if not layers:
+            yield "", None, self
+        for index, (key, values) in enumerate(iter(self.children)):
+            for value in aslist(values):
+                yield func(index, self.size - 1), key, value
+                yield from value.renderer(layers=[*layers, last(index, self.size - 1)])
+
     @property
     def size(self): return len(self.nodes)
     @property
@@ -109,8 +106,7 @@ class Node(Mixin):
 
     @property
     def tree(self):
-        generator = renderer(self, style=self.style)
-        rows = [pre + self.formatter(key, value) for pre, key, value in generator]
+        rows = [pre + self.formatter(key, value) for pre, key, value in self.renderer()]
         return "\n".format(rows)
 
     @property
