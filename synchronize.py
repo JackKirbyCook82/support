@@ -110,11 +110,14 @@ class Consumer(Routine, daemon=False):
             try:
                 content = self.source.get(timeout=5)
                 generator = self.generator(self.routine)(content, *args, **kwargs)
-                for _ in iter(generator):
-                    pass
+                for content in iter(generator):
+                    self.consume(content, *args, **kwargs)
                 self.source.done()
             except queue.Empty:
                 pass
+
+    @staticmethod
+    def consume(contents, *args, **kwargs): pass
 
     @property
     def source(self): return self.__source
