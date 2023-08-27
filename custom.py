@@ -13,7 +13,7 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["NamedCollection", "SliceOrderedDict"]
+__all__ = ["NamedCollection", "SliceOrderedDict", "StackOrderedDict"]
 __copyright__ = "Copyright 2018, Jack Kirby Cook"
 __license__ = ""
 
@@ -106,7 +106,7 @@ class SliceOrderedDict(ODict):
     def read(self, key): raise TypeError(type(key).__name__)
 
     @read.register(slice)
-    def readSlice(self, key):
+    def slice(self, key):
         start, stop = key.start, key.stop 
         if start is None:
             start = 0
@@ -121,7 +121,7 @@ class SliceOrderedDict(ODict):
         return instance
 
     @read.register(int)
-    def readInt(self, index):
+    def integer(self, index):
         if index >= 0:
             return self.readslice(slice(index, index + 1))
         else:
@@ -139,7 +139,7 @@ class SliceOrderedDict(ODict):
         if isinstance(key, str):
             return super().pop(key, default)
         elif isinstance(key, int):
-            return self._retrieve(key, pop=True)
+            return self.retrieve(key, pop=True)
         else:
             raise TypeError(type(key).__name__)
 
@@ -147,20 +147,40 @@ class SliceOrderedDict(ODict):
         if isinstance(key, str):
             return super().get(key, default)
         elif isinstance(key, int):
-            return self._retrieve(key, pop=False)
+            return self.retrieve(key, pop=False)
         else:
             raise TypeError(type(key).__name__)
         
-    def update(self, others, inplace=True):
-        if not isinstance(others, dict):
-            raise TypeError(type(others).__name__)
-        updated = [(key, others.pop(key, value)) for key, value in self.items()]
-        added = [(key, value) for key, value in others.items()]
+    def update(self, other, inplace=True):
+        if not isinstance(other, dict):
+            raise TypeError(type(other).__name__)
+        updated = [(key, other.pop(key, value)) for key, value in self.items()]
+        added = [(key, value) for key, value in other.items()]
         if not inplace:
             return self.__class__(updated + added)
         self = self.__class__(updated + added)
         return self
 
+
+class StackOrderedDict(ODict):
+    def __init__(self, contents=[]):
+        assert isinstance(contents, list)
+        assert all([isinstance(content, tuple) for content in contents])
+        assert all([len(content) == 2 for content in contents])
+        mapping = ODict.fromkeys([content[0] for content in contents])
+
+    def __setitem__(self, key, value):
+        pass
+
+    def append(self, key, value):
+        pass
+
+    def extend(self, key, value):
+        pass
+
+    def update(self, other, inplace=True):
+        if not isinstance(other, dict):
+            raise TypeError(type(other).__name__)
 
 
 
