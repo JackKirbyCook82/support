@@ -7,6 +7,7 @@ Created on Sat Aug 19 2017
 """
 
 from abc import ABC, ABCMeta
+from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher
@@ -103,10 +104,12 @@ class SliceOrderedDict(ODict):
             raise TypeError(type(key).__name__)
 
     @typedispatcher
-    def read(self, key): raise TypeError(type(key).__name__)
+    def read(self, key):
+        raise TypeError(type(key).__name__)
 
     @read.register(slice)
     def slice(self, key):
+        cls = self.__class__
         start, stop = key.start, key.stop 
         if start is None:
             start = 0
@@ -114,7 +117,7 @@ class SliceOrderedDict(ODict):
             stop = len(self)
         if stop < 0:
             stop = len(self) + stop
-        instance = self.__class__()
+        instance = cls()
         for index, key in enumerate(self.keys()): 
             if start <= index < stop: 
                 instance[key] = self[key]
@@ -150,39 +153,55 @@ class SliceOrderedDict(ODict):
             return self.retrieve(key, pop=False)
         else:
             raise TypeError(type(key).__name__)
-        
-    def update(self, other, inplace=True):
-        if not isinstance(other, dict):
-            raise TypeError(type(other).__name__)
-        updated = [(key, other.pop(key, value)) for key, value in self.items()]
-        added = [(key, value) for key, value in other.items()]
-        if not inplace:
-            return self.__class__(updated + added)
-        self = self.__class__(updated + added)
-        return self
 
 
 class StackOrderedDict(ODict):
-    def __init__(self, contents=[]):
+    def __new__(cls, contents=[]):
         assert isinstance(contents, list)
         assert all([isinstance(content, tuple) for content in contents])
         assert all([len(content) == 2 for content in contents])
-        mapping = ODict.fromkeys([content[0] for content in contents])
+        Content = ntuple("Content", "key value")
+        contents = [Content(*content) for content in contents]
+        instance = ODict.fromkeys([content.key for content in contents])
+        for content in contents:
+            instance[content.key] = content.value
+        return instance
 
     def __setitem__(self, key, value):
-        pass
+        if key not in self.keys():
+            self.create(key, value)
+        elif not isinstance(value, list):
+            self.append(key, value)
+        elif isinstance(value, list):
+            self.extend(key, value)
 
-    def append(self, key, value):
-        pass
-
-    def extend(self, key, value):
-        pass
-
-    def update(self, other, inplace=True):
+    def __and__(self, other):
+        cls = self.__class__
         if not isinstance(other, dict):
             raise TypeError(type(other).__name__)
+        contents = [(key, value) for key, value in self.items()]
+        other = [(key, value) for key, value in other.items()]
+        return cls(contents + other)
 
+    def collection(self, key):
+        aslist = lambda value: [value] if not isinstance(value, list) else value
+        return aslist(self[key])
 
+    def create(self, key, value):
+        assert key not in self.keys()
+        super().__setitem__(key, value)
+
+    def append(self, key, value):
+        assert key in self.keys()
+        assert not isinstance(value, list)
+        value = self.collection(key) + [value]
+        super().__setitem__(key, value)
+
+    def extend(self, key, value):
+        assert key in self.keys()
+        assert isinstance(value, list)
+        value = self.collection(key) + value
+        super().__setitem__(key, value)
 
 
 
