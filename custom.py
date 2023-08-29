@@ -155,53 +155,30 @@ class SliceOrderedDict(ODict):
             raise TypeError(type(key).__name__)
 
 
+class Stack(list):
+    def __new__(cls): return super().__new__(cls)
+    def __init__(self): super().__init__([])
+
 class StackOrderedDict(ODict):
-    def __new__(cls, contents=[]):
-        assert isinstance(contents, list)
-        assert all([isinstance(content, tuple) for content in contents])
-        assert all([len(content) == 2 for content in contents])
-        Content = ntuple("Content", "key value")
-        contents = [Content(*content) for content in contents]
-        instance = ODict.fromkeys([content.key for content in contents])
-        for content in contents:
-            instance[content.key] = content.value
-        return instance
+    def __init__(self, argument={}, **parameters):
+        assert isinstance(argument, dict)
+        keys = list(argument.keys()) + list(parameters.keys())
+        items = {key: Stack() for key in keys}
+        super().__init__(items)
+        for key, value in argument.items():
+            self[key].append(value) if not isinstance(value, Stack) else self[key].extend(value)
+        for key, value in parameters.items():
+            self[key].append(value) if not isinstance(value, Stack) else self[key].extend(value)
 
     def __setitem__(self, key, value):
         if key not in self.keys():
-            self.create(key, value)
-        elif not isinstance(value, list):
-            self.append(key, value)
-        elif isinstance(value, list):
-            self.extend(key, value)
+            super().__setitem__(key, Stack())
+        self[key].append(value) if not isinstance(value, Stack) else self[key].extend(value)
 
     def __and__(self, other):
         cls = self.__class__
-        if not isinstance(other, dict):
-            raise TypeError(type(other).__name__)
-        contents = [(key, value) for key, value in self.items()]
-        other = [(key, value) for key, value in other.items()]
-        return cls(contents + other)
-
-    def collection(self, key):
-        aslist = lambda value: [value] if not isinstance(value, list) else value
-        return aslist(self[key])
-
-    def create(self, key, value):
-        assert key not in self.keys()
-        super().__setitem__(key, value)
-
-    def append(self, key, value):
-        assert key in self.keys()
-        assert not isinstance(value, list)
-        value = self.collection(key) + [value]
-        super().__setitem__(key, value)
-
-    def extend(self, key, value):
-        assert key in self.keys()
-        assert isinstance(value, list)
-        value = self.collection(key) + value
-        super().__setitem__(key, value)
+        assert isinstance(other, dict)
+        return cls(self, **other)
 
 
 
