@@ -7,7 +7,6 @@ Created on Sat Aug 19 2017
 """
 
 from abc import ABC, ABCMeta
-from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher

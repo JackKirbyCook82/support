@@ -33,26 +33,26 @@ class Mixin(object):
             super().__init__()
 
 
-class Locking(object):
+class Locking(Mixin):
     locks = {}
 
     @classmethod
-    def locking(cls, file):
-        if file not in cls.locks.keys():
-            cls.locks[file] = multiprocessing.Lock()
-        return cls.locks[file]
+    def locking(cls, key):
+        if key not in cls.locks.keys():
+            cls.locks[key] = multiprocessing.Lock()
+        return cls.locks[key]
 
     @classmethod
-    def lock(cls, file):
-        if file not in cls.locks.keys():
-            cls.locks[file] = multiprocessing.Lock()
-        cls.locks[file].acquire()
+    def lock(cls, key):
+        if key not in cls.locks.keys():
+            cls.locks[key] = multiprocessing.Lock()
+        cls.locks[key].acquire()
 
     @classmethod
-    def unlock(cls, file):
-        if file not in cls.locks.keys():
+    def unlock(cls, key):
+        if key not in cls.locks.keys():
             return
-        cls.locks[file].release()
+        cls.locks[key].release()
 
 
 def renderer(node, layers=[], style=single):

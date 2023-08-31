@@ -140,33 +140,44 @@ class Loader(Files, ABC):
         if not os.path.isdir(repository):
             raise FileNotFoundError(repository)
 
+    def read(self, *args, file, **kwargs):
+        extension = os.path.splitext(file)
+        with self.locking(file):
+            pass
+
+    def refer(self, *args, file, **kwargs):
+        extension = os.path.splitext(file)
+        with self.locking(file):
+            pass
+
     @valuedispatcher
-    def read(self, datatype, *args, **kwargs): raise ValueError(datatype.__name__)
+    def reader(self, extension, *args, file, **kwargs): raise ValueError(extension)
     @valuedispatcher
-    def refer(self, datatype, *args, **kwargs): raise ValueError(datatype.__name__)
+    def referer(self, extension, *args, file, **kwargs): raise ValueError(extension)
 
-    @read.register(xr.Dataset)
-    def read_dataset(self, *args, file, **kwargs):
-        with self.locking(file):
-            return xr.open_dataset(file, chunks=None)
+    @reader.register("csv")
+    def csv_reader(self, *args, file, **kwargs):
+        pass
 
-    @read.register(pd.DataFrame)
-    def read_dataframe(self, *args, file, rows=None, datatypes={}, datetypes=[], **kwargs):
-        with self.locking(file):
-            iterator = bool(rows is not None)
-            parms = dict(index_col=None, header=0, dtype=datatypes, parse_dates=datetypes)
-            return pd.read_csv(file, chucksize=rows, iterator=iterator, **parms)
+    @reader.register("hdf5")
+    def hdf5_reader(self, *args, file, **kwargs):
+        pass
 
-    @refer.register(xr.Dataset)
-    def refer_dataset(self, *args, file, partitions={}, **kwargs):
-        with self.locking(file):
-            return xr.open_dataset(file, chunks=partitions)
+    @reader.register("netcdf")
+    def netcdf_reader(self, *args, file, **kwargs):
+        pass
 
-    @refer.register(pd.DataFrame)
-    def refer_dataframe(self, *args, file, size=None, datatypes={}, datetypes=[], **kwargs):
-        with self.locking(file):
-            parms = dict(index_col=None, header=0, dtype=datatypes, parse_dates=datetypes)
-            return dk.read_csv(file, blocksize=size, **parms)
+    @reader.register("csv")
+    def csv_referer(self, *args, file, **kwargs):
+        pass
+
+    @reader.register("hdf5")
+    def hdf5_referer(self, *args, file, **kwargs):
+        pass
+
+    @reader.register("netcdf")
+    def netcdf_referer(self, *args, file, **kwargs):
+        pass
 
 
 class Saver(Files, ABC):
@@ -175,25 +186,36 @@ class Saver(Files, ABC):
         if not os.path.isdir(repository):
             os.mkdir(repository)
 
+    def write(self, content, *args, file, mode, **kwargs):
+        with self.locking(file):
+            pass
+
     @typedispatcher
-    def write(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
+    def csv(self, content, *args, file, mode, **kwargs): raise TypeError(type(content).__name__)
+    @typedispatcher
+    def hdf5(self, content, *args, file, mode, **kwargs): raise TypeError(type(content).__name__)
+    @typedispatcher
+    def netcdf(self, content, *args, file, mode, **kwargs): raise TypeError(type(content).__name__)
 
-    @write.register(xr.Dataset)
-    def write_dataset(self, content, *args, file, mode, **kwargs):
-        with self.locking(file):
-            xr.Dataset.to_netcdf(content, file, mode=mode, compute=True)
+    @csv.register(pd.DataFrame)
+    def csv_pd(self, content, *args, file, mode, **kwargs):
+        pass
 
-    @write.register(pd.DataFrame)
-    def write_dataframe(self, content, *args, file, mode, rows=None, **kwargs):
-        with self.locking(file):
-            parms = dict(index=False, header=True)
-            pd.DataFrame.to_csv(content, file, mode=mode, chunksize=rows, **parms)
+    @csv.register(dk.DataFrame)
+    def csv_dk(self, content, *args, file, mode, **kwargs):
+        pass
 
-    @write.register(dk.DataFrame)
-    def write_daskframe(self, content, *args, file, mode, rows=None, **kwargs):
-        with self.locking(file):
-            parms = dict(index=False, header=True, single_file=True, header_first_partition_only=True)
-            dk.DataFrame.to_csv(content, file, mode=mode, chunksize=rows, compute=True, **parms)
+    @hdf5.register(pd.DataFrame)
+    def hdf5_pd(self, content, *args, file, mode, **kwargs):
+        pass
+
+    @hdf5.register(dk.DataFrame)
+    def hdf5_dk(self, content, *args, file, mode, **kwargs):
+        pass
+
+    @netcdf.register(xr.Dataset)
+    def netcdf_xr(self, content, *args, file, mode, **kwargs):
+        pass
 
 
 
