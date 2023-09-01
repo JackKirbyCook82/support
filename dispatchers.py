@@ -13,83 +13,9 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["typedispatcher", "valuedispatcher", "argsdispatcher", "kwargsdispatcher"]
+__all__ = ["argsdispatcher", "kwargsdispatcher", "typedispatcher", "valuedispatcher"]
 __copyright__ = "Copyright 2018, Jack Kirby Cook"
 __license__ = ""
-
-
-def typedispatcher(mainfunction):
-    assert callable(mainfunction)
-    __method__ = True if "." in str(mainfunction.__qualname__) else False
-    __registry__ = {}
-
-    def retrieve(key): return __registry__.get(key, mainfunction)
-    def update(items): __registry__.update(items)
-
-    def register(*keys):
-        def decorate(function):
-            assert callable(function)
-            update({key: function for key in keys})
-            return function
-        return decorate
-
-    def method_wrapper(self, *args, **kwargs):
-        try:
-            function = retrieve(type(args[0]))
-            return function(self, args[0], *args[1:], **kwargs)
-        except IndexError:
-            return mainfunction(self, *args, **kwargs)
-
-    def function_wrapper(*args, **kwargs):
-        try:
-            function = retrieve(type(args[0]))
-            return function(args[0], *args[1:], **kwargs)
-        except IndexError:
-            return mainfunction(*args, **kwargs)
-
-    wrapper = method_wrapper if __method__ else function_wrapper
-    wrapper.retrieve = retrieve
-    wrapper.update = update
-    wrapper.register = register
-    update_wrapper(wrapper, mainfunction)
-    return wrapper
-
-
-def valuedispatcher(mainfunction):
-    assert callable(mainfunction)
-    __method__ = True if "." in str(mainfunction.__qualname__) else False
-    __registry__ = {}
-
-    def retrieve(key): return __registry__.get(key, mainfunction)
-    def update(items): __registry__.update(items)
-
-    def register(*keys):
-        def decorate(function):
-            assert callable(function)
-            update({key: function for key in keys})
-            return function
-        return decorate
-
-    def method_wrapper(self, *args, **kwargs):
-        try:
-            function = retrieve(args[0])
-            return function(self, *args[1:], **kwargs)
-        except IndexError:
-            return mainfunction(self, *args, **kwargs)
-
-    def function_wrapper(*args, **kwargs):
-        try:
-            function = retrieve(args[0])
-            return function(*args[1:], **kwargs)
-        except IndexError:
-            return mainfunction(*args, **kwargs)
-
-    wrapper = method_wrapper if __method__ else function_wrapper
-    wrapper.retrieve = retrieve
-    wrapper.update = update
-    wrapper.register = register
-    update_wrapper(wrapper, mainfunction)
-    return wrapper
 
 
 class BaseRegistry(ODict, ABC):
@@ -165,7 +91,7 @@ class Registry(object):
     def function(self): return self.__function
 
 
-def argsdispatcher(index=0):
+def argsdispatcher(index=0, func=lambda x: x):
     assert isinstance(index, int)
 
     def decorator(mainfunction):
@@ -174,11 +100,13 @@ def argsdispatcher(index=0):
         __registry__ = Registry(mainfunction)
 
         def method_wrapper(self, *args, **kwargs):
-            function = __registry__[args[index]]
+            lookup = func(args[index])
+            function = __registry__[lookup]
             return function(self, *args, **kwargs)
 
         def function_wrapper(*args, **kwargs):
-            function = __registry__[args[index]]
+            lookup = func(args[index])
+            function = __registry__[lookup]
             return function(*args, **kwargs)
 
         wrapper = method_wrapper if __method__ else function_wrapper
@@ -188,7 +116,7 @@ def argsdispatcher(index=0):
     return decorator
 
 
-def kwargsdispatcher(key):
+def kwargsdispatcher(key, func=lambda x: x):
     assert isinstance(key, str)
 
     def decorator(mainfunction):
@@ -197,11 +125,13 @@ def kwargsdispatcher(key):
         __registry__ = Registry(mainfunction)
 
         def method_wrapper(self, *args, **kwargs):
-            function = __registry__[kwargs[key]]
+            lookup = func(kwargs[key])
+            function = __registry__[lookup]
             return function(self, *args, **kwargs)
 
         def function_wrapper(*args, **kwargs):
-            function = __registry__[kwargs[key]]
+            lookup = func(kwargs[key])
+            function = __registry__[lookup]
             return function(*args, **kwargs)
 
         wrapper = method_wrapper if __method__ else function_wrapper
@@ -210,6 +140,79 @@ def kwargsdispatcher(key):
         return wrapper
     return decorator
 
+
+def typedispatcher(mainfunction):
+    assert callable(mainfunction)
+    __method__ = True if "." in str(mainfunction.__qualname__) else False
+    __registry__ = {}
+
+    def retrieve(key): return __registry__.get(key, mainfunction)
+    def update(items): __registry__.update(items)
+
+    def register(*keys):
+        def decorate(function):
+            assert callable(function)
+            update({key: function for key in keys})
+            return function
+        return decorate
+
+    def method_wrapper(self, *args, **kwargs):
+        try:
+            function = retrieve(type(args[0]))
+            return function(self, args[0], *args[1:], **kwargs)
+        except IndexError:
+            return mainfunction(self, *args, **kwargs)
+
+    def function_wrapper(*args, **kwargs):
+        try:
+            function = retrieve(type(args[0]))
+            return function(args[0], *args[1:], **kwargs)
+        except IndexError:
+            return mainfunction(*args, **kwargs)
+
+    wrapper = method_wrapper if __method__ else function_wrapper
+    wrapper.retrieve = retrieve
+    wrapper.update = update
+    wrapper.register = register
+    update_wrapper(wrapper, mainfunction)
+    return wrapper
+
+
+def valuedispatcher(mainfunction):
+    assert callable(mainfunction)
+    __method__ = True if "." in str(mainfunction.__qualname__) else False
+    __registry__ = {}
+
+    def retrieve(key): return __registry__.get(key, mainfunction)
+    def update(items): __registry__.update(items)
+
+    def register(*keys):
+        def decorate(function):
+            assert callable(function)
+            update({key: function for key in keys})
+            return function
+        return decorate
+
+    def method_wrapper(self, *args, **kwargs):
+        try:
+            function = retrieve(args[0])
+            return function(self, *args[1:], **kwargs)
+        except IndexError:
+            return mainfunction(self, *args, **kwargs)
+
+    def function_wrapper(*args, **kwargs):
+        try:
+            function = retrieve(args[0])
+            return function(*args[1:], **kwargs)
+        except IndexError:
+            return mainfunction(*args, **kwargs)
+
+    wrapper = method_wrapper if __method__ else function_wrapper
+    wrapper.retrieve = retrieve
+    wrapper.update = update
+    wrapper.register = register
+    update_wrapper(wrapper, mainfunction)
+    return wrapper
 
 
 

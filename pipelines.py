@@ -18,7 +18,7 @@ from functools import reduce
 from abc import ABC, abstractmethod
 
 from support.mixins import Locking
-from support.dispatchers import typedispatcher, valuedispatcher
+from support.dispatchers import kwargsdispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -140,44 +140,56 @@ class Loader(Files, ABC):
         if not os.path.isdir(repository):
             raise FileNotFoundError(repository)
 
+    @kwargsdispatcher(key="file", func=lambda file: os.path.splitext(file))
     def read(self, *args, file, **kwargs):
-        extension = os.path.splitext(file)
-        with self.locking(file):
-            pass
+        raise ValueError(file)
 
+    @kwargsdispatcher(key="file", func=lambda file: os.path.splitext(file))
+    def reader(self, *args, file, **kwargs):
+        raise ValueError(file)
+
+    @kwargsdispatcher(key="file", func=lambda file: os.path.splitext(file))
     def refer(self, *args, file, **kwargs):
-        extension = os.path.splitext(file)
+        raise ValueError(file)
+
+    @read.register("nc")
+    def read_netcdf(self, *args, file, **kwargs):
         with self.locking(file):
-            pass
+            return xr.open_dataset(file, chunks=None)
 
-    @valuedispatcher
-    def reader(self, extension, *args, file, **kwargs): raise ValueError(extension)
-    @valuedispatcher
-    def referer(self, extension, *args, file, **kwargs): raise ValueError(extension)
+    @refer.register("nc")
+    def refer_netcdf(self, *args, file, partitions={}, **kwargs):
+        assert isinstance(partitions, dict)
+        with self.locking(file):
+            return xr.open_dataset(file, chunks=partitions)
 
-    @reader.register("csv")
-    def csv_reader(self, *args, file, **kwargs):
-        pass
-
-    @reader.register("hdf5")
-    def hdf5_reader(self, *args, file, **kwargs):
-        pass
-
-    @reader.register("netcdf")
-    def netcdf_reader(self, *args, file, **kwargs):
-        pass
+    @read.register("csv")
+    def read_csv(self, *args, file, datatypes={}, datetypes=[], **kwargs):
+        with self.locking(file):
+            parms = dict(index_col=None, header=0, dtype=datatypes, parse_dates=datetypes)
+            return pd.read_csv(file, iterator=False, **parms)
 
     @reader.register("csv")
-    def csv_referer(self, *args, file, **kwargs):
-        pass
+    def reader_csv(self, *args, file, rows, datatypes={}, datetypes=[], **kwargs):
+        with self.locking(file):
+            parms = dict(index_col=None, header=0, dtype=datatypes, parse_dates=datetypes)
+            return pd.read_csv(file, chucksize=rows, iterator=True, **parms)
 
-    @reader.register("hdf5")
-    def hdf5_referer(self, *args, file, **kwargs):
-        pass
+    @refer.register("csv")
+    def refer_csv(self, *args, file, size, datatypes={}, datetypes=[], **kwargs):
+        with self.locking(file):
+            parms = dict(index_col=None, header=0, dtype=datatypes, parse_dates=datetypes)
+            return dk.read_csv(file, blocksize=size, **parms)
 
-    @reader.register("netcdf")
-    def netcdf_referer(self, *args, file, **kwargs):
-        pass
+    @read.register("hdf")
+    def read_hdf5(self, *args, file, group=None, **kwargs):
+        with self.locking(file):
+            return pd.read_hdf(file, key=group, iterator=False)
+
+    @reader.register("hdf")
+    def reader_hdf5(self, *args, file, group=None, rows, **kwargs):
+        with self.locking(file):
+            return pd.read_csv(file, key=group, chunksize=rows, iterator=True)
 
 
 class Saver(Files, ABC):
@@ -186,36 +198,32 @@ class Saver(Files, ABC):
         if not os.path.isdir(repository):
             os.mkdir(repository)
 
-    def write(self, content, *args, file, mode, **kwargs):
+    @kwargsdispatcher(key="file", func=lambda file: os.path.splitext(file))
+    def write(self, content, *args, file, **kwargs):
+        raise ValueError(file)
+
+    @write.register("nc")
+    def write_netcdf(self, content, *args, file, mode, **kwargs):
+        assert isinstance(content, xr.Dataset)
         with self.locking(file):
-            pass
+            xr.Dataset.to_netcdf(content, file, mode=mode, compute=True)
 
-    @typedispatcher
-    def csv(self, content, *args, file, mode, **kwargs): raise TypeError(type(content).__name__)
-    @typedispatcher
-    def hdf5(self, content, *args, file, mode, **kwargs): raise TypeError(type(content).__name__)
-    @typedispatcher
-    def netcdf(self, content, *args, file, mode, **kwargs): raise TypeError(type(content).__name__)
+    @write.register("csv")
+    def write_csv(self, content, *args, file, mode, **kwargs):
+        assert isinstance(content, (pd.DataFrame, dk.DataFrame))
+        with self.locking(file):
+            parms = dict(index=False, header=True)
+            if isinstance(content, dk.DataFrame):
+                update = dict(compute=True, single_file=True, header_first_partition_only=True)
+                parms.update(update)
+            content.to_csv(file, mode=mode, **parms)
 
-    @csv.register(pd.DataFrame)
-    def csv_pd(self, content, *args, file, mode, **kwargs):
-        pass
-
-    @csv.register(dk.DataFrame)
-    def csv_dk(self, content, *args, file, mode, **kwargs):
-        pass
-
-    @hdf5.register(pd.DataFrame)
-    def hdf5_pd(self, content, *args, file, mode, **kwargs):
-        pass
-
-    @hdf5.register(dk.DataFrame)
-    def hdf5_dk(self, content, *args, file, mode, **kwargs):
-        pass
-
-    @netcdf.register(xr.Dataset)
-    def netcdf_xr(self, content, *args, file, mode, **kwargs):
-        pass
+    @write.register("hdf")
+    def write_hdf5(self, content, *args, file, group=None, mode, **kwargs):
+        assert isinstance(content, (pd.DataFrame, dk.DataFrame))
+        with self.locking(file):
+            parms = dict(format="fixed", append=False)
+            content.to_hdf(file, group, mode=mode, **parms)
 
 
 
