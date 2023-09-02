@@ -12,6 +12,7 @@ import inspect
 import logging
 import traceback
 import threading
+from abc import ABC, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -99,33 +100,42 @@ class Producer(Routine, daemon=False):
     def destination(self): return self.__destination
 
 
-class Consumer(Routine, daemon=False):
+class Consumer(Routine, ABC, daemon=False):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, Queue)
         self.__source = source
 
     def process(self, *args, **kwargs):
-        while bool(self.source):
+        while not self.terminate(*args, **kwargs):
             try:
                 content = self.source.get(timeout=5)
                 generator = self.generator(self.routine)(content, *args, **kwargs)
                 for content in iter(generator):
-                    self.consume(content, *args, **kwargs)
+                    self.execute(content, *args, **kwargs)
                 self.source.done()
             except queue.Empty:
                 pass
 
-    @staticmethod
-    def consume(contents, *args, **kwargs): pass
+    @abstractmethod
+    def execute(self, content, *args, **kwargs): pass
+    @abstractmethod
+    def terminate(self, *args, **kwargs): pass
 
     @property
     def source(self): return self.__source
 
 
-class Processor(Producer, Consumer):
+class Processor(Routine, ABC, daemon=False):
+    def __init__(self, *args, source, destination, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert isinstance(source, Queue)
+        assert isinstance(destination, Queue)
+        self.__source = source
+        self.__destination = destination
+
     def process(self, *args, **kwargs):
-        while bool(self.source):
+        while not self.terminate(*args, **kwargs):
             try:
                 content = self.source.get(timeout=5)
                 generator = self.generator(self.routine)(content, *args, **kwargs)
@@ -134,6 +144,14 @@ class Processor(Producer, Consumer):
                 self.source.done()
             except queue.Empty:
                 pass
+
+    @abstractmethod
+    def terminate(self, *args, **kwargs): pass
+
+    @property
+    def source(self): return self.__source
+    @property
+    def destination(self): return self.__destination
 
 
 class Queue(queue.Queue):
