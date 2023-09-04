@@ -12,7 +12,6 @@ import inspect
 import logging
 import traceback
 import threading
-from abc import ABC, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -100,12 +99,14 @@ class Producer(Routine, daemon=False):
     def destination(self): return self.__destination
 
 
-class Consumer(Routine, ABC, daemon=False):
+class Consumer(Routine, daemon=False):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, Queue)
         self.__source = source
 
+    def execute(self, content, *args, **kwargs): pass
+    def terminate(self, *args, **kwargs): return not bool(self.source)
     def process(self, *args, **kwargs):
         while not self.terminate(*args, **kwargs):
             try:
@@ -117,16 +118,11 @@ class Consumer(Routine, ABC, daemon=False):
             except queue.Empty:
                 pass
 
-    @abstractmethod
-    def execute(self, content, *args, **kwargs): pass
-    @abstractmethod
-    def terminate(self, *args, **kwargs): pass
-
     @property
     def source(self): return self.__source
 
 
-class Processor(Routine, ABC, daemon=False):
+class Processor(Routine, daemon=False):
     def __init__(self, *args, source, destination, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, Queue)
@@ -134,6 +130,7 @@ class Processor(Routine, ABC, daemon=False):
         self.__source = source
         self.__destination = destination
 
+    def terminate(self, *args, **kwargs): return not bool(self.source)
     def process(self, *args, **kwargs):
         while not self.terminate(*args, **kwargs):
             try:
@@ -144,9 +141,6 @@ class Processor(Routine, ABC, daemon=False):
                 self.source.done()
             except queue.Empty:
                 pass
-
-    @abstractmethod
-    def terminate(self, *args, **kwargs): pass
 
     @property
     def source(self): return self.__source

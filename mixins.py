@@ -6,14 +6,13 @@ Created on Sun 14 2023
 
 """
 
-import multiprocessing
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Locking", "Node", "Publisher", "Subscriber"]
+__all__ = ["Node", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
 
@@ -23,36 +22,6 @@ aslist = lambda x: [x] if not isinstance(x, (list, tuple)) else list(x)
 double = Style("╠══", "╚══", "║  ", "   ")
 single = Style("├──", "└──", "│  ", "   ")
 curved = Style("├──", "╰──", "│  ", "   ")
-
-
-class Mixin(object):
-    def __init__(self, *args, **kwargs):
-        try:
-            super().__init__(*args, **kwargs)
-        except TypeError:
-            super().__init__()
-
-
-class Locking(Mixin):
-    locks = {}
-
-    @classmethod
-    def locking(cls, key):
-        if key not in cls.locks.keys():
-            cls.locks[key] = multiprocessing.Lock()
-        return cls.locks[key]
-
-    @classmethod
-    def lock(cls, key):
-        if key not in cls.locks.keys():
-            cls.locks[key] = multiprocessing.Lock()
-        cls.locks[key].acquire()
-
-    @classmethod
-    def unlock(cls, key):
-        if key not in cls.locks.keys():
-            return
-        cls.locks[key].release()
 
 
 def renderer(node, layers=[], style=single):
@@ -67,6 +36,14 @@ def renderer(node, layers=[], style=single):
         for value in aslist(values):
             yield func(index, node.size - 1), key, value
             yield from renderer(value, layers=[*layers, last(index, node.size - 1)], style=style)
+
+
+class Mixin(object):
+    def __init__(self, *args, **kwargs):
+        try:
+            super().__init__(*args, **kwargs)
+        except TypeError:
+            super().__init__()
 
 
 class Node(Mixin):
@@ -166,6 +143,9 @@ class Subscriber(Mixin, ABC):
     def publishers(self): return self.__publishers
     @property
     def name(self): return self.__name
+
+
+
 
 
 

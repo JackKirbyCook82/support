@@ -146,9 +146,12 @@ class SubclassMeta(Meta):
         if not any([ismeta(base, SubclassMeta) for base in bases]):
             cls = super(SubclassMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
             return cls
-        attrs = {**attrs, "__registry__": {}}
+        attrs = {**attrs, "registry": {}}
         cls = super(SubclassMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
         return cls
+
+    def __setitem__(cls, key, value): cls.registry[key] = value
+    def __getitem__(cls, key): return cls.registry[key]
 
     def __init__(cls, *args, key=None, keys=[], **kwargs):
         keys = keys + ([key] if key is not None else [])
