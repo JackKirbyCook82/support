@@ -156,8 +156,12 @@ class Saver(Files, ABC):
             os.mkdir(repository)
         self.__saver = Saver()
 
+    def write(self, content, *args, file, **kwargs):
+        self.saver(content, *args, file=file, **kwargs)
+        LOGGER.info("Saved: {}".format(str(file)))
+
     @property
-    def write(self): return self.__saver
+    def saver(self): return self.__saver
 
 
 
