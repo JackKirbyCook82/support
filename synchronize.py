@@ -15,7 +15,7 @@ import threading
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Routine", "Producer", "Consumer", "Processor", "Queue"]
+__all__ = ["Routine", "Producer", "Consumer", "Processor", "FIFOQueue", "LIFOQueue", "PriorityQueue"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -148,28 +148,75 @@ class Processor(Routine, daemon=False):
     def destination(self): return self.__destination
 
 
-class Queue(queue.Queue):
+class QueueMeta(type):
+    def __call__(cls, contents, *args, size=None, **kwargs):
+        assert isinstance(contents, list)
+        instance = super().__call__(*args, **kwargs)
+        assert (len(contents) <= size) if bool(size) else True
+        for content in contents:
+            instance.put(content)
+
+
+class Queue(queue.Queue, metaclass=QueueMeta):
     def __repr__(self): return self.name
     def __len__(self): return self.qsize()
     def __bool__(self): return not self.empty()
 
-    def __init__(self, contents, *args, size=None, **kwargs):
-        assert isinstance(contents, list)
-        assert (len(contents) <= size) if bool(size) else True
-        queue.Queue.__init__(self, size if size is not None else 0)
+    def __init__(self, *args, size=None, **kwargs):
+        super().__init__(size if size is not None else 0)
+        self.__obsolete = kwargs.get("obsolete", lambda content: False)
         self.__name = kwargs.get("name", self.__class__.__name__)
-        for content in contents:
-            self.put(content)
 
-    def put(self, content, timeout=None): super().put(content, timeout=timeout)
-    def get(self, timeout=None): return super().get(timeout=timeout)
+    def put(self, content, timeout=None):
+        if not self.obsolete(content):
+            super().put(content, timeout=timeout)
+
     def done(self): self.task_done()
+    def get(self, timeout=None):
+        content = super().get(timeout=timeout)
+        if not self.obsolete(content):
+            return content
+        return self.get(content, timeout=timeout)
 
+    @property
     def full(self): return super().full()
+    @property
     def empty(self): return super().empty()
 
     @property
+    def obsolete(self): return self.__obsolete
+    @property
     def name(self): return self.__name
+
+
+class FIFOQueue(Queue): pass
+class LIFOQueue(Queue, queue.LifoQueue): pass
+
+
+class PriorityQueue(Queue, queue.PriorityQueue):
+    def __init__(self, *args, function, opposite=False, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert isinstance(opposite, bool)
+        assert callable(function)
+        self.__function = function
+        self.__opposite = opposite
+
+    def put(self, content, timeout=None):
+        priority = self.function(content)
+        direction = (int(self.opposite) * 2) - 1
+        priority = direction * priority
+        assert isinstance(priority, int)
+        couple = (priority, content)
+        super().put(couple, timeout=timeout)
+
+    def get(self, timeout=None):
+        (priority, content) = super().get(timeout=timeout)
+        return self.get(content, timeout=timeout)
+
+    @property
+    def function(self): return self.__function
+    @property
+    def opposite(self): return self.__opposite
 
 
 
