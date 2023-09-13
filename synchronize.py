@@ -194,19 +194,15 @@ class LIFOQueue(Queue, queue.LifoQueue): pass
 
 
 class PriorityQueue(Queue, queue.PriorityQueue):
-    def __init__(self, *args, function, opposite=False, **kwargs):
+    def __init__(self, *args, priority, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(opposite, bool)
-        assert callable(function)
-        self.__function = function
-        self.__opposite = opposite
+        assert callable(priority)
+        self.__priority = priority
 
     def put(self, content, timeout=None):
-        priority = self.function(content)
-        direction = (int(self.opposite) * 2) - 1
-        priority = direction * priority
+        priority = self.priority(content)
         assert isinstance(priority, int)
-        couple = (priority, content)
+        couple = (-priority, content)
         super().put(couple, timeout=timeout)
 
     def get(self, timeout=None):
@@ -214,9 +210,7 @@ class PriorityQueue(Queue, queue.PriorityQueue):
         return self.get(content, timeout=timeout)
 
     @property
-    def function(self): return self.__function
-    @property
-    def opposite(self): return self.__opposite
+    def priority(self): return self.__priority
 
 
 

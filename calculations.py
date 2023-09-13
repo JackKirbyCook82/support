@@ -85,26 +85,32 @@ class Feed(Stage):
         cls.__locator__ = kwargs.get("locator", getattr(cls, "__locator__", None))
         super().__init_subclass__(*args, **kwargs)
 
-    def __call__(self, feeds):
+    def __call__(self, feeds, *args, **kwargs):
         assert isinstance(feeds, (list, dict, xr.DataArray, xr.Dataset, Number))
-        return self.locate(feeds)
+        return self.locate(feeds, *args, **kwargs)
 
     def calculate(self, order):
         wrapper = lambda *contents: contents[order.index(self)]
         wrapper.__name__ = str(self.name)
         return wrapper
 
+    def locate(self, feeds, *args, **kwargs):
+        try:
+            return self.retrieve(feeds)
+        except (KeyError, IndexError):
+            return kwargs.get(self.locator.variable)
+
     @typedispatcher
-    def locate(self, feeds): raise TypeError(type(feeds).__name__)
-    @locate.register(dict)
-    def mapping(self, mapping): return self.locate(mapping[self.locator.key])
-    @locate.register(list)
-    def contents(self, contents): return self.locate(contents[self.locator.index])
-    @locate.register(xr.Dataset)
-    def dataset(self, dataset): return self.locate(dataset[self.locator.variable])
-    @locate.register(xr.DataArray)
+    def retrieve(self, feeds): raise TypeError(type(feeds).__name__)
+    @retrieve.register(dict)
+    def mapping(self, mapping): return self.retrieve(mapping[self.locator.key])
+    @retrieve.register(list)
+    def contents(self, contents): return self.retrieve(contents[self.locator.index])
+    @retrieve.register(xr.Dataset)
+    def dataset(self, dataset): return self.retrieve(dataset[self.locator.variable])
+    @retrieve.register(xr.DataArray)
     def dataarray(self, dataarray): return dataarray
-    @locate.register(Number)
+    @retrieve.register(Number)
     def value(self, value): return value
 
     @property
@@ -116,8 +122,8 @@ class Equation(Stage):
         cls.__function__ = kwargs.get("function", getattr(cls, "__function__", None))
         super().__init_subclass__(*args, **kwargs)
 
-    def __call__(self, feeds):
-        contents = ODict([(source, source.locate(feeds)) for source in self.sources])
+    def __call__(self, feeds, *args, **kwargs):
+        contents = ODict([(source, source.locate(feeds, *args, **kwargs)) for source in self.sources])
         function = self.calculate(list(contents.keys()))
         results = xr.apply_ufunc(function, *list(contents.values()), output_dtypes=[self.type], vectorize=True, dask="parallelized")
         return results
