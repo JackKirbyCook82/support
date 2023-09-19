@@ -110,7 +110,7 @@ class Plot(ABC):
         self.__projection = self.__class__.__projection__
 
     def __call__(self, ax, *args, **kwargs):
-        self.execute(ax, *args, 8*kwargs)
+        self.execute(ax, *args, **kwargs)
 
     @staticmethod
     @abstractmethod
@@ -150,4 +150,67 @@ class Surface3D(Plot3D):
 
 
 
+
+# def create_plot(size, title=None):
+#     assert isinstance(size, tuple)
+#     assert len(size) == 2
+#     fig = plt.figure(figsize=size)
+#     fig.suptitle(title)
+#     return fig
+#
+#
+# def create_ax(fig, *args, x, y, pos, projection=None, limits={}, **kwargs):
+#     assert pos <= x * y
+#     assert isinstance(limits, dict)
+#     limit_functions = dict(x=lambda i, j: ax.set_xlim((i, j,)),
+#                            y=lambda i, j: ax.set_ylim((i, j,)),
+#                            z=lambda i, j: ax.set_zlim((i, j,)))
+#     projection = projection.lower() if projection else projection
+#     ax = fig.add_subplot(x, y, pos, projection=projection)
+#     for key, function in limit_functions.items():
+#         if key in limits.keys():
+#             function(*limits[key])
+#     return ax
+#
+#
+# def add_color_bar(fig, color_range, *args, orientation='horizontal', color, **kwargs):
+#     min_color, max_color = color_range
+#     norm = Normalize(vmin=min_color, vmax=max_color)
+#     mapping = cm.ScalarMappable(norm=norm, cmap=color)
+#     if orientation == 'vertical':
+#         fig.subplots_adjust(right=0.85, wspace=0.25, hspace=0.25)
+#         bar = fig.add_axes([0.9, 0.12, 0.02, 0.74])
+#     elif orientation == 'horizontal':
+#         fig.subplots_adjust(bottom=0.1, wspace=0.25, hspace=0.25)
+#         bar = fig.add_axes([0.1, 0.05, 0.8, 0.02])
+#     else:
+#         raise ValueError(orientation)
+#     fig.colorbar(mapping, cax=bar, orientation=orientation)
+#
+#
+# def set_names(ax, *args, title=None, names={}, **kwargs):
+#     set_label_functions = {"x": lambda x: ax.set_xlabel(x),
+#                            "y": lambda y: ax.set_ylabel(y),
+#                            "z": lambda z: ax.setzlabel(z)}
+#     if title:
+#         ax.set_title(title)
+#     for key, name in names.items():
+#         if key in names.keys():
+#             set_label_functions[key](name)
+#
+#
+# def set_labels(ax, *args, labels={}, rotations={}, **kwargs):
+#     labels = {axis: labels.get(axis, None) for axis in ("x", "y", "z")}
+#     rotations = {axis: rotations.get(axis, None) for axis in ("x", "y", "z")}
+#     set_ticks_functions = dict(x="set_xticks", y="set_yticks", z="set_zticks")
+#     set_labels_functions = dict(x="set_xticklabels", y="set_yticklabels", z="set_zticklabels")
+#     get_labels_functions = dict(x="get_xticklabels", y="get_yticklabels", z="get_zticklabels")
+#     for axis, label in labels.items():
+#         if label is not None:
+#             getattr(ax, set_ticks_functions[axis])(np.arange(0, len(label), 1))
+#             getattr(ax, set_labels_functions[axis])(label, minor=False)
+#     for axis, rotation in rotations.items():
+#         if rotation is not None:
+#             for tick in getattr(ax, get_labels_functions[axis])():
+#                 tick.set_rotation(rotation)
 
