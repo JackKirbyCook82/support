@@ -145,18 +145,31 @@ class PlotMeta(ABCMeta):
 
 
 class Plot(ABC, metaclass=PlotMeta):
-    def __init__(self, *args, projection, name=None, **kwargs):
+    def __init__(self, *args, data, projection, name=None, **kwargs):
+        self.__data = ODict.fromkeys(data)
         self.__projection = projection
         self.__name = name
 
+    def __getattr__(self, variable):
+        if variable in self.data.keys():
+            return self.data[variable]
+        return super().__getattr__(variable)
+
+    def __setattr__(self, variable, data):
+        if variable in self.data.keys():
+            self.coords[variable] = data
+        super().__setattr__(variable, data)
+
     def __call__(self, ax, *args, **kwargs):
-        pass
+        self.execute(ax, *args, **kwargs)
 
     @abstractmethod
     def execute(self, ax, *args, **kwargs): pass
 
     @property
     def projection(self): return self.__projection
+    @property
+    def data(self): return self.__data
     @property
     def name(self): return self.__name
 
@@ -166,37 +179,25 @@ class Axes3D(Axes, projection="3d", coordinates=["x", "y", "z"]): pass
 class AxesPolar(Axes, projection="polar", coordinates=["r", "θ"]): pass
 
 
-class Scatter(object):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__size = None
-
-    @property
-    def size(self): return self.__size
-
-    @size.setter
-    def size(self, size): self.__size = size
-
-
 class Line2D(Plot, projection=None, data=["x", "y"]):
     def execute(self, ax, *args, **kwargs):
-        pass
+        ax.plot(self.x, self.y, label=self.name)
 
-class Scatter2D(Scatter, Plot, projection=None, data=["x", "y", "s"]):
+class Scatter2D(Plot, projection=None, data=["x", "y", "s"]):
     def execute(self, ax, *args, **kwargs):
-        pass
+        ax.scatter(self.x, self.y, s=self.s, label=self.name)
 
 class Line3D(Plot, projection="3d", data=["x", "y", "z"]):
     def execute(self, ax, *args, **kwargs):
-        pass
+        ax.plot(self.x, self.y, self.z, label=self.name)
 
-class Scatter3D(Scatter, Plot, projection="3d", data=["x", "y", "z", "s"]):
+class Scatter3D(Plot, projection="3d", data=["x", "y", "z", "s"]):
     def execute(self, ax, *args, **kwargs):
-        pass
+        ax.scatter(self.x, self.y, self.z, s=self.s, label=self.name)
 
 class Surface3D(Plot, projection="3d", data=["xx", "yy", "zz"]):
     def execute(self, ax, *args, **kwargs):
-        pass
+        ax.plot_surface(self.xx, self.yy, self.zz, label=self.name)
 
 
 
