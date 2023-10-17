@@ -14,7 +14,7 @@ import logging
 from functools import reduce
 from abc import ABC, abstractmethod
 
-from support.files import Saver, Loader, Reader, Referer
+from support.files import Save, Load, Read, Refer
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -135,16 +135,16 @@ class Loader(Files, ABC):
         super().__init__(*args, repository=repository, **kwargs)
         if not os.path.isdir(repository):
             raise FileNotFoundError(repository)
-        self.__loader = Loader()
-        self.__reader = Reader()
-        self.__referer = Referer()
+        self.__load = Load()
+        self.__read = Read()
+        self.__refer = Refer()
 
     @property
-    def read(self): return self.__loader
+    def load(self): return self.__load
     @property
-    def reader(self): return self.__reader
+    def read(self): return self.__read
     @property
-    def refer(self): return self.__referer
+    def refer(self): return self.__refer
 
 
 class Saver(Files, ABC):
@@ -152,14 +152,14 @@ class Saver(Files, ABC):
         super().__init__(*args, repository=repository, **kwargs)
         if not os.path.isdir(repository):
             os.mkdir(repository)
-        self.__saver = Saver()
+        self.__save = Save()
 
     def write(self, content, *args, file, **kwargs):
-        self.saver(content, *args, file=file, **kwargs)
+        self.save(content, *args, file=file, **kwargs)
         LOGGER.info("Saved: {}".format(str(file)))
 
     @property
-    def saver(self): return self.__saver
+    def save(self): return self.__save
 
 
 

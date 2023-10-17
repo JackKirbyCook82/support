@@ -155,6 +155,7 @@ class QueueMeta(type):
         assert (len(contents) <= size) if bool(size) else True
         for content in contents:
             instance.put(content)
+        return instance
 
 
 class Queue(queue.Queue, metaclass=QueueMeta):
@@ -177,11 +178,6 @@ class Queue(queue.Queue, metaclass=QueueMeta):
         if not self.obsolete(content):
             return content
         return self.get(content, timeout=timeout)
-
-    @property
-    def full(self): return super().full()
-    @property
-    def empty(self): return super().empty()
 
     @property
     def obsolete(self): return self.__obsolete
