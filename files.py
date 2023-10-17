@@ -30,15 +30,17 @@ class File(ABC):
         if file not in locks.keys():
             locks[file] = multiprocessing.Lock()
         with locks[file]:
-            self.execute(*args, file, **kwargs)
+            self.execute(*args, file=file, **kwargs)
 
     @abstractmethod
-    def execute(self, content, *args, file, **kwargs): pass
+    def execute(self, content, *args, file, **kwargs):
+        pass
 
 
 class Save(File):
-    @kwargsdispatcher(key="file", func=lambda file: os.path.esplitext(file))
-    def execute(self, content, *args, file, **kwargs): pass
+    @kwargsdispatcher(key="file", func=lambda file: str(os.path.splitext(file)[-1]).strip("."))
+    def execute(self, content, *args, file, **kwargs):
+        raise ValueError(file)
 
     @execute.register.value("nc")
     def netcdf(self, content, *args, file, mode, **kwargs):
@@ -62,7 +64,7 @@ class Save(File):
 
 
 class Load(File):
-    @kwargsdispatcher(key="file", func=lambda file: os.path.splitext(file))
+    @kwargsdispatcher(key="file", func=lambda file: str(os.path.splitext(file)[-1]).strip("."))
     def execute(self, *args, file, **kwargs):
         raise ValueError(file)
 
@@ -81,7 +83,7 @@ class Load(File):
 
 
 class Read(File):
-    @kwargsdispatcher(key="file", func=lambda file: os.path.splitext(file))
+    @kwargsdispatcher(key="file", func=lambda file: str(os.path.splitext(file)[-1]).strip("."))
     def execute(self, *args, file, **kwargs):
         raise ValueError(file)
 
@@ -96,7 +98,7 @@ class Read(File):
 
 
 class Refer(File):
-    @kwargsdispatcher(key="file", func=lambda file: os.path.splitext(file))
+    @kwargsdispatcher(key="file", func=lambda file: str(os.path.splitext(file)[-1]).strip("."))
     def execute(self, *args, file, **kwargs):
         raise ValueError(file)
 
