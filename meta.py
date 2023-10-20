@@ -16,7 +16,7 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["VariantMeta", "DelayerMeta", "SingletonMeta", "RegistryMeta", "SubclassMeta", "ProxyMeta"]
+__all__ = ["VariantMeta", "DelayerMeta", "SingletonMeta", "RegistryMeta", "ProxyMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
 
@@ -139,27 +139,6 @@ class RegistryMeta(Meta):
         keys = keys + ([key] if key is not None else [])
         for key in keys:
             cls[key] = cls
-
-
-class SubclassMeta(Meta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        if not any([ismeta(base, SubclassMeta) for base in bases]):
-            cls = super(SubclassMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
-            return cls
-        attrs = {**attrs, "registry": {}}
-        cls = super(SubclassMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
-        return cls
-
-    def __setitem__(cls, key, value): cls.registry[key] = value
-    def __getitem__(cls, key): return cls.registry[key]
-
-    def __init__(cls, *args, key=None, keys=[], **kwargs):
-        keys = keys + ([key] if key is not None else [])
-        for base in cls.__bases__:
-            if not ismeta(base, SubclassMeta):
-                continue
-            for key in keys:
-                base[key] = cls
 
 
 class ProxyMeta(Meta):

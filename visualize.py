@@ -7,7 +7,6 @@ Created on Weds Aug 17 2022
 """
 
 import numpy as np
-import matplotlib as mpl
 import matplotlib.pyplot as plt
 from abc import ABC, ABCMeta, abstractmethod
 from collections import OrderedDict as ODict
@@ -18,10 +17,6 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["Figure", "Axes", "Coordinate", "Plot"]
 __copyright__ = "Copyright 2022, Jack Kirby Cook"
 __license__ = ""
-
-
-import mpl_toolkits.mplot3d as mpl3d
-mpl.use("Qt5Agg")
 
 
 class Figure(object):
@@ -57,8 +52,12 @@ class Figure(object):
 
 
 class AxesMeta(type):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        cls = super(AxesMeta, mcs).__new__(mcs, name, bases, attrs)
+        return cls
+
     def __init__(cls, *args, projection=None, coordinates=[], **kwargs):
-        assert isinstance(projection, str) and isinstance(coordinates, list)
+        assert isinstance(projection, (str, type(None))) and isinstance(coordinates, list)
         if not any([type(base) is AxesMeta for base in cls.__bases__]):
             return
         setattr(Axes, cls.__name__, cls)
@@ -127,8 +126,12 @@ class Coordinate(ntuple("Coordinate", "variable name ticks labels rotation")):
 
 
 class PlotMeta(ABCMeta):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        cls = super(PlotMeta, mcs).__new__(mcs, name, bases, attrs)
+        return cls
+
     def __init__(cls, *args, projection=None, **kwargs):
-        assert isinstance(projection, str)
+        assert isinstance(projection, (str, type(None)))
         if not any([type(base) is AxesMeta for base in cls.__bases__]):
             return
         setattr(Plot, cls.__name__, cls)
