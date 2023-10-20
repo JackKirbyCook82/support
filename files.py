@@ -17,7 +17,7 @@ from support.dispatchers import kwargsdispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Save", "Load", "Read", "Refer"]
+__all__ = ["Saver", "Loader", "Reader", "Referer"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
 
@@ -37,7 +37,7 @@ class File(ABC):
         pass
 
 
-class Save(File):
+class Saver(File):
     @kwargsdispatcher(key="file", func=lambda file: str(os.path.splitext(file)[-1]).strip("."))
     def execute(self, content, *args, file, **kwargs):
         raise ValueError(file)
@@ -63,7 +63,7 @@ class Save(File):
         content.to_hdf(file, group, mode=mode, **parms)
 
 
-class Load(File):
+class Loader(File):
     @kwargsdispatcher(key="file", func=lambda file: str(os.path.splitext(file)[-1]).strip("."))
     def execute(self, *args, file, **kwargs):
         raise ValueError(file)
@@ -82,7 +82,7 @@ class Load(File):
         return pd.read_hdf(file, key=group, iterator=False)
 
 
-class Read(File):
+class Reader(File):
     @kwargsdispatcher(key="file", func=lambda file: str(os.path.splitext(file)[-1]).strip("."))
     def execute(self, *args, file, **kwargs):
         raise ValueError(file)
@@ -97,7 +97,7 @@ class Read(File):
         return pd.read_csv(file, key=group, chunksize=rows, iterator=True)
 
 
-class Refer(File):
+class Referer(File):
     @kwargsdispatcher(key="file", func=lambda file: str(os.path.splitext(file)[-1]).strip("."))
     def execute(self, *args, file, **kwargs):
         raise ValueError(file)
@@ -111,4 +111,6 @@ class Refer(File):
     def csv(self, *args, file, size, datatypes={}, datetypes=[], **kwargs):
         parms = dict(index_col=None, header=0, dtype=datatypes, parse_dates=datetypes)
         return dk.read_csv(file, blocksize=size, **parms)
+
+
 

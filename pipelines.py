@@ -13,8 +13,9 @@ import inspect
 import logging
 from functools import reduce
 from abc import ABC, abstractmethod
+from collections import OrderedDict as ODict
 
-from support.files import Save, Load, Read, Refer
+import support.files as files
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -85,14 +86,16 @@ class Processor(ABC):
 
 class Calculator(Processor, ABC):
     def __init_subclass__(cls, *args, **kwargs):
-        calculations = [calculation for calculation in getattr(cls, "__calculations__", [])]
-        calculations.extend(kwargs.get("calculations", []))
+        calculations = {key: value for key, value in getattr(cls, "__calculations__", []).items()}
+        calculations.update({key: value for key, value in kwargs.get("calculations", {}).items()})
         cls.__calculations__ = calculations
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        calculations = list(self.__class__.__calculations__)
-        calculations = [calculation(*args, **kwargs) for calculation in iter(calculations)]
+        calculations = ODict(list(self.__class__.__calculations.items()))
+        keys = list(kwargs.get("calculations", calculations.keys()))
+        calculations = {key: value for key, value in calculations.items() if key in keys}
+        calculations = [calculation(*args, **kwargs) for calculation in list(calculations.values())]
         self.__calculations = calculations
 
     @property
@@ -135,16 +138,18 @@ class Loader(Files, ABC):
         super().__init__(*args, repository=repository, **kwargs)
         if not os.path.isdir(repository):
             raise FileNotFoundError(repository)
-        self.__load = Load()
-        self.__read = Read()
-        self.__refer = Refer()
+        self.loader = files.Loader()
+        self.reader = files.Reader()
+        self.referer = files.Referer()
 
-    @property
-    def load(self): return self.__load
-    @property
-    def read(self): return self.__read
-    @property
-    def refer(self): return self.__refer
+    def read(self, *args, file, **kwargs):
+        return self.loader(*args, file=file, **kwargs)
+
+    def reader(self, *args, file, **kwargs):
+        return self.reader(*args, file=file, **kwargs)
+
+    def refer(self, *args, file, **kwargs):
+        return self.referer(*args, file=file, **kwargs)
 
 
 class Saver(Files, ABC):
@@ -152,14 +157,12 @@ class Saver(Files, ABC):
         super().__init__(*args, repository=repository, **kwargs)
         if not os.path.isdir(repository):
             os.mkdir(repository)
-        self.__save = Save()
+        self.saver = files.Saver()
 
     def write(self, content, *args, file, **kwargs):
-        self.save(content, *args, file=file, **kwargs)
+        self.saver(content, *args, file=file, **kwargs)
         LOGGER.info("Saved: {}".format(str(file)))
 
-    @property
-    def save(self): return self.__save
 
 
 
