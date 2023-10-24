@@ -141,22 +141,5 @@ class RegistryMeta(Meta):
             cls[key] = cls
 
 
-class ProxyMeta(Meta):
-    def __init__(cls, *args, **kwargs):
-        cls.__proxys__ = {key: kwargs.get(key, None) for key in (str, int, bool)}
-
-    def __repr__(cls):
-        proxys = ["=".join([key.__name__, str(value)]) for key, value in cls.proxys.items()]
-        return "{}({})".format(cls.__name__, ", ".join(proxys))
-
-    def __bool__(cls): return bool(cls.proxys[bool])
-    def __str__(cls): return str(cls.proxys[str])
-    def __int__(cls): return int(cls.proxys[int])
-
-    @property
-    def proxys(cls): return cls.__proxys__
-
-
-
 
 
