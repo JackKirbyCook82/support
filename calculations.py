@@ -6,8 +6,10 @@ Created on Weds Jul 12 2023
 
 """
 
+import inspect
 import logging
 from abc import ABC, ABCMeta
+from collections import namedtuple as ntuple
 
 from support.mixins import Node
 
@@ -23,6 +25,10 @@ LOGGER = logging.getLogger(__name__)
 
 def equation():
     pass
+
+
+Locator = ntuple("Locator", "key name")
+Position = ntuple("Position", "source variable")
 
 
 class Stage(Node):
@@ -42,15 +48,19 @@ class Equation(Stage):
 
 class CalculationMeta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        equations = [key for key, value in attrs.items() if inspect.isclass(value) and issubclass(value, Equation)]
+        attrs = {key: value for key, value in attrs.items() if key not in equations}
+        try:
+            cls = super(CalculationMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+        except TypeError:
+            cls = super(CalculationMeta, mcs).__new__(mcs, name, bases, attrs)
+        return cls
+
+    def __init__(cls, *args, sources={}, variables={}, constants={}, **kwargs):
         pass
 
-    def __init__(cls, *args, **kwargs):
-        cls.__calculations__ = {key: value for key, value in getattr(cls, "__calculations__", {}).items()}
-        cls.__calculations__.update({key: value for key, value in kwargs.get("calculations", {}).items()})
-        cls.__variables__ = {key: value for key, value in getattr(cls, "__variables__", {}).items()}
-        cls.__variables__.update({key: value for key, value in kwargs.get("variables", {}).items()})
-        cls.__sources__ = {key: value for key, value in getattr(cls, "__sources__", {}).items()}
-        cls.__sources__.update({key: value for key, value in kwargs.get("sources", {}).items()})
+    def __call__(cls, *args, **kwargs):
+        pass
 
 
 class Calculation(ABC, metaclass=CalculationMeta):
