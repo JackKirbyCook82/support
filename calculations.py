@@ -21,19 +21,23 @@ __license__ = ""
 
 
 LOGGER = logging.getLogger(__name__)
+Position = ntuple("Position", "tag name")
+Locator = ntuple("Locator", "parm var")
 
 
 def source(dataVar, dataName, *args, **kwargs):
     for dataKey, dataValue in kwargs.get("vars", {}).items():
-        position = XXX(dataKey, dataValue)
-        variable = XXX(dataVar, dataName)
-        cls = type(".".join(dataVar, dataKey), (Source,), {}, position=position, variable=variable)
+        parameter = Position(dataKey, dataValue)
+        variable = Position(dataVar, dataName)
+        cls = type(".".join(dataVar, dataKey), (Source,), {}, parameter=parameter, variable=variable)
         yield cls
 
 def equation(dataVar, dataName, dataType, *args, domain, function, **kwargs):
     assert isinstance(domain, tuple) and callable(function)
-    variable = XXX(dataVar, dataName)
-    domain = []
+    variable = Position(dataVar, dataName)
+    domain = [str(tags).split(".") if "." in tags else ["", tags] for tags in domain]
+    domain = [(int(parameter) if str(parameter).isdigit() else str(parameter), str(variable)) for (parameter, variable) in domain]
+    domain = [Locator(str(parameter) if bool(parameter) else None, str(variable)) for (parameter, variable) in domain]
     cls = type(dataVar, (Equation,), {}, datatype=dataType, funciton=function, variable=variable, domain=domain)
     yield cls
 
@@ -50,13 +54,13 @@ class Stage(Node, ABC, metaclass=StageMeta):
 
 
 class Source(Stage, ABC):
-    def __init_subclass__(cls, *args, variable, position=None, **kwargs):
-        cls.__position__ = position
+    def __init_subclass__(cls, *args, parameter=None, variable=None, **kwargs):
+        cls.__parameter__ = parameter
         cls.__variable__ = variable
 
 
 class Equation(Stage, ABC):
-    def __init_subclass__(cls, *args, datatype, function, variable, domain, **kwargs):
+    def __init_subclass__(cls, *args, variable, function, domain, datatype, **kwargs):
         cls.__variable__ = variable
         cls.__function__ = function
         cls.__domain__ = domain
@@ -76,18 +80,16 @@ class CalculationMeta(ABCMeta):
         return cls
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        variables, parameters = kwargs.get("vars", {}), kwargs.get("parms", {})
-
-#        create = lambda key, value: type(key, (Source,), {}, variable=Parameter(key, value))
-#        sources = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ is "source"]
-#        sources = [value for generator in iter(sources) for value in iter(generator)]
-#        sources = sources + [create(key, value) for key, value in variables.items()]
-#        sources = {value.__name__: value for value in sources}
-#        equations = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ is "equation"]
-#        equations = [value for generator in iter(equations) for value in iter(generator)]
-#        equations = {value.__name__: value for value in equations}
-#        cls.__sources__ = getattr(cls, "__sources__", {}) | sources
-#        cls.__equations = getattr(cls, "__equations__", {}) | equations
+        variable = lambda key, value: type(key, (Source,), {}, parameter=None, variable=Position(key, value))
+        parameter = lambda key, value: type(key, (Source,), {}, parameter=Position(key, value), variable=None)
+        sources = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ is "source"]
+        sources = [value for generator in iter(sources) for value in iter(generator)]
+        sources = sources + [variable(key, value) for key, value in kwargs.get("vars", {}).items()]
+        sources = sources + [parameter(key, value) for key, value in kwargs.get("parms", {}).items()]
+        equations = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ is "equation"]
+        equations = [value for generator in iter(equations) for value in iter(generator)]
+        cls.__sources__ = getattr(cls, "__sources__", {}) | {value.__name__: value for value in sources}
+        cls.__equations = getattr(cls, "__equations__", {}) | {value.__name__: value for value in equations}
 
     def __call__(cls, *args, **kwargs):
         pass
