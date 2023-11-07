@@ -22,49 +22,109 @@ __license__ = ""
 
 LOGGER = logging.getLogger(__name__)
 Position = ntuple("Position", "tag name")
-Locator = ntuple("Locator", "parm var")
 
 
 def source(dataVar, dataName, *args, **kwargs):
     for dataKey, dataValue in kwargs.get("vars", {}).items():
         parameter = Position(dataKey, dataValue)
         variable = Position(dataVar, dataName)
-        cls = type(".".join(dataVar, dataKey), (Source,), {}, parameter=parameter, variable=variable)
+        cls = type(".".join([dataVar, dataKey]), (Source,), {}, parameter=parameter, variable=variable)
         yield cls
 
 def equation(dataVar, dataName, dataType, *args, domain, function, **kwargs):
     assert isinstance(domain, tuple) and callable(function)
     variable = Position(dataVar, dataName)
-    domain = [str(tags).split(".") if "." in tags else ["", tags] for tags in domain]
-    domain = [(int(parameter) if str(parameter).isdigit() else str(parameter), str(variable)) for (parameter, variable) in domain]
-    domain = [Locator(str(parameter) if bool(parameter) else None, str(variable)) for (parameter, variable) in domain]
-    cls = type(dataVar, (Equation,), {}, datatype=dataType, funciton=function, variable=variable, domain=domain)
+
+#    domain = [str(tags).split(".") if "." in tags else ["", tags] for tags in domain]
+#    domain = [(int(parameter) if str(parameter).isdigit() else str(parameter), str(variable)) for (parameter, variable) in domain]
+#    domain = [Locator(str(parameter) if bool(parameter) else None, str(variable)) for (parameter, variable) in domain]
+
+    cls = type(dataVar, (Equation,), {}, datatype=dataType, domain=domain, funciton=function, variable=variable)
     yield cls
 
 
-class StageMeta(ABCMeta):
+class Locator(ntuple("Locator", "parameter variable")):
     pass
 
 
-class Stage(Node, ABC, metaclass=StageMeta):
+class StageMeta(ABCMeta):
+    def __hash__(cls): return hash(cls.__locator__)
+    def __init__(cls, *args, parameter, variable, **kwargs):
+        cls.__locator__ = Locator(parameter, variable)
+
+
+class SourceMeta(StageMeta):
+    def __init__(cls, name, bases, attrs, *args, parameter=None, variable=None, **kwargs):
+        if not any([type(base) is SourceMeta for base in bases]):
+            pass
+        locator = Locator(parameter, variable)
+        super().__init__(*args, locator=locator, **kwargs)
+        cls.__parameter__ = parameter
+        cls.__variable__ = variable
+
+    def __call__(cls, *args, **kwargs):
+        attrs = {"locator": cls.__locator__, "parameter": cls.__parameter__, "variable": cls.__variable__}
+        instance = super(SourceMeta, cls).__call__(*args, **attrs, **kwargs)
+        return instance
+
+
+class EquationMeta(StageMeta):
+    def __hash__(cls): return hash(cls.__locator__)
+    def __init__(cls, name, bases, attrs, *args, datatype, domain, function, variable=None, **kwargs):
+        if not any([type(base) is EquationMeta for base in bases]):
+            pass
+        locator = Locator(None, variable)
+        super().__init__(*args, locator=locator, **kwargs)
+        cls.__variable__ = variable
+        cls.__function__ = function
+        cls.__domain__ = domain
+        cls.__type__ = datatype
+
+    def __call__(cls, *args, **kwargs):
+        attrs = {"locator": cls.__locator__, "variable": cls.__variable__, "function": cls.__function__, "domain": cls.__domain__, "type": cls.__type__}
+        instance = super(EquationMeta, cls).__call__(*args, **attrs, **kwargs)
+        return instance
+
+
+class Stage(Node, ABC):
+    def __init__(self, *args, locator, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__locator = locator
+
     def __setitem__(self, key, value): self.set(key, value)
     def __getitem__(self, key): return self.get(key)
     def __repr__(self): return str(self.tree)
     def __len__(self): return self.size
 
-
-class Source(Stage, ABC):
-    def __init_subclass__(cls, *args, parameter=None, variable=None, **kwargs):
-        cls.__parameter__ = parameter
-        cls.__variable__ = variable
+    @property
+    def locator(self): return self.__locator
 
 
-class Equation(Stage, ABC):
-    def __init_subclass__(cls, *args, variable, function, domain, datatype, **kwargs):
-        cls.__variable__ = variable
-        cls.__function__ = function
-        cls.__domain__ = domain
-        cls.__type__ = datatype
+class Source(Stage, ABC, metaclass=SourceMeta):
+    def __init__(self, *args, parameter, variable, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__parameter = parameter
+        self.__variable = variable
+
+    @property
+    def parameter(self): return self.__parameter
+    @property
+    def variable(self): return self.__variable
+
+
+class Equation(Stage, ABC, metaclass=EquationMeta):
+    def __init__(self, *args, parameter, function, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__parameter = parameter
+        self.__function = function
+        self.__type = kwargs["type"]
+
+    @property
+    def parameter(self): return self.__parameter
+    @property
+    def function(self): return self.__function
+    @property
+    def type(self): return self.__type
 
 
 class CalculationMeta(ABCMeta):
@@ -88,12 +148,16 @@ class CalculationMeta(ABCMeta):
         sources = sources + [parameter(key, value) for key, value in kwargs.get("parms", {}).items()]
         equations = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ is "equation"]
         equations = [value for generator in iter(equations) for value in iter(generator)]
-        cls.__sources__ = getattr(cls, "__sources__", {}) | {value.__name__: value for value in sources}
-        cls.__equations = getattr(cls, "__equations__", {}) | {value.__name__: value for value in equations}
+        assert not set(sources.keys()) & set(equations.keys())
+        cls.__sources__ = getattr(cls, "__sources__", {}) | {hash(value): value for value in sources}
+        cls.__equations__ = getattr(cls, "__equations__", {}) | {hash(value): value for value in equations}
 
     def __call__(cls, *args, **kwargs):
-        pass
-
+        sources = {key: value(*args, **kwargs) for key, value in cls.__sources__.items()}
+        equations = {key: value(*args, **kwargs) for key, value in cls.__equations__.items()}
+        stages = sources | equations
+        for value in equations.values():
+            pass
 
 class Calculation(ABC, metaclass=CalculationMeta):
     pass

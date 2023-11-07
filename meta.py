@@ -16,7 +16,7 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["VariantMeta", "DelayerMeta", "SingletonMeta", "RegistryMeta", "ProxyMeta"]
+__all__ = ["Meta", "VariantMeta", "DelayerMeta", "SingletonMeta", "RegistryMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
 
