@@ -8,8 +8,10 @@ Created on Weds Jul 12 2023
 
 import types
 import logging
-from abc import ABC, ABCMeta
+import xarray as xr
+from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
+from collections import OrderedDict as ODict
 
 from support.mixins import Node
 
@@ -33,10 +35,10 @@ def source(dataVar, dataName, *args, **kwargs):
 
 def equation(dataVar, dataName, dataType, *args, domain, function, **kwargs):
     assert isinstance(domain, tuple) and callable(function)
-    variable = Position(dataVar, dataName)
     domain = [str(tags).split(".") if "." in tags else ["", tags] for tags in domain]
     domain = [(int(parameter) if str(parameter).isdigit() else str(parameter), str(variable)) for (parameter, variable) in domain]
     domain = [Locator(str(parameter) if bool(parameter) else None, str(variable)) for (parameter, variable) in domain]
+    variable = Position(dataVar, dataName)
     cls = type(dataVar, (Equation,), {}, datatype=dataType, domain=domain, funciton=function, variable=variable)
     yield cls
 
@@ -60,21 +62,26 @@ class SourceMeta(StageMeta):
         cls.__variable__ = variable
 
     def __call__(cls, *args, **kwargs):
-        pass
+        attrs = dict(parameter=cls.__parameter__, variable=cls.__variable__)
+        instance = super(SourceMeta, cls).__call__(*args, **attrs, **kwargs)
+        return instance
 
 
 class EquationMeta(StageMeta):
-    def __init__(cls, name, bases, attrs, *args, datatype, domain, function, variable=None, **kwargs):
+    def __init__(cls, name, bases, attrs, *args, datatype, function, variable, domain, **kwargs):
         if not any([type(base) is EquationMeta for base in bases]):
             pass
         super().__init__(*args, parameter=None, variable=variable, **kwargs)
         cls.__variable__ = variable
         cls.__function__ = function
+        cls.__datatype__ = datatype
         cls.__domain__ = domain
-        cls.__type__ = datatype
 
+    def __iter__(cls): return (locator for locator in cls.__domain__)
     def __call__(cls, *args, **kwargs):
-        pass
+        attrs = dict(variable=cls.__variable__, function=cls.__function__, datatype=cls.__datatype__)
+        instance = super(EquationMeta, cls).__call__(*args, **attrs, **kwargs)
+        return instance
 
 
 class Stage(Node, ABC):
@@ -83,12 +90,28 @@ class Stage(Node, ABC):
     def __repr__(self): return str(self.tree)
     def __len__(self): return self.size
 
+    @abstractmethod
+    def execute(self, order): pass
+
+    @property
+    def sources(self): return list(set(super().sources))
+    @property
+    def domain(self): return list(self.children)
+
 
 class Source(Stage, ABC, metaclass=SourceMeta):
     def __init__(self, *args, parameter, variable, **kwargs):
         super().__init__(*args, **kwargs)
         self.__parameter = parameter
         self.__variable = variable
+
+    def locate(self, *args, **kwargs):
+        pass
+
+    def execute(self, order):
+        wrapper = lambda *contents: contents[order.index(self)]
+        wrapper.__name__ = str(self.name)
+        return wrapper
 
     @property
     def parameter(self): return self.__parameter
@@ -97,18 +120,32 @@ class Source(Stage, ABC, metaclass=SourceMeta):
 
 
 class Equation(Stage, ABC, metaclass=EquationMeta):
-    def __init__(self, *args, parameter, function, **kwargs):
+    def __init__(self, *args, variable, function, datatype, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__parameter = parameter
+        self.__variable = variable
         self.__function = function
-        self.__type = kwargs["type"]
+        self.__datatype = datatype
+
+    def __call__(self, *args, **kwargs):
+        mapping = ODict([(stage, stage(*args, **kwargs)) for stage in self.sources])
+        order = list(mapping.keys())
+        contents = list(mapping.values())
+        function = self.calculate(order=order)
+        results = xr.apply_ufunc(function, *contents, output_dtypes=[self.datatype], vectorize=True, dask="parallelized")
+        return results
+
+    def execute(self, order):
+        functions = [stage.execute(order) for stage in self.domain]
+        wrapper = lambda *contents: self.function(*[function(*contents) for function in functions])
+        wrapper.__name__ = str(self.name)
+        return wrapper
 
     @property
-    def parameter(self): return self.__parameter
+    def variable(self): return self.__variable
     @property
     def function(self): return self.__function
     @property
-    def type(self): return self.__type
+    def datatype(self): return self.__datatype
 
 
 class CalculationMeta(ABCMeta):
@@ -137,18 +174,33 @@ class CalculationMeta(ABCMeta):
         cls.__equations__ = getattr(cls, "__equations__", {}) | {hash(value): value for value in equations}
 
     def __call__(cls, *args, **kwargs):
-        pass
-
-#        sources = {key: value(*args, **kwargs) for key, value in cls.__sources__.items()}
-#        equations = {key: value(*args, **kwargs) for key, value in cls.__equations__.items()}
-#        stages = sources | equations
-#        for value in equations.values():
-#            for locator in value.locators:
-#                value[hash(locator)] = stages[hash(locator)]
+        sources = {key: value(*args, **kwargs) for key, value in cls.__sources__.items()}
+        equations = {key: value(*args, **kwargs) for key, value in cls.__equations__.items()}
+        stages = sources | equations
+        for key, value in equations.items():
+            for locator in iter(value):
+                value[hash(locator)] = stages[hash(locator)]
+        attrs = dict(sources=sources, equations=equations)
+        instance = super(CalculationMeta, cls).__call__(*args, **attrs, **kwargs)
+        return instance
 
 
 class Calculation(ABC, metaclass=CalculationMeta):
-    pass
+    def __init__(self, *args, sources, equations, **kwargs):
+        self.__sources = sources
+        self.__equations = equations
+
+    def __getattr__(self, attr):
+        if attr in self.equations.keys():
+            return self.equations[attr]
+        elif attr in self.sources.keys():
+            return self.sources[attr]
+        return super().__getattr__(attr)
+
+    @property
+    def sources(self): return self.__sources
+    @property
+    def equations(self): return self.__equations
 
 
 
