@@ -10,7 +10,6 @@ import types
 import logging
 import xarray as xr
 from abc import ABC, ABCMeta, abstractmethod
-from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 from support.mixins import Node
@@ -23,68 +22,53 @@ __license__ = ""
 
 
 LOGGER = logging.getLogger(__name__)
-Position = ntuple("Position", "tag name")
 
 
-def source(dataVar, dataName, *args, **kwargs):
-    for dataKey, dataValue in kwargs.get("vars", {}).items():
-        parameter = Position(dataKey, dataValue)
-        variable = Position(dataVar, dataName)
-        cls = type(".".join([dataVar, dataKey]), (Source,), {}, parameter=parameter, variable=variable)
-        yield cls
-
-def equation(dataVar, dataName, dataType, *args, domain, function, **kwargs):
+def equation(variable, name, datatype, *args, domain, function, **kwargs):
     assert isinstance(domain, tuple) and callable(function)
-    domain = [str(tags).split(".") if "." in tags else ["", tags] for tags in domain]
-    domain = [(int(parameter) if str(parameter).isdigit() else str(parameter), str(variable)) for (parameter, variable) in domain]
-    domain = [Locator(str(parameter) if bool(parameter) else None, str(variable)) for (parameter, variable) in domain]
-    variable = Position(dataVar, dataName)
-    cls = type(dataVar, (Equation,), {}, datatype=dataType, domain=domain, funciton=function, variable=variable)
+    attrs = dict(variable=variable, datatype=datatype, feeds=domain, function=function)
+    cls = type(name, (Equation,), {}, **attrs)
     yield cls
 
-
-class Locator(ntuple("Locator", "parameter variable")):
-    pass
+def source(variable, name, *args, position=None, variables={}, **kwargs):
+    assert isinstance(variables, dict) and isinstance(position, (int, str, type(None)))
+    position = position if position is not None else name
+    for key, value in variables.items():
+        title = [str(string).title() for string in "|".join(name, key).split("|")]
+        function = lambda subvariable: ".".join([variable, subvariable])
+        attrs = dict(variable=function(variable, key), position=position, datavar=value)
+        cls = type(title, (Source,), {}, **attrs)
+        yield cls
+    if not variables:
+        title = [str(string).title() for string in str(name).split("|")]
+        attrs = dict(variable=variable, position=position, datavar=None)
+        cls = type(title, (Source,), {}, **attrs)
+        yield cls
 
 
 class StageMeta(ABCMeta):
-    def __hash__(cls): return hash(cls.__locator__)
-    def __init__(cls, *args, parameter, variable, **kwargs):
-        cls.__locator__ = Locator(parameter, variable)
+    def __repr__(cls): return cls.__name__
+    def __str__(cls): return cls.__variable__
 
-
-class SourceMeta(StageMeta):
-    def __init__(cls, name, bases, attrs, *args, parameter=None, variable=None, **kwargs):
-        if not any([type(base) is SourceMeta for base in bases]):
-            pass
-        super().__init__(*args, parameter=parameter, variable=variable, **kwargs)
-        cls.__parameter__ = parameter
-        cls.__variable__ = variable
+    def __init__(cls, *args, **kwargs):
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "variable", None))
+        cls.__feeds__ = kwargs.get("feeds", getattr(cls, "feeds", []))
 
     def __call__(cls, *args, **kwargs):
-        attrs = dict(parameter=cls.__parameter__, variable=cls.__variable__)
-        instance = super(SourceMeta, cls).__call__(*args, **attrs, **kwargs)
+        assert cls.__variable__ is not None
+        formatter = lambda key, node: str(node.variable)
+        name = str(cls.__name__).lower()
+        parameters = dict(formatter=formatter, name=name, variable=cls.__variable__, feeds=cls.__feeds__)
+        instance = super(StageMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
 
-class EquationMeta(StageMeta):
-    def __init__(cls, name, bases, attrs, *args, datatype, function, variable, domain, **kwargs):
-        if not any([type(base) is EquationMeta for base in bases]):
-            pass
-        super().__init__(*args, parameter=None, variable=variable, **kwargs)
-        cls.__variable__ = variable
-        cls.__function__ = function
-        cls.__datatype__ = datatype
-        cls.__domain__ = domain
+class Stage(Node, metaclass=StageMeta):
+    def __init__(self, *args, variable, feeds=[], **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__variable = variable
+        self.__feeds = feeds
 
-    def __iter__(cls): return (locator for locator in cls.__domain__)
-    def __call__(cls, *args, **kwargs):
-        attrs = dict(variable=cls.__variable__, function=cls.__function__, datatype=cls.__datatype__)
-        instance = super(EquationMeta, cls).__call__(*args, **attrs, **kwargs)
-        return instance
-
-
-class Stage(Node, ABC):
     def __setitem__(self, key, value): self.set(key, value)
     def __getitem__(self, key): return self.get(key)
     def __repr__(self): return str(self.tree)
@@ -98,15 +82,58 @@ class Stage(Node, ABC):
     @property
     def domain(self): return list(self.children)
 
+    @property
+    def variable(self): return self.__variable
+    @property
+    def feeds(self): return self.__feeds
 
-class Source(Stage, ABC, metaclass=SourceMeta):
-    def __init__(self, *args, parameter, variable, **kwargs):
+
+class Equation(Stage):
+    def __init_subclass__(cls, *args, datatype, domain, function, **kwargs):
+        assert callable(function)
+        cls.__datatype__ = datatype
+        cls.__function__ = function
+
+    def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__parameter = parameter
-        self.__variable = variable
+        self.__datatype = self.__class__.__datatype__
+        self.__function = self.__class__.__function__
 
-    def locate(self, *args, **kwargs):
-        pass
+    def __call__(self, *args, **kwargs):
+        mapping = ODict([(stage, stage(*args, **kwargs)) for stage in self.sources])
+        order = list(mapping.keys())
+        contents = list(mapping.values())
+        execute = self.execute(order=order)
+        dataarray = xr.apply_ufunc(execute, *contents, output_dtypes=[self.datatype], vectorize=True, dask="parallelized")
+        return dataarray
+
+    def execute(self, order):
+        executes = [stage.execute(order) for stage in self.domain]
+        wrapper = lambda *contents: self.function(*[execute(*contents) for execute in executes])
+        wrapper.__name__ = str(self.name)
+        return wrapper
+
+    @property
+    def datatype(self): return self.__datatype
+    @property
+    def function(self): return self.__function
+
+
+class Source(Stage):
+    def __init_subclass__(cls, *args, position, datavar, **kwargs):
+        assert isinstance(position, (int, str))
+        cls.__position__ = position
+        cls.__datavar__ = datavar
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__position = self.__class__.__position__
+        self.__datavar = self.__class__.__datavar__
+
+    def __call__(self, *args, **kwargs):
+        content = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
+        content = content[self.datavar] if bool(self.datavar) else content
+        return content
 
     def execute(self, order):
         wrapper = lambda *contents: contents[order.index(self)]
@@ -114,38 +141,9 @@ class Source(Stage, ABC, metaclass=SourceMeta):
         return wrapper
 
     @property
-    def parameter(self): return self.__parameter
+    def position(self): return self.__position
     @property
-    def variable(self): return self.__variable
-
-
-class Equation(Stage, ABC, metaclass=EquationMeta):
-    def __init__(self, *args, variable, function, datatype, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__variable = variable
-        self.__function = function
-        self.__datatype = datatype
-
-    def __call__(self, *args, **kwargs):
-        mapping = ODict([(stage, stage(*args, **kwargs)) for stage in self.sources])
-        order = list(mapping.keys())
-        contents = list(mapping.values())
-        function = self.calculate(order=order)
-        results = xr.apply_ufunc(function, *contents, output_dtypes=[self.datatype], vectorize=True, dask="parallelized")
-        return results
-
-    def execute(self, order):
-        functions = [stage.execute(order) for stage in self.domain]
-        wrapper = lambda *contents: self.function(*[function(*contents) for function in functions])
-        wrapper.__name__ = str(self.name)
-        return wrapper
-
-    @property
-    def variable(self): return self.__variable
-    @property
-    def function(self): return self.__function
-    @property
-    def datatype(self): return self.__datatype
+    def datavar(self): return self.__datavar
 
 
 class CalculationMeta(ABCMeta):
@@ -161,27 +159,23 @@ class CalculationMeta(ABCMeta):
         return cls
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        variable = lambda key, value: type(key, (Source,), {}, parameter=Position(1, None), variable=Position(key, value))
-        parameter = lambda key, value: type(key, (Source,), {}, parameter=Position(key, value), variable=None)
         sources = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ is "source"]
-        sources = [value for generator in iter(sources) for value in iter(generator)]
-        sources = sources + [variable(key, value) for key, value in kwargs.get("vars", {}).items()]
-        sources = sources + [parameter(key, value) for key, value in kwargs.get("parms", {}).items()]
+        sources = {str(stage): stage for generator in iter(sources) for stage in iter(generator)}
         equations = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ is "equation"]
-        equations = [value for generator in iter(equations) for value in iter(generator)]
+        equations = {str(stage): stage for generator in iter(equations) for stage in iter(generator)}
         assert not set(sources.keys()) & set(equations.keys())
-        cls.__sources__ = getattr(cls, "__sources__", {}) | {hash(value): value for value in sources}
-        cls.__equations__ = getattr(cls, "__equations__", {}) | {hash(value): value for value in equations}
+        cls.__sources__ = getattr(cls, "__sources__", {}) | sources
+        cls.__equations__ = getattr(cls, "__equations__", {}) | equations
 
     def __call__(cls, *args, **kwargs):
         sources = {key: value(*args, **kwargs) for key, value in cls.__sources__.items()}
         equations = {key: value(*args, **kwargs) for key, value in cls.__equations__.items()}
         stages = sources | equations
-        for key, value in equations.items():
-            for locator in iter(value):
-                value[hash(locator)] = stages[hash(locator)]
-        attrs = dict(sources=sources, equations=equations)
-        instance = super(CalculationMeta, cls).__call__(*args, **attrs, **kwargs)
+        for instance in equations.values():
+            for variable in instance.feeds:
+                instance[variable] = stages[variable]
+        stages = dict(sources=sources, equations=equations)
+        instance = super(CalculationMeta, cls).__call__(*args, **stages, **kwargs)
         return instance
 
 
@@ -190,12 +184,12 @@ class Calculation(ABC, metaclass=CalculationMeta):
         self.__sources = sources
         self.__equations = equations
 
-    def __getattr__(self, attr):
-        if attr in self.equations.keys():
-            return self.equations[attr]
-        elif attr in self.sources.keys():
-            return self.sources[attr]
-        return super().__getattr__(attr)
+    def __getattr__(self, variable):
+        if variable in self.equations.keys():
+            return self.equations[variable]
+        elif variable in self.sources.keys():
+            return self.sources[variable]
+        return super().__getattr__(variable)
 
     @property
     def sources(self): return self.__sources

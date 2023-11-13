@@ -49,7 +49,7 @@ class Mixin(object):
 class Node(Mixin):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__formatter = kwargs.get("formatter", lambda key, value: str(value.name))
+        self.__formatter = kwargs.get("formatter", lambda key, node: str(node.name))
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__style = kwargs.get("style", single)
         self.__nodes = ODict()
