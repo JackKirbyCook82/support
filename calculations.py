@@ -26,22 +26,22 @@ LOGGER = logging.getLogger(__name__)
 
 def equation(variable, name, datatype, *args, domain, function, **kwargs):
     assert isinstance(domain, tuple) and callable(function)
+    title = str(name).title()
     attrs = dict(variable=variable, datatype=datatype, feeds=domain, function=function)
-    cls = type(name, (Equation,), {}, **attrs)
+    cls = type(title, (Equation,), {}, **attrs)
     yield cls
 
-def source(variable, name, *args, position=None, variables={}, **kwargs):
-    assert isinstance(variables, dict) and isinstance(position, (int, str, type(None)))
-    position = position if position is not None else name
+def source(variable, name, *args, position, variables={}, **kwargs):
+    assert isinstance(variables, dict)
     for key, value in variables.items():
         title = [str(string).title() for string in "|".join(name, key).split("|")]
-        function = lambda subvariable: ".".join([variable, subvariable])
-        attrs = dict(variable=function(variable, key), position=position, datavar=value)
+        create = lambda subvariable: ".".join([variable, subvariable])
+        attrs = dict(variable=create(variable, key), position=position, location=value)
         cls = type(title, (Source,), {}, **attrs)
         yield cls
     if not variables:
         title = [str(string).title() for string in str(name).split("|")]
-        attrs = dict(variable=variable, position=position, datavar=None)
+        attrs = dict(variable=variable, position=position, location=None)
         cls = type(title, (Source,), {}, **attrs)
         yield cls
 
@@ -51,23 +51,21 @@ class StageMeta(ABCMeta):
     def __str__(cls): return cls.__variable__
 
     def __init__(cls, *args, **kwargs):
-        cls.__variable__ = kwargs.get("variable", getattr(cls, "variable", None))
-        cls.__feeds__ = kwargs.get("feeds", getattr(cls, "feeds", []))
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
 
     def __call__(cls, *args, **kwargs):
         assert cls.__variable__ is not None
         formatter = lambda key, node: str(node.variable)
         name = str(cls.__name__).lower()
-        parameters = dict(formatter=formatter, name=name, variable=cls.__variable__, feeds=cls.__feeds__)
+        parameters = dict(formatter=formatter, name=name, variable=cls.__variable__)
         instance = super(StageMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
 
 class Stage(Node, metaclass=StageMeta):
-    def __init__(self, *args, variable, feeds=[], **kwargs):
+    def __init__(self, *args, variable, **kwargs):
         super().__init__(*args, **kwargs)
         self.__variable = variable
-        self.__feeds = feeds
 
     def __setitem__(self, key, value): self.set(key, value)
     def __getitem__(self, key): return self.get(key)
@@ -81,23 +79,22 @@ class Stage(Node, metaclass=StageMeta):
     def sources(self): return list(set(super().sources))
     @property
     def domain(self): return list(self.children)
-
     @property
     def variable(self): return self.__variable
-    @property
-    def feeds(self): return self.__feeds
 
 
 class Equation(Stage):
-    def __init_subclass__(cls, *args, datatype, domain, function, **kwargs):
+    def __init_subclass__(cls, *args, datatype, feeds, function, **kwargs):
         assert callable(function)
         cls.__datatype__ = datatype
         cls.__function__ = function
+        cls.__feeds__ = feeds
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__datatype = self.__class__.__datatype__
         self.__function = self.__class__.__function__
+        self.__feeds = self.__class__.__feeds__
 
     def __call__(self, *args, **kwargs):
         mapping = ODict([(stage, stage(*args, **kwargs)) for stage in self.sources])
@@ -105,6 +102,7 @@ class Equation(Stage):
         contents = list(mapping.values())
         execute = self.execute(order=order)
         dataarray = xr.apply_ufunc(execute, *contents, output_dtypes=[self.datatype], vectorize=True, dask="parallelized")
+#        dataset = dataarray.to_dataset(name=)
         return dataarray
 
     def execute(self, order):
@@ -117,22 +115,24 @@ class Equation(Stage):
     def datatype(self): return self.__datatype
     @property
     def function(self): return self.__function
+    @property
+    def feeds(self): return self.__feeds
 
 
 class Source(Stage):
-    def __init_subclass__(cls, *args, position, datavar, **kwargs):
+    def __init_subclass__(cls, *args, position, location, **kwargs):
         assert isinstance(position, (int, str))
         cls.__position__ = position
-        cls.__datavar__ = datavar
+        cls.__location__ = location
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__position = self.__class__.__position__
-        self.__datavar = self.__class__.__datavar__
+        self.__location = self.__class__.__location__
 
     def __call__(self, *args, **kwargs):
         content = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
-        content = content[self.datavar] if bool(self.datavar) else content
+        content = content[self.location] if bool(self.location) else content
         return content
 
     def execute(self, order):
@@ -143,7 +143,7 @@ class Source(Stage):
     @property
     def position(self): return self.__position
     @property
-    def datavar(self): return self.__datavar
+    def location(self): return self.__location
 
 
 class CalculationMeta(ABCMeta):
@@ -185,11 +185,16 @@ class Calculation(ABC, metaclass=CalculationMeta):
         self.__equations = equations
 
     def __getattr__(self, variable):
-        if variable in self.equations.keys():
-            return self.equations[variable]
-        elif variable in self.sources.keys():
-            return self.sources[variable]
-        return super().__getattr__(variable)
+        if variable not in self.equations.keys():
+            raise AttributeError(variable)
+        return self.equations[variable]
+
+    def __getitem__(self, variable):
+        if variable not in self.sources.keys():
+            raise KeyError(variable)
+
+#        wrapper = ntuple()
+#        return wrapper
 
     def __call__(self, *args, **kwargs):
         dataset = xr.Dataset()
