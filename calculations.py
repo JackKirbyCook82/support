@@ -191,6 +191,14 @@ class Calculation(ABC, metaclass=CalculationMeta):
             return self.sources[variable]
         return super().__getattr__(variable)
 
+    def __call__(self, *args, **kwargs):
+        dataset = xr.Dataset()
+        self.execute(dataset, *args, **kwargs)
+        return dataset
+
+    @abstractmethod
+    def execute(self, dataset, *args, **kwargs): pass
+
     @property
     def sources(self): return self.__sources
     @property
