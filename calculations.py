@@ -10,13 +10,14 @@ import types
 import logging
 import xarray as xr
 from abc import ABC, ABCMeta, abstractmethod
+from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 from support.mixins import Node
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Calculation", "equation", "source"]
+__all__ = ["Calculation", "equation", "source", "constant"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -27,7 +28,7 @@ LOGGER = logging.getLogger(__name__)
 def equation(variable, name, datatype, *args, domain, function, **kwargs):
     assert isinstance(domain, tuple) and callable(function)
     title = str(name).title()
-    attrs = dict(variable=variable, datatype=datatype, feeds=domain, function=function)
+    attrs = dict(variable=variable, datatype=datatype, datavar=name, feeds=domain, function=function)
     cls = type(title, (Equation,), {}, **attrs)
     yield cls
 
@@ -36,14 +37,15 @@ def source(variable, name, *args, position, variables={}, **kwargs):
     for key, value in variables.items():
         title = [str(string).title() for string in "|".join(name, key).split("|")]
         create = lambda subvariable: ".".join([variable, subvariable])
-        attrs = dict(variable=create(variable, key), position=position, location=value)
+        attrs = dict(variable=create(variable, key), datavar=value, position=position, location=value)
         cls = type(title, (Source,), {}, **attrs)
         yield cls
-    if not variables:
-        title = [str(string).title() for string in str(name).split("|")]
-        attrs = dict(variable=variable, position=position, location=None)
-        cls = type(title, (Source,), {}, **attrs)
-        yield cls
+
+def constant(variable, name, *args, position, **kwargs):
+    title = [str(string).title() for string in str(name).split("|")]
+    attrs = dict(variable=variable, position=position)
+    cls = type(title, (Source,), {}, **attrs)
+    yield cls
 
 
 class StageMeta(ABCMeta):
@@ -84,35 +86,39 @@ class Stage(Node, metaclass=StageMeta):
 
 
 class Equation(Stage):
-    def __init_subclass__(cls, *args, datatype, feeds, function, **kwargs):
+    def __init_subclass__(cls, *args, datatype, datavar, feeds, function, **kwargs):
         assert callable(function)
         cls.__datatype__ = datatype
+        cls.__datavar__ = datavar
         cls.__function__ = function
         cls.__feeds__ = feeds
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__datatype = self.__class__.__datatype__
+        self.__datavar = self.__class__.__datavar__
         self.__function = self.__class__.__function__
         self.__feeds = self.__class__.__feeds__
 
     def __call__(self, *args, **kwargs):
-        mapping = ODict([(stage, stage(*args, **kwargs)) for stage in self.sources])
+        mapping = ODict([(stage, stage.locate(*args, **kwargs)) for stage in self.sources])
         order = list(mapping.keys())
         contents = list(mapping.values())
         execute = self.execute(order=order)
         dataarray = xr.apply_ufunc(execute, *contents, output_dtypes=[self.datatype], vectorize=True, dask="parallelized")
-#        dataset = dataarray.to_dataset(name=)
-        return dataarray
+        dataset = dataarray.to_dataset(name=self.datavar)
+        return dataset
 
     def execute(self, order):
         executes = [stage.execute(order) for stage in self.domain]
-        wrapper = lambda *contents: self.function(*[execute(*contents) for execute in executes])
+        wrapper = lambda *arrays: self.function(*[execute(*arrays) for execute in executes])
         wrapper.__name__ = str(self.name)
         return wrapper
 
     @property
     def datatype(self): return self.__datatype
+    @property
+    def datavar(self): return self.__datavar
     @property
     def function(self): return self.__function
     @property
@@ -120,30 +126,61 @@ class Equation(Stage):
 
 
 class Source(Stage):
-    def __init_subclass__(cls, *args, position, location, **kwargs):
+    def __init_subclass__(cls, *args, datavar, position, location, **kwargs):
         assert isinstance(position, (int, str))
+        cls.__datavar__ = datavar
         cls.__position__ = position
         cls.__location__ = location
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.__datavar = self.__class__.__datavar__
         self.__position = self.__class__.__position__
         self.__location = self.__class__.__location__
 
     def __call__(self, *args, **kwargs):
-        content = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
-        content = content[self.location] if bool(self.location) else content
-        return content
+        dataarray = self.locate(*args, **kwargs)
+        dataset = dataarray.to_dataset(name=self.datavar)
+        return dataset
+
+    def locate(self, *args, **kwargs):
+        dataset = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
+        dataarray = dataset[self.location] if bool(self.location) else dataset
+        return dataarray
 
     def execute(self, order):
-        wrapper = lambda *contents: contents[order.index(self)]
+        wrapper = lambda *arrays: arrays[order.index(self)]
+        wrapper.__name__ = str(self.name)
+        return wrapper
+
+    @property
+    def datavar(self): return self.__datavar
+    @property
+    def position(self): return self.__position
+    @property
+    def location(self): return self.__location
+
+
+class Constant(Stage):
+    def __init_subclass__(cls, *args, position, **kwargs):
+        assert isinstance(position, (int, str))
+        cls.__position__ = position
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__position = self.__class__.__position__
+
+    def locate(self, *args, **kwargs):
+        value = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
+        return value
+
+    def execute(self, order):
+        wrapper = lambda *arrays: arrays[order.index(self)]
         wrapper.__name__ = str(self.name)
         return wrapper
 
     @property
     def position(self): return self.__position
-    @property
-    def location(self): return self.__location
 
 
 class CalculationMeta(ABCMeta):
@@ -192,9 +229,11 @@ class Calculation(ABC, metaclass=CalculationMeta):
     def __getitem__(self, variable):
         if variable not in self.sources.keys():
             raise KeyError(variable)
-
-#        wrapper = ntuple()
-#        return wrapper
+        sources = {key: value for key, value in self.sources.items()}
+        name = self.__class__.__name__
+        wrappertype = ntuple(name, list(sources.keys()))
+        wrapper = wrappertype(list(sources.values()))
+        return wrapper
 
     def __call__(self, *args, **kwargs):
         dataset = xr.Dataset()
