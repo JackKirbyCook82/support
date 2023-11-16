@@ -218,6 +218,7 @@ class CalculationMeta(ABCMeta):
 
 class Calculation(ABC, metaclass=CalculationMeta):
     def __init__(self, *args, sources, equations, **kwargs):
+        assert isinstance(self.execute, types.GeneratorType)
         self.__sources = sources
         self.__equations = equations
 
@@ -236,8 +237,8 @@ class Calculation(ABC, metaclass=CalculationMeta):
         return wrapper
 
     def __call__(self, *args, **kwargs):
-        dataset = xr.Dataset()
-        self.execute(dataset, *args, **kwargs)
+        datasets = list(self.execute(*args, **kwargs))
+        dataset = xr.merge(datasets)
         return dataset
 
     @abstractmethod
