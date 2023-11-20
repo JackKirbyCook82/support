@@ -35,9 +35,9 @@ def equation(variable, name, datatype, *args, domain, function, **kwargs):
 def source(variable, name, *args, position, variables={}, **kwargs):
     assert isinstance(variables, dict)
     for key, value in variables.items():
-        title = [str(string).title() for string in "|".join(name, key).split("|")]
+        title = "|".join([name, key])
         create = lambda subvariable: ".".join([variable, subvariable])
-        attrs = dict(variable=create(variable, key), datavar=value, position=position, location=value)
+        attrs = dict(variable=create(key), datavar=value, position=position, location=value)
         cls = type(title, (Source,), {}, **attrs)
         yield cls
 
@@ -185,8 +185,8 @@ class Constant(Stage):
 
 class CalculationMeta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        sources = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ is "source"]
-        equations = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ is "equation"]
+        sources = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "source"]
+        equations = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "equation"]
         exclude = sources + equations
         attrs = {key: value for key, value in attrs.items() if key not in exclude}
         try:
@@ -196,9 +196,9 @@ class CalculationMeta(ABCMeta):
         return cls
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        sources = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ is "source"]
+        sources = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ == "source"]
         sources = {str(stage): stage for generator in iter(sources) for stage in iter(generator)}
-        equations = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ is "equation"]
+        equations = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ == "equation"]
         equations = {str(stage): stage for generator in iter(equations) for stage in iter(generator)}
         assert not set(sources.keys()) & set(equations.keys())
         cls.__sources__ = getattr(cls, "__sources__", {}) | sources
