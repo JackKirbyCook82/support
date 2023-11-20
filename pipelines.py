@@ -85,17 +85,17 @@ class Processor(ABC):
 
 
 class Calculator(Processor, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        calculations = {key: value for key, value in getattr(cls, "__calculations__", {}).items()}
-        calculations.update({key: value for key, value in kwargs.get("calculations", {}).items()})
+    def __init_subclass__(cls, *args, calculations={}, **kwargs):
+        assert isinstance(calculations, dict)
+        existing = ODict([(key, value) for key, value in getattr(cls, "__calculations__", {}).items()])
+        calculations = existing | calculations
         cls.__calculations__ = calculations
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         calculations = ODict(list(self.__class__.__calculations__.items()))
         keys = list(kwargs.get("calculations", calculations.keys()))
-        calculations = {key: value for key, value in calculations.items() if key in keys}
-        calculations = [calculation(*args, **kwargs) for calculation in list(calculations.values())]
+        calculations = {key: value(*args, **kwargs) for key, value in calculations.items() if key in keys}
         self.__calculations = calculations
 
     @property

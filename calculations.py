@@ -208,9 +208,9 @@ class CalculationMeta(ABCMeta):
         sources = {key: value(*args, **kwargs) for key, value in cls.__sources__.items()}
         equations = {key: value(*args, **kwargs) for key, value in cls.__equations__.items()}
         stages = sources | equations
-        for instance in equations.values():
-            for variable in instance.feeds:
-                instance[variable] = stages[variable]
+        for stage in equations.values():
+            for variable in stage.feeds:
+                stage[variable] = stages[variable]
         stages = dict(sources=sources, equations=equations)
         instance = super(CalculationMeta, cls).__call__(*args, **stages, **kwargs)
         return instance

@@ -30,7 +30,7 @@ class File(ABC):
         if file not in locks.keys():
             locks[file] = multiprocessing.Lock()
         with locks[file]:
-            self.execute(*args, file=file, **kwargs)
+            return self.execute(*args, file=file, **kwargs)
 
     @abstractmethod
     def execute(self, content, *args, file, **kwargs):
