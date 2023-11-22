@@ -91,8 +91,8 @@ class Calculator(Processor, ABC):
         calculations = existing | calculations
         cls.__calculations__ = calculations
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, name, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
         calculations = ODict(list(self.__class__.__calculations__.items()))
         keys = list(kwargs.get("calculations", calculations.keys()))
         calculations = {key: value(*args, **kwargs) for key, value in calculations.items() if key in keys}

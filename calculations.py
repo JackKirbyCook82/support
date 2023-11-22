@@ -35,16 +35,16 @@ def equation(variable, name, datatype, *args, domain, function, **kwargs):
 def source(variable, name, *args, position, variables={}, **kwargs):
     assert isinstance(variables, dict)
     for key, value in variables.items():
-        title = "|".join([name, key])
+        title = "|".join([str(string).title() for string in str(name).split("|")] + [str(value).title()])
         create = lambda subvariable: ".".join([variable, subvariable])
         attrs = dict(variable=create(key), datavar=value, position=position, location=value)
         cls = type(title, (Source,), {}, **attrs)
         yield cls
 
 def constant(variable, name, *args, position, **kwargs):
-    title = [str(string).title() for string in str(name).split("|")]
+    title = "|".join([str(string).title() for string in str(name).split("|")])
     attrs = dict(variable=variable, position=position)
-    cls = type(title, (Source,), {}, **attrs)
+    cls = type(title, (Constant,), {}, **attrs)
     yield cls
 
 
@@ -71,7 +71,6 @@ class Stage(Node, metaclass=StageMeta):
 
     def __setitem__(self, key, value): self.set(key, value)
     def __getitem__(self, key): return self.get(key)
-    def __repr__(self): return str(self.tree)
     def __len__(self): return self.size
 
     @abstractmethod
@@ -186,8 +185,9 @@ class Constant(Stage):
 class CalculationMeta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         sources = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "source"]
+        constants = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "constant"]
         equations = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "equation"]
-        exclude = sources + equations
+        exclude = sources + constants + equations
         attrs = {key: value for key, value in attrs.items() if key not in exclude}
         try:
             cls = super(CalculationMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
@@ -198,16 +198,20 @@ class CalculationMeta(ABCMeta):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         sources = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ == "source"]
         sources = {str(stage): stage for generator in iter(sources) for stage in iter(generator)}
+        constants = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ == "constant"]
+        constants = {str(stage): stage for generator in iter(constants) for stage in iter(generator)}
         equations = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ == "equation"]
         equations = {str(stage): stage for generator in iter(equations) for stage in iter(generator)}
-        assert not set(sources.keys()) & set(equations.keys())
+        assert not set(sources.keys()) & set(constants.keys()) & set(equations.keys())
         cls.__sources__ = getattr(cls, "__sources__", {}) | sources
+        cls.__constants__ = getattr(cls, "__constants__", {}) | constants
         cls.__equations__ = getattr(cls, "__equations__", {}) | equations
 
     def __call__(cls, *args, **kwargs):
         sources = {key: value(*args, **kwargs) for key, value in cls.__sources__.items()}
+        constants = {key: value(*args, **kwargs) for key, value in cls.__constants__.items()}
         equations = {key: value(*args, **kwargs) for key, value in cls.__equations__.items()}
-        stages = sources | equations
+        stages = sources | constants | equations
         for stage in equations.values():
             for variable in stage.feeds:
                 stage[variable] = stages[variable]
@@ -218,7 +222,6 @@ class CalculationMeta(ABCMeta):
 
 class Calculation(ABC, metaclass=CalculationMeta):
     def __init__(self, *args, sources, equations, **kwargs):
-        assert isinstance(self.execute, types.GeneratorType)
         self.__sources = sources
         self.__equations = equations
 
