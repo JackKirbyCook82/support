@@ -28,7 +28,7 @@ LOGGER = logging.getLogger(__name__)
 def equation(variable, name, datatype, *args, domain, function, **kwargs):
     assert isinstance(domain, tuple) and callable(function)
     title = str(name).title()
-    attrs = dict(variable=variable, datatype=datatype, datavar=name, feeds=domain, function=function)
+    attrs = dict(variable=variable, datatype=datatype, datavar=name, domain=domain, function=function)
     cls = type(title, (Equation,), {}, **attrs)
     yield cls
 
@@ -75,32 +75,29 @@ class Stage(Node, metaclass=StageMeta):
 
     @abstractmethod
     def execute(self, order): pass
-
-    @property
-    def sources(self): return list(set(super().sources))
-    @property
-    def domain(self): return list(self.children)
     @property
     def variable(self): return self.__variable
 
 
 class Equation(Stage):
-    def __init_subclass__(cls, *args, datatype, datavar, feeds, function, **kwargs):
+    def __init_subclass__(cls, *args, datatype, datavar, domain, function, **kwargs):
         assert callable(function)
         cls.__datatype__ = datatype
         cls.__datavar__ = datavar
         cls.__function__ = function
-        cls.__feeds__ = feeds
+        cls.__domain__ = domain
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__datatype = self.__class__.__datatype__
         self.__datavar = self.__class__.__datavar__
         self.__function = self.__class__.__function__
-        self.__feeds = self.__class__.__feeds__
+        self.__domain = self.__class__.__domain__
 
     def __call__(self, *args, **kwargs):
-        mapping = ODict([(stage, stage.locate(*args, **kwargs)) for stage in self.sources])
+#        mapping = ODict([(stage, stage.locate(*args, **kwargs)) for stage in self.sources])
+
+        mapping = ODict()
         order = list(mapping.keys())
         contents = list(mapping.values())
         execute = self.execute(order=order)
@@ -115,13 +112,15 @@ class Equation(Stage):
         return wrapper
 
     @property
+    def sources(self): return list(set(super().sources))
+    @property
     def datatype(self): return self.__datatype
     @property
     def datavar(self): return self.__datavar
     @property
     def function(self): return self.__function
     @property
-    def feeds(self): return self.__feeds
+    def domain(self): return self.__domain
 
 
 class Source(Stage):
@@ -213,16 +212,19 @@ class CalculationMeta(ABCMeta):
         equations = {key: value(*args, **kwargs) for key, value in cls.__equations__.items()}
         stages = sources | constants | equations
         for stage in equations.values():
-            for variable in stage.feeds:
-                stage[variable] = stages[variable]
-        stages = dict(sources=sources, equations=equations)
+
+#            for variable in stage.feeds:
+#                stage[variable] = stages[variable]
+
+        stages = dict(sources=sources, constants=constants, equations=equations)
         instance = super(CalculationMeta, cls).__call__(*args, **stages, **kwargs)
         return instance
 
 
 class Calculation(ABC, metaclass=CalculationMeta):
-    def __init__(self, *args, sources, equations, **kwargs):
+    def __init__(self, *args, sources, constants, equations, **kwargs):
         self.__sources = sources
+        self.__constants = constants
         self.__equations = equations
 
     def __getattr__(self, variable):
@@ -230,13 +232,16 @@ class Calculation(ABC, metaclass=CalculationMeta):
             raise AttributeError(variable)
         return self.equations[variable]
 
-    def __getitem__(self, variable):
-        if variable not in self.sources.keys():
-            raise KeyError(variable)
-        sources = {key: value for key, value in self.sources.items()}
+    def __getitem__(self, group):
+        Locate = ntuple("Locate", "group variable stage")
+        locate = [Locate(*str(key).split("."), value) for key, value in self.sources.items()]
+        sources = ODict([(value.group, {}) for value in locate])
+        for value in locate:
+            sources[value.group][value.variable] = value.stage
+        sources = sources[group]
         name = self.__class__.__name__
-        wrappertype = ntuple(name, list(sources.keys()))
-        wrapper = wrappertype(list(sources.values()))
+        Wrapper = ntuple(name, list(sources.keys()))
+        wrapper = Wrapper(*list(sources.values()))
         return wrapper
 
     def __call__(self, *args, **kwargs):
@@ -249,6 +254,8 @@ class Calculation(ABC, metaclass=CalculationMeta):
 
     @property
     def sources(self): return self.__sources
+    @property
+    def constants(self): return self.__constants
     @property
     def equations(self): return self.__equations
 
