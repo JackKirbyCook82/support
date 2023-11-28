@@ -65,6 +65,14 @@ class StageMeta(ABCMeta):
 
 
 class Stage(Node, metaclass=StageMeta):
+    def __repr__(self):
+        nodes = ', '.join([repr(type(node)) for node in list(self.children)])
+        return "{}[{}]".format(repr(type(self)), nodes)
+
+    def __str__(self):
+        nodes = ", ".join([str(type(node)) for node in list(self.children)])
+        return "{}[{}]".format(str(type(self)), nodes)
+
     def __init__(self, *args, variable, **kwargs):
         super().__init__(*args, **kwargs)
         self.__variable = variable
@@ -85,19 +93,17 @@ class Equation(Stage):
         cls.__datatype__ = datatype
         cls.__datavar__ = datavar
         cls.__function__ = function
-        cls.__domain__ = domain
+        cls.__feeds__ = domain
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__datatype = self.__class__.__datatype__
         self.__datavar = self.__class__.__datavar__
         self.__function = self.__class__.__function__
-        self.__domain = self.__class__.__domain__
+        self.__feeds = self.__class__.__feeds__
 
     def __call__(self, *args, **kwargs):
-#        mapping = ODict([(stage, stage.locate(*args, **kwargs)) for stage in self.sources])
-
-        mapping = ODict()
+        mapping = ODict([(stage, stage.locate(*args, **kwargs)) for stage in self.sources])
         order = list(mapping.keys())
         contents = list(mapping.values())
         execute = self.execute(order=order)
@@ -114,13 +120,16 @@ class Equation(Stage):
     @property
     def sources(self): return list(set(super().sources))
     @property
+    def domain(self): return list(self.children)
+
+    @property
     def datatype(self): return self.__datatype
     @property
     def datavar(self): return self.__datavar
     @property
     def function(self): return self.__function
     @property
-    def domain(self): return self.__domain
+    def feeds(self): return self.__feeds
 
 
 class Source(Stage):
@@ -212,10 +221,8 @@ class CalculationMeta(ABCMeta):
         equations = {key: value(*args, **kwargs) for key, value in cls.__equations__.items()}
         stages = sources | constants | equations
         for stage in equations.values():
-
-#            for variable in stage.feeds:
-#                stage[variable] = stages[variable]
-
+            for variable in stage.feeds:
+                stage[variable] = stages[variable]
         stages = dict(sources=sources, constants=constants, equations=equations)
         instance = super(CalculationMeta, cls).__call__(*args, **stages, **kwargs)
         return instance
