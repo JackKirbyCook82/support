@@ -28,7 +28,7 @@ LOGGER = logging.getLogger(__name__)
 def equation(variable, name, datatype, *args, domain, function, **kwargs):
     assert isinstance(domain, tuple) and callable(function)
     title = str(name).title()
-    attrs = dict(variable=variable, datatype=datatype, datavar=name, domain=domain, function=function)
+    attrs = dict(variable=variable, datatype=datatype, domain=domain, function=function)
     cls = type(title, (Equation,), {}, **attrs)
     yield cls
 
@@ -37,7 +37,7 @@ def source(variable, name, *args, position, variables={}, **kwargs):
     for key, value in variables.items():
         title = "|".join([str(string).title() for string in str(name).split("|")] + [str(value).title()])
         create = lambda subvariable: ".".join([variable, subvariable])
-        attrs = dict(variable=create(key), datavar=value, position=position, location=value)
+        attrs = dict(variable=create(key), position=position, location=value)
         cls = type(title, (Source,), {}, **attrs)
         yield cls
 
@@ -88,17 +88,15 @@ class Stage(Node, metaclass=StageMeta):
 
 
 class Equation(Stage):
-    def __init_subclass__(cls, *args, datatype, datavar, domain, function, **kwargs):
+    def __init_subclass__(cls, *args, datatype, domain, function, **kwargs):
         assert callable(function)
         cls.__datatype__ = datatype
-        cls.__datavar__ = datavar
         cls.__function__ = function
         cls.__feeds__ = domain
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__datatype = self.__class__.__datatype__
-        self.__datavar = self.__class__.__datavar__
         self.__function = self.__class__.__function__
         self.__feeds = self.__class__.__feeds__
 
@@ -108,8 +106,7 @@ class Equation(Stage):
         contents = list(mapping.values())
         execute = self.execute(order=order)
         dataarray = xr.apply_ufunc(execute, *contents, output_dtypes=[self.datatype], vectorize=True, dask="parallelized")
-        dataset = dataarray.to_dataset(name=self.datavar)
-        return dataset
+        return dataarray
 
     def execute(self, order):
         executes = [stage.execute(order) for stage in self.domain]
@@ -125,30 +122,25 @@ class Equation(Stage):
     @property
     def datatype(self): return self.__datatype
     @property
-    def datavar(self): return self.__datavar
-    @property
     def function(self): return self.__function
     @property
     def feeds(self): return self.__feeds
 
 
 class Source(Stage):
-    def __init_subclass__(cls, *args, datavar, position, location, **kwargs):
+    def __init_subclass__(cls, *args, position, location, **kwargs):
         assert isinstance(position, (int, str))
-        cls.__datavar__ = datavar
         cls.__position__ = position
         cls.__location__ = location
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__datavar = self.__class__.__datavar__
         self.__position = self.__class__.__position__
         self.__location = self.__class__.__location__
 
     def __call__(self, *args, **kwargs):
         dataarray = self.locate(*args, **kwargs)
-        dataset = dataarray.to_dataset(name=self.datavar)
-        return dataset
+        return dataarray
 
     def locate(self, *args, **kwargs):
         dataset = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
@@ -160,8 +152,6 @@ class Source(Stage):
         wrapper.__name__ = str(self.name)
         return wrapper
 
-    @property
-    def datavar(self): return self.__datavar
     @property
     def position(self): return self.__position
     @property
@@ -252,8 +242,8 @@ class Calculation(ABC, metaclass=CalculationMeta):
         return wrapper
 
     def __call__(self, *args, **kwargs):
-        datasets = list(self.execute(*args, **kwargs))
-        dataset = xr.merge(datasets)
+        dataset = xr.Dataset()
+        self.execute(dataset, *args, **kwargs)
         return dataset
 
     @abstractmethod

@@ -15,7 +15,7 @@ from functools import reduce
 from abc import ABC, abstractmethod
 from collections import OrderedDict as ODict
 
-import support.files as files
+from support.files import Locks, save, load
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -128,9 +128,12 @@ class Files(Processor, ABC):
     def __init__(self, *args, repository, **kwargs):
         super().__init__(*args, **kwargs)
         self.__repository = repository
+        self.__locks = Locks()
 
     @property
     def repository(self): return self.__repository
+    @property
+    def locks(self): return self.__locks
 
 
 class Loader(Files, ABC):
@@ -138,18 +141,11 @@ class Loader(Files, ABC):
         super().__init__(*args, repository=repository, **kwargs)
         if not os.path.isdir(repository):
             raise FileNotFoundError(repository)
-        self.loader = files.Loader()
-        self.reader = files.Reader()
-        self.referer = files.Referer()
 
-    def read(self, *args, file, **kwargs):
-        return self.loader(*args, file=file, **kwargs)
-
-    def reader(self, *args, file, **kwargs):
-        return self.reader(*args, file=file, **kwargs)
-
-    def refer(self, *args, file, **kwargs):
-        return self.referer(*args, file=file, **kwargs)
+    @staticmethod
+    def read(*args, file, filetype, **kwargs):
+        content = load(*args, file=file, filetype=filetype, **kwargs)
+        return content
 
 
 class Saver(Files, ABC):
@@ -157,10 +153,10 @@ class Saver(Files, ABC):
         super().__init__(*args, repository=repository, **kwargs)
         if not os.path.isdir(repository):
             os.mkdir(repository)
-        self.saver = files.Saver()
 
-    def write(self, content, *args, file, **kwargs):
-        self.saver(content, *args, file=file, **kwargs)
+    @staticmethod
+    def write(content, *args, file, mode, **kwargs):
+        save(content, *args, file=file, mode=mode, **kwargs)
         LOGGER.info("Saved: {}".format(str(file)))
 
 
