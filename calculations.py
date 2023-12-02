@@ -242,9 +242,11 @@ class Calculation(ABC, metaclass=CalculationMeta):
         return wrapper
 
     def __call__(self, *args, **kwargs):
-        dataset = xr.Dataset()
-        self.execute(dataset, *args, **kwargs)
-        return dataset
+        pass
+
+#        generator = (dataarray.to_dataset(name=name) for name, dataarray in self.execute(*args, **kwargs))
+#        dataset = xr.merge(list(generator))
+#        return dataset
 
     @abstractmethod
     def execute(self, dataset, *args, **kwargs): pass
