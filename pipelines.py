@@ -19,7 +19,7 @@ from support.files import Locks, save, load
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Screener", "Processor", "Calculator", "Downloader", "Uploader", "Saver", "Loader"]
+__all__ = ["Processor", "Calculator", "Downloader", "Uploader", "Saver", "Loader"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -31,11 +31,11 @@ class Pipeline(list):
     def __repr__(self): return "|".join(list(map(repr, self)))
     def __init__(self, processors):
         assert isinstance(processors, list)
-        assert all([isinstance(processor, Process) for processor in processors])
+        assert all([isinstance(processor, Processor) for processor in processors])
         super().__init__(processors)
 
     def __add__(self, other):
-        assert isinstance(other, Process)
+        assert isinstance(other, Processor)
         return Pipeline([*self, other])
 
     def __call__(self, *args, **kwargs):
@@ -46,13 +46,13 @@ class Pipeline(list):
         yield from iter(generator)
 
 
-class Process(ABC):
+class Processor(ABC):
     def __repr__(self): return self.name
     def __init__(self, *args, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
 
     def __add__(self, other):
-        assert isinstance(other, Process)
+        assert isinstance(other, Processor)
         return Pipeline([self, other])
 
     def __call__(self, *args, **kwargs):
@@ -84,11 +84,7 @@ class Process(ABC):
     def name(self): return self.__name
 
 
-class Screener(Process, ABC): pass
-class Processor(Process, ABC): pass
-
-
-class Calculator(Process, ABC):
+class Calculator(Processor, ABC):
     def __init_subclass__(cls, *args, calculations={}, **kwargs):
         assert isinstance(calculations, dict)
         existing = ODict([(key, value) for key, value in getattr(cls, "__calculations__", {}).items()])
@@ -106,7 +102,7 @@ class Calculator(Process, ABC):
     def calculations(self): return self.__calculations
 
 
-class Websites(Process, ABC):
+class Websites(Processor, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         pages = {key: value for key, value in getattr(cls, "__pages__", {}).items()}
         pages.update(kwargs.get("pages", {}))
@@ -128,7 +124,7 @@ class Downloader(Websites, ABC): pass
 class Uploader(Websites, ABC): pass
 
 
-class Files(Process, ABC):
+class Files(Processor, ABC):
     def __init__(self, *args, repository, **kwargs):
         super().__init__(*args, **kwargs)
         self.__repository = repository

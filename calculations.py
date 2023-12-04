@@ -27,18 +27,20 @@ LOGGER = logging.getLogger(__name__)
 
 def equation(variable, name, datatype, *args, domain, function, **kwargs):
     assert isinstance(domain, tuple) and callable(function)
-    title = str(name).title()
-    attrs = dict(variable=variable, datatype=datatype, domain=domain, function=function)
-    cls = type(title, (Equation,), {}, **attrs)
+    clsname = str(name).title()
+    dataname = str(name).lower()
+    attrs = dict(variable=variable, datatype=datatype, dataname=dataname, domain=domain, function=function)
+    cls = type(clsname, (Equation,), {}, **attrs)
     yield cls
 
-def source(variable, name, *args, position, variables={}, **kwargs):
+def source(variable, name, *args, position, variables={}, fullname=True, **kwargs):
     assert isinstance(variables, dict)
     for key, value in variables.items():
-        title = "|".join([str(string).title() for string in str(name).split("|")] + [str(value).title()])
+        clsname = "|".join([str(string).title() for string in str(name).split("|")] + [str(value).title()])
+        dataname = "|".join([str(name).lower(), str(value).lower()]) if bool(fullname) else str(value).lower()
         create = lambda subvariable: ".".join([variable, subvariable])
-        attrs = dict(variable=create(key), position=position, location=value)
-        cls = type(title, (Source,), {}, **attrs)
+        attrs = dict(variable=create(key), dataname=dataname, position=position, location=value)
+        cls = type(clsname, (Source,), {}, **attrs)
         yield cls
 
 def constant(variable, name, *args, position, **kwargs):
@@ -88,14 +90,16 @@ class Stage(Node, metaclass=StageMeta):
 
 
 class Equation(Stage):
-    def __init_subclass__(cls, *args, datatype, domain, function, **kwargs):
+    def __init_subclass__(cls, *args, dataname, datatype, domain, function, **kwargs):
         assert callable(function)
+        cls.__dataname__ = dataname
         cls.__datatype__ = datatype
         cls.__function__ = function
         cls.__feeds__ = domain
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.__dataname = self.__class__.__dataname__
         self.__datatype = self.__class__.__datatype__
         self.__function = self.__class__.__function__
         self.__feeds = self.__class__.__feeds__
@@ -106,7 +110,8 @@ class Equation(Stage):
         contents = list(mapping.values())
         execute = self.execute(order=order)
         dataarray = xr.apply_ufunc(execute, *contents, output_dtypes=[self.datatype], vectorize=True, dask="parallelized")
-        return dataarray
+        dataset = dataarray.to_dataset(name=self.dataname)
+        return dataset
 
     def execute(self, order):
         executes = [stage.execute(order) for stage in self.domain]
@@ -120,6 +125,8 @@ class Equation(Stage):
     def domain(self): return list(self.children)
 
     @property
+    def dataname(self): return self.__dataname
+    @property
     def datatype(self): return self.__datatype
     @property
     def function(self): return self.__function
@@ -128,19 +135,25 @@ class Equation(Stage):
 
 
 class Source(Stage):
-    def __init_subclass__(cls, *args, position, location, **kwargs):
+    def __init_subclass__(cls, *args, dataname, position, location, **kwargs):
         assert isinstance(position, (int, str))
+        cls.__dataname__ = dataname
         cls.__position__ = position
         cls.__location__ = location
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.__dataname__ = self.__class__.__dataname__
         self.__position = self.__class__.__position__
         self.__location = self.__class__.__location__
 
     def __call__(self, *args, **kwargs):
-        dataarray = self.locate(*args, **kwargs)
-        return dataarray
+        try:
+            dataarray = self.locate(*args, **kwargs)
+            dataset = dataarray.to_dataset(name=self.dataname)
+            return dataset
+        except (KeyError, IndexError):
+            return None
 
     def locate(self, *args, **kwargs):
         dataset = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
@@ -152,6 +165,8 @@ class Source(Stage):
         wrapper.__name__ = str(self.name)
         return wrapper
 
+    @property
+    def dataname(self): return self.__dataname__
     @property
     def position(self): return self.__position
     @property
@@ -242,11 +257,10 @@ class Calculation(ABC, metaclass=CalculationMeta):
         return wrapper
 
     def __call__(self, *args, **kwargs):
-        pass
-
-#        generator = (dataarray.to_dataset(name=name) for name, dataarray in self.execute(*args, **kwargs))
-#        dataset = xr.merge(list(generator))
-#        return dataset
+        generator = self.execute(*args, **kwargs)
+        datasets = filter(None, list(generator))
+        dataset = xr.merge(list(datasets))
+        return dataset
 
     @abstractmethod
     def execute(self, dataset, *args, **kwargs): pass
