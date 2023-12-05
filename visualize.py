@@ -182,6 +182,10 @@ class Axes3D(Axes, projection="3d", coordinates=["x", "y", "z"]): pass
 class AxesPolar(Axes, projection="polar", coordinates=["r", "θ"]): pass
 
 
+class Hist2D(Plot, projection=None, data=["x", "y"]):
+    def execute(self, ax, *args, **kwargs):
+        ax.hist(self.y, bins=self.x, label=self.name)
+
 class Line2D(Plot, projection=None, data=["x", "y"]):
     def execute(self, ax, *args, **kwargs):
         ax.plot(self.x, self.y, label=self.name)

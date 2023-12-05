@@ -25,28 +25,32 @@ __license__ = ""
 LOGGER = logging.getLogger(__name__)
 
 
-def equation(variable, name, datatype, *args, domain, function, **kwargs):
+def equation(variable, dataname, datatype, *args, domain, function, **kwargs):
     assert isinstance(domain, tuple) and callable(function)
-    clsname = str(name).title()
-    dataname = str(name).lower()
-    attrs = dict(variable=variable, datatype=datatype, dataname=dataname, domain=domain, function=function)
+    clsname = str(dataname).title()
+    dataname = str(dataname).lower()
+    attrs = dict(variable=variable, dataname=dataname, datatype=datatype, domain=domain, function=function)
     cls = type(clsname, (Equation,), {}, **attrs)
     yield cls
 
-def source(variable, name, *args, position, variables={}, fullname=True, **kwargs):
+def source(variable, name, *args, position, variables={}, **kwargs):
     assert isinstance(variables, dict)
+    title = lambda string: "|".join([str(substring).title() for substring in str(string).split("|")])
+    varfunc = lambda string: ".".join([variable, string])
+    locfunc = lambda optional, required, fullname: "|".join([str(name), str(value)]).lower() if bool(fullname) else str(value).lower()
     for key, value in variables.items():
-        clsname = "|".join([str(string).title() for string in str(name).split("|")] + [str(value).title()])
-        dataname = "|".join([str(name).lower(), str(value).lower()]) if bool(fullname) else str(value).lower()
-        create = lambda subvariable: ".".join([variable, subvariable])
-        attrs = dict(variable=create(key), dataname=dataname, position=position, location=value)
+        Location = ntuple("Location", "source destination")
+        location = Location(locfunc(name, value, kwargs.get("source", False)), locfunc(name, value, kwargs.get("destination", False)))
+        clsname = title("|".join([name, value]))
+        varname = varfunc(key)
+        attrs = dict(variable=varname, position=position, location=location)
         cls = type(clsname, (Source,), {}, **attrs)
         yield cls
 
 def constant(variable, name, *args, position, **kwargs):
-    title = "|".join([str(string).title() for string in str(name).split("|")])
+    clsname = "|".join([str(string).title() for string in str(name).split("|")])
     attrs = dict(variable=variable, position=position)
-    cls = type(title, (Constant,), {}, **attrs)
+    cls = type(clsname, (Constant,), {}, **attrs)
     yield cls
 
 
@@ -135,29 +139,27 @@ class Equation(Stage):
 
 
 class Source(Stage):
-    def __init_subclass__(cls, *args, dataname, position, location, **kwargs):
+    def __init_subclass__(cls, *args, position, location, **kwargs):
         assert isinstance(position, (int, str))
-        cls.__dataname__ = dataname
         cls.__position__ = position
         cls.__location__ = location
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__dataname__ = self.__class__.__dataname__
         self.__position = self.__class__.__position__
         self.__location = self.__class__.__location__
 
     def __call__(self, *args, **kwargs):
         try:
             dataarray = self.locate(*args, **kwargs)
-            dataset = dataarray.to_dataset(name=self.dataname)
+            dataset = dataarray.to_dataset(name=self.location.destination)
             return dataset
         except (KeyError, IndexError):
             return None
 
     def locate(self, *args, **kwargs):
         dataset = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
-        dataarray = dataset[self.location] if bool(self.location) else dataset
+        dataarray = dataset[self.location.source] if bool(self.location.source) else dataset
         return dataarray
 
     def execute(self, order):
@@ -165,8 +167,6 @@ class Source(Stage):
         wrapper.__name__ = str(self.name)
         return wrapper
 
-    @property
-    def dataname(self): return self.__dataname__
     @property
     def position(self): return self.__position
     @property
