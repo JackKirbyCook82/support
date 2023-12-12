@@ -84,7 +84,8 @@ def save_netcdf(content, *args, file, mode, **kwargs):
 @save.register(pd.DataFrame, "csv")
 @save.register(dk.DataFrame, "csv")
 def save_csv(content, *args, file, mode, **kwargs):
-    parms = dict(index=False, header=True)
+    header = not os.path.isfile(file) or mode == "w"
+    parms = dict(index=False, header=header)
     if isinstance(content, dk.DataFrame):
         update = dict(compute=True, single_file=True, header_first_partition_only=True)
         parms.update(update)

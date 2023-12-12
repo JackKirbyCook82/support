@@ -7,6 +7,7 @@ Created on Weds Jul 12 2023
 """
 
 import sys
+import types
 import queue
 import inspect
 import logging
@@ -24,17 +25,13 @@ LOGGER = logging.getLogger(__name__)
 
 
 class Routine(threading.Thread):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.__daemon__ = kwargs.get("daemon", getattr(cls, "daemon", False))
-
     def __repr__(self): return self.name
     def __bool__(self): return super().is_alive()
 
     def __init__(self, routine, *args, **kwargs):
         assert callable(routine)
         name = kwargs.get("name", self.__class__.__name__)
-        daemon = self.__class__.__daemon__
-        threading.Thread.__init__(self, name=name, daemon=daemon)
+        threading.Thread.__init__(self, name=name, daemon=False)
         self.__routine = routine
         self.__arguments = list()
         self.__parameters = dict()
@@ -66,7 +63,13 @@ class Routine(threading.Thread):
             LOGGER.info("Completed: {}".format(repr(self)))
 
     def process(self, *args, **kwargs):
-        self.routine(*args, **kwargs)
+        routine = self.routine.__call__ if hasattr(self.routine, "__call__") else self.routine
+        if not inspect.isgeneratorfunction(routine):
+            routine(*args, **kwargs)
+        else:
+            generator = routine(*args, **kwargs)
+            for _ in iter(generator):
+                pass
 
     @staticmethod
     def generator(routine):
@@ -84,7 +87,7 @@ class Routine(threading.Thread):
     def parameters(self): return self.__parameters
 
 
-class Producer(Routine, daemon=False):
+class Producer(Routine):
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(destination, Queue)
@@ -99,7 +102,7 @@ class Producer(Routine, daemon=False):
     def destination(self): return self.__destination
 
 
-class Consumer(Routine, daemon=False):
+class Consumer(Routine):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, Queue)
@@ -122,7 +125,7 @@ class Consumer(Routine, daemon=False):
     def source(self): return self.__source
 
 
-class Processor(Routine, daemon=False):
+class Processor(Routine):
     def __init__(self, *args, source, destination, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, Queue)

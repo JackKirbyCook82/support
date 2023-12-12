@@ -258,9 +258,7 @@ class Calculation(ABC, metaclass=CalculationMeta):
 
     def __call__(self, *args, **kwargs):
         generator = self.execute(*args, **kwargs)
-        datasets = filter(None, list(generator))
-        dataset = xr.merge(list(datasets))
-        return dataset
+        return xr.merge(list(generator))
 
     @abstractmethod
     def execute(self, dataset, *args, **kwargs): pass
