@@ -18,7 +18,7 @@ from support.files import Locks, save, load
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Processor", "Downloader", "Uploader", "Saver", "Loader"]
+__all__ = ["Processor", "Downloader", "Saver", "Loader"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -83,7 +83,7 @@ class Processor(ABC):
     def name(self): return self.__name
 
 
-class Websites(Processor, ABC):
+class Downloader(Processor, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         pages = {key: value for key, value in getattr(cls, "__pages__", {}).items()}
         pages.update(kwargs.get("pages", {}))
@@ -99,10 +99,6 @@ class Websites(Processor, ABC):
 
     @property
     def pages(self): return self.__pages
-
-
-class Downloader(Websites, ABC): pass
-class Uploader(Websites, ABC): pass
 
 
 class Files(Processor, ABC):
