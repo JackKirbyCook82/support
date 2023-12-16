@@ -259,7 +259,7 @@ class Calculation(ABC, metaclass=CalculationMeta):
     def __call__(self, *args, **kwargs):
         generator = self.execute(*args, **kwargs)
         datasets = list(generator)
-        return xr.merge(list(generator)) if bool(datasets) else None
+        return xr.merge(datasets) if bool(datasets) else None
 
     @abstractmethod
     def execute(self, dataset, *args, **kwargs): pass

@@ -13,12 +13,13 @@ import inspect
 import logging
 from functools import reduce
 from abc import ABC, abstractmethod
+from collections import OrderedDict as ODict
 
 from support.files import Locks, save, load
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Processor", "Downloader", "Saver", "Loader"]
+__all__ = ["Processor", "Downloader", "Calculator", "Saver", "Loader"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -83,6 +84,24 @@ class Processor(ABC):
     def name(self): return self.__name
 
 
+class Calculator(Processor, ABC):
+    def __init_subclass__(cls, *args, calculations={}, **kwargs):
+        assert isinstance(calculations, dict)
+        existing = ODict([(key, value) for key, value in getattr(cls, "__calculations__", {}).items()])
+        calculations = existing | calculations
+        cls.__calculations__ = calculations
+
+    def __init__(self, *args, name, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        calculations = ODict(list(self.__class__.__calculations__.items()))
+        order = list(kwargs.get("calculations", calculations.keys()))
+        calculations = {key: calculations[key](*args, **kwargs) for key in order}
+        self.__calculations = calculations
+
+    @property
+    def calculations(self): return self.__calculations
+
+
 class Downloader(Processor, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         pages = {key: value for key, value in getattr(cls, "__pages__", {}).items()}
@@ -93,8 +112,7 @@ class Downloader(Processor, ABC):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
         pages = list(self.__class__.__pages__.items())
-        pages = {key: page for key, page in iter(pages)}
-        pages = {key: page(source) for key, page in pages.items()}
+        pages = {key: page(source) for key, page in iter(pages)}
         self.__pages = pages
 
     @property
