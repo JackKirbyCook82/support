@@ -258,7 +258,7 @@ class Calculation(ABC, metaclass=CalculationMeta):
 
     def __call__(self, *args, **kwargs):
         generator = self.execute(*args, **kwargs)
-        datasets = list(generator)
+        datasets = [dataset for dataset in generator if dataset is not None]
         return xr.merge(datasets) if bool(datasets) else None
 
     @abstractmethod
