@@ -76,7 +76,7 @@ class AxesMeta(type):
 
 class Axes(object, metaclass=AxesMeta):
     def __init__(self, *args, projection, coordinates, name=None, **kwargs):
-        self.__coords = ODict.fromkeys(coordinates)
+        self.__coords = ODict([(key, kwargs.get(key, None)) for key in coordinates])
         self.__plots = ODict.fromkeys([])
         self.__projection = projection
         self.__name = name
@@ -92,14 +92,11 @@ class Axes(object, metaclass=AxesMeta):
             return self.coords[variable]
         return super().__getattr__(variable)
 
-    def __setattr__(self, variable, coordinate):
-        if variable in self.coords.keys():
-            self.coords[variable] = coordinate
-        super().__setattr__(variable, coordinate)
-
     def __call__(self, ax, *args, **kwargs):
         ax.set_title(self.name if self.name is not None else None)
         for variable, coordinate in self.coords.items():
+            if coordinate is None:
+                continue
             assert coordinate.variable == variable
             coordinate(ax, *args, **kwargs)
         for name, plot in self.plots.items():
@@ -130,26 +127,27 @@ class PlotMeta(ABCMeta):
         cls = super(PlotMeta, mcs).__new__(mcs, name, bases, attrs)
         return cls
 
-    def __init__(cls, *args, projection=None, **kwargs):
+    def __init__(cls, *args, projection=None, data=[], **kwargs):
         assert isinstance(projection, (str, type(None)))
-        if not any([type(base) is AxesMeta for base in cls.__bases__]):
+        if not any([type(base) is PlotMeta for base in cls.__bases__]):
             return
         setattr(Plot, cls.__name__, cls)
         cls.__projection__ = projection
+        cls.__data__ = data
 
     def __call__(cls, *args, projection=None, **kwargs):
-        if not any([type(base) is AxesMeta for base in cls.__bases__]):
+        if not any([type(base) is PlotMeta for base in cls.__bases__]):
             subclasses = {subcls.__projection__: subcls for subcls in cls.__subclasses__()}
             subclass = subclasses[projection]
             return subclass(*args, **kwargs)
-        parameters = dict(projection=cls.__projection__)
-        instance = super(AxesMeta, cls).__call__(*args, **parameters, **kwargs)
+        parameters = dict(projection=cls.__projection__, data=cls.__data__)
+        instance = super(PlotMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
 
 class Plot(ABC, metaclass=PlotMeta):
     def __init__(self, *args, data, projection, name=None, **kwargs):
-        self.__data = ODict.fromkeys(data)
+        self.__data = ODict([(key, kwargs[key]) for key in data])
         self.__projection = projection
         self.__name = name
 
@@ -157,11 +155,6 @@ class Plot(ABC, metaclass=PlotMeta):
         if variable in self.data.keys():
             return self.data[variable]
         return super().__getattr__(variable)
-
-    def __setattr__(self, variable, data):
-        if variable in self.data.keys():
-            self.coords[variable] = data
-        super().__setattr__(variable, data)
 
     def __call__(self, ax, *args, **kwargs):
         self.execute(ax, *args, **kwargs)

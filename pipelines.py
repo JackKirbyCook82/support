@@ -35,8 +35,9 @@ class Pipeline(list):
         super().__init__(processors)
 
     def __add__(self, other):
-        assert isinstance(other, Processor)
-        return Pipeline([*self, other])
+        assert isinstance(other, (Pipeline, Processor))
+        contents = list(self) + (list(other) if isinstance(other, Pipeline) else [other])
+        return Pipeline(contents)
 
     def __call__(self, *args, **kwargs):
         source, segments = self[0](*args, **kwargs), self[1:]
@@ -52,8 +53,9 @@ class Processor(ABC):
         self.__name = kwargs.get("name", self.__class__.__name__)
 
     def __add__(self, other):
-        assert isinstance(other, Processor)
-        return Pipeline([self, other])
+        assert isinstance(other, (Pipeline, Processor))
+        contents = [self] + ([other] if isinstance(other, Processor) else list(other))
+        return Pipeline(contents)
 
     def __call__(self, *args, **kwargs):
         source = args[0] if bool(args) and isinstance(args[0], types.GeneratorType) else None
