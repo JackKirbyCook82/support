@@ -7,16 +7,16 @@ Created on Weds Jul 12 2023
 """
 
 import sys
-import types
 import queue
 import inspect
 import logging
 import traceback
 import threading
+from abc import ABC, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Routine", "Producer", "Consumer", "Processor", "FIFOQueue", "LIFOQueue", "PriorityQueue"]
+__all__ = ["Routine", "Producer", "Consumer", "Processor", "FIFOQueue", "LIFOQueue", "HIPOQueue", "LIPOQueue", "Stack"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -90,7 +90,7 @@ class Routine(threading.Thread):
 class Producer(Routine):
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(destination, Queue)
+        assert isinstance(destination, Stack)
         self.__destination = destination
 
     def process(self, *args, **kwargs):
@@ -105,7 +105,7 @@ class Producer(Routine):
 class Consumer(Routine):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(source, Queue)
+        assert isinstance(source, Stack)
         self.__source = source
 
     def execute(self, content, *args, **kwargs): pass
@@ -128,8 +128,8 @@ class Consumer(Routine):
 class Processor(Routine):
     def __init__(self, *args, source, destination, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(source, Queue)
-        assert isinstance(destination, Queue)
+        assert isinstance(source, Stack)
+        assert isinstance(destination, Stack)
         self.__source = source
         self.__destination = destination
 
@@ -151,65 +151,102 @@ class Processor(Routine):
     def destination(self): return self.__destination
 
 
-class QueueMeta(type):
-    def __call__(cls, contents, *args, size=None, **kwargs):
+class Stack(ABC):
+    def __repr__(self): return self.name
+    def __len__(self): return self.length
+    def __bool__(self): return not self.empty
+
+    def __init__(self, *args, limit=None, **kwargs):
+        self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__limit = limit if limit is not None else 0
+
+    @abstractmethod
+    def done(self, *args, **kwargs): pass
+    @abstractmethod
+    def get(self, *args, **kwargs): pass
+    @abstractmethod
+    def put(self, content, *args, **kwargs): pass
+
+    @property
+    @abstractmethod
+    def length(self): pass
+    @property
+    @abstractmethod
+    def empty(self): pass
+
+    @property
+    def name(self): return self.__name
+    @property
+    def limit(self): return self.__limit
+
+
+class StandardQueue(queue.Queue, Stack):
+    def __new__(cls, contents, *args, limit=None, **kwargs):
         assert isinstance(contents, list)
-        instance = super().__call__(*args, **kwargs)
-        assert (len(contents) <= size) if bool(size) else True
+        assert (len(contents) <= limit) if bool(limit) else True
+        instance = queue.Queue.__new__(limit if limit is not None else 0)
         for content in contents:
             instance.put(content)
         return instance
 
+    def __init__(self, *args, limit=None, **kwargs):
+        queue.Queue.__init__(self, limit if limit is not None else 0)
+        Stack.__init__(self, *args, limit=limit, **kwargs)
 
-class Queue(queue.Queue, metaclass=QueueMeta):
-    def __repr__(self): return self.name
-    def __len__(self): return self.qsize()
-    def __bool__(self): return not self.empty()
-
-    def __init__(self, *args, size=None, **kwargs):
-        super().__init__(size if size is not None else 0)
-        self.__obsolete = kwargs.get("obsolete", lambda content: False)
-        self.__name = kwargs.get("name", self.__class__.__name__)
-
-    def put(self, content, timeout=None):
-        if not self.obsolete(content):
-            super().put(content, timeout=timeout)
-
-    def done(self): self.task_done()
-    def get(self, timeout=None):
-        content = super().get(timeout=timeout)
-        if not self.obsolete(content):
-            return content
-        return self.get(content, timeout=timeout)
+    def done(self): super().task_done()
+    def get(self, timeout=None): return super().get(timeout=timeout)
+    def put(self, content, timeout=None): super().put(content, timeout=timeout)
 
     @property
-    def obsolete(self): return self.__obsolete
+    def length(self): return super().qsize()
     @property
-    def name(self): return self.__name
+    def empty(self): return super().empty()
 
 
-class FIFOQueue(Queue): pass
-class LIFOQueue(Queue, queue.LifoQueue): pass
+class PriorityQueue(queue.PriorityQueue, Stack):
+    def __init_subclass__(cls, *args, **kwargs):
+        ascending = kwargs.get("ascending", getattr(cls, "__ascending__", True))
+        assert isinstance(ascending, bool)
+        cls.__ascending__ = ascending
 
+    def __new__(cls, contents, *args, limit=None, **kwargs):
+        assert isinstance(contents, list)
+        assert (len(contents) <= limit) if bool(limit) else True
+        instance = queue.PriorityQueue.__new__(limit if limit is not None else 0)
+        for content in contents:
+            instance.put(content)
+        return instance
 
-class PriorityQueue(Queue, queue.PriorityQueue):
-    def __init__(self, *args, priority, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, limit=None, priority, **kwargs):
+        queue.PriorityQueue.__init__(self, limit if limit is not None else 0)
+        Stack.__init__(self, *args, limit=limit, **kwargs)
         assert callable(priority)
+        self.__ascending = self.__class__.__ascending__
         self.__priority = priority
 
+    def done(self): super().task_done()
+    def get(self, timeout=None): return super().get(timeout=timeout)[1]
     def put(self, content, timeout=None):
         priority = self.priority(content)
         assert isinstance(priority, int)
-        couple = (-priority, content)
+        multiplier = (int(not self.ascending) * 2) - 1
+        couple = (multiplier * priority, content)
         super().put(couple, timeout=timeout)
 
-    def get(self, timeout=None):
-        (priority, content) = super().get(timeout=timeout)
-        return self.get(content, timeout=timeout)
+    @property
+    def length(self): return super().qsize()
+    @property
+    def empty(self): return super().empty()
 
     @property
     def priority(self): return self.__priority
+    @property
+    def ascending(self): return self.__ascending
 
+
+class LIFOQueue(queue.LifoQueue, StandardQueue): pass
+class FIFOQueue(queue.Queue, StandardQueue): pass
+class HIPOQueue(PriorityQueue, ascending=True): pass
+class LIPOQueue(PriorityQueue, ascending=False): pass
 
 
