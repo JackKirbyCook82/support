@@ -7,7 +7,6 @@ Created on Sun 14 2023
 """
 
 import os.path
-import multiprocessing
 import xarray as xr
 import pandas as pd
 import dask.dataframe as dk
@@ -16,16 +15,9 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Locks", "save", "load"]
+__all__ = ["save", "load"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
-
-
-class Locks(dict):
-    def __getitem__(self, file):
-        if file not in self.keys():
-            self[file] = multiprocessing.Lock()
-        return super().__getitem__(file)
 
 
 def dispatcher(mainfunction):

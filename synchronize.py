@@ -12,11 +12,10 @@ import inspect
 import logging
 import traceback
 import threading
-from abc import ABC, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Routine", "Producer", "Consumer", "Processor", "FIFOQueue", "LIFOQueue", "HIPOQueue", "LIPOQueue", "Stack"]
+__all__ = ["Routine", "Producer", "Consumer", "Processor", "FIFOQueue", "LIFOQueue", "HIPOQueue", "LIPOQueue"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -90,7 +89,6 @@ class Routine(threading.Thread):
 class Producer(Routine):
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(destination, Stack)
         self.__destination = destination
 
     def process(self, *args, **kwargs):
@@ -105,7 +103,6 @@ class Producer(Routine):
 class Consumer(Routine):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(source, Stack)
         self.__source = source
 
     def execute(self, content, *args, **kwargs): pass
@@ -128,8 +125,6 @@ class Consumer(Routine):
 class Processor(Routine):
     def __init__(self, *args, source, destination, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(source, Stack)
-        assert isinstance(destination, Stack)
         self.__source = source
         self.__destination = destination
 
@@ -151,76 +146,53 @@ class Processor(Routine):
     def destination(self): return self.__destination
 
 
-class Stack(ABC):
+class StandardQueue(queue.Queue):
     def __repr__(self): return self.name
-    def __len__(self): return self.length
+    def __len__(self): return self.size
     def __bool__(self): return not self.empty
 
-    def __init__(self, *args, limit=None, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__limit = limit if limit is not None else 0
-
-    @abstractmethod
-    def done(self, *args, **kwargs): pass
-    @abstractmethod
-    def get(self, *args, **kwargs): pass
-    @abstractmethod
-    def put(self, content, *args, **kwargs): pass
-
-    @property
-    @abstractmethod
-    def length(self): pass
-    @property
-    @abstractmethod
-    def empty(self): pass
-
-    @property
-    def name(self): return self.__name
-    @property
-    def limit(self): return self.__limit
-
-
-class StandardQueue(queue.Queue, Stack):
-    def __new__(cls, contents, *args, limit=None, **kwargs):
+    def __new__(cls, contents, *args, size=None, **kwargs):
         assert isinstance(contents, list)
-        assert (len(contents) <= limit) if bool(limit) else True
-        instance = queue.Queue.__new__(limit if limit is not None else 0)
+        assert (len(contents) <= size) if bool(size) else True
+        instance = super().__new__(size if size is not None else 0)
         for content in contents:
             instance.put(content)
         return instance
 
-    def __init__(self, *args, limit=None, **kwargs):
-        queue.Queue.__init__(self, limit if limit is not None else 0)
-        Stack.__init__(self, *args, limit=limit, **kwargs)
+    def __init__(self, *args, size=None, **kwargs):
+        super().__init__(self, size if size is not None else 0)
+        self.__name = kwargs.get("name", self.__class__.__name__)
 
     def done(self): super().task_done()
     def get(self, timeout=None): return super().get(timeout=timeout)
     def put(self, content, timeout=None): super().put(content, timeout=timeout)
 
     @property
-    def length(self): return super().qsize()
+    def size(self): return super().qsize()
     @property
     def empty(self): return super().empty()
+    @property
+    def name(self): return self.__name
 
 
-class PriorityQueue(queue.PriorityQueue, Stack):
+class PriorityQueue(queue.PriorityQueue):
     def __init_subclass__(cls, *args, **kwargs):
         ascending = kwargs.get("ascending", getattr(cls, "__ascending__", True))
         assert isinstance(ascending, bool)
         cls.__ascending__ = ascending
 
-    def __new__(cls, contents, *args, limit=None, **kwargs):
+    def __new__(cls, contents, *args, size=None, **kwargs):
         assert isinstance(contents, list)
-        assert (len(contents) <= limit) if bool(limit) else True
-        instance = queue.PriorityQueue.__new__(limit if limit is not None else 0)
+        assert (len(contents) <= size) if bool(size) else True
+        instance = super().__new__(size if size is not None else 0)
         for content in contents:
             instance.put(content)
         return instance
 
-    def __init__(self, *args, limit=None, priority, **kwargs):
-        queue.PriorityQueue.__init__(self, limit if limit is not None else 0)
-        Stack.__init__(self, *args, limit=limit, **kwargs)
+    def __init__(self, *args, size=None, priority, **kwargs):
         assert callable(priority)
+        super().__init__(self, size if size is not None else 0)
+        self.__name = kwargs.get("name", self.__class__.__name__)
         self.__ascending = self.__class__.__ascending__
         self.__priority = priority
 
@@ -234,18 +206,19 @@ class PriorityQueue(queue.PriorityQueue, Stack):
         super().put(couple, timeout=timeout)
 
     @property
-    def length(self): return super().qsize()
+    def size(self): return super().qsize()
     @property
     def empty(self): return super().empty()
-
+    @property
+    def name(self): return self.__name
     @property
     def priority(self): return self.__priority
     @property
     def ascending(self): return self.__ascending
 
 
-class LIFOQueue(queue.LifoQueue, StandardQueue): pass
-class FIFOQueue(queue.Queue, StandardQueue): pass
+class LIFOQueue(StandardQueue, queue.LifoQueue): pass
+class FIFOQueue(StandardQueue, queue.Queue): pass
 class HIPOQueue(PriorityQueue, ascending=True): pass
 class LIPOQueue(PriorityQueue, ascending=False): pass
 

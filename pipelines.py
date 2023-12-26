@@ -9,17 +9,16 @@ Created on Weds Jul 12 2023
 import os
 import time
 import types
-import inspect
 import logging
+import multiprocessing
 from functools import reduce
-from abc import ABC, abstractmethod
-from collections import OrderedDict as ODict
+from abc import ABC, ABCMeta, abstractmethod
 
-from support.files import Locks, save, load
+from support.files import save, load
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Processor", "Downloader", "Calculator", "Saver", "Loader"]
+__all__ = ["Downloader", "Calculator", "Filter", "Loader", "Saver"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -27,135 +26,120 @@ __license__ = ""
 LOGGER = logging.getLogger(__name__)
 
 
-class Pipeline(list):
-    def __repr__(self): return "|".join(list(map(repr, self)))
-    def __init__(self, processors):
+class PipelineMeta(ABCMeta):
+    def __call__(cls, feed, stage):
+        assert isinstance(feed, (OpenPipeline, Source))
+        assert isinstance(stage, (Processor, Destination))
+        source = feed.source if isinstance(feed, OpenPipeline) else stage
+        processors = feed.processors if isinstance(feed, OpenPipeline) else []
+        processors = processors + ([stage] if isinstance(stage, Processor) else [])
+        destination = stage if isinstance(stage, Destination) else None
+        subcls = OpenPipeline if destination is None else ClosedPipeline
+        instance = super(PipelineMeta, subcls).__call__(source, processors, destination)
+        return instance
+
+
+class Pipeline(ABC, metaclass=PipelineMeta): pass
+class OpenPipeline(Pipeline):
+    def __init__(self, source, processors):
+        assert isinstance(source, Source)
         assert isinstance(processors, list)
         assert all([isinstance(processor, Processor) for processor in processors])
-        super().__init__(processors)
+        self.__source = source
+        self.__processors = processors
 
-    def __add__(self, other):
-        assert isinstance(other, (Pipeline, Processor))
-        contents = list(self) + (list(other) if isinstance(other, Pipeline) else [other])
-        return Pipeline(contents)
+    def __add__(self, stage):
+        assert isinstance(stage, (Processor, Destination))
+        return Pipeline(self, stage)
 
     def __call__(self, *args, **kwargs):
-        source, segments = self[0](*args, **kwargs), self[1:]
+        source = self.source(*args, **kwargs)
         assert isinstance(source, types.GeneratorType)
-        assert all([inspect.isgeneratorfunction(segment.__call__) for segment in segments])
-        generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), segments, source)
+        generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), self.processors, source)
         yield from iter(generator)
 
+    @property
+    def source(self): return self.__source
+    @property
+    def processors(self): return self.__processors
 
-class Processor(ABC):
+
+class ClosedPipeline(OpenPipeline):
+    def __init__(self, source, processors, destination):
+        super().__init__(source, processors)
+        assert isinstance(destination, Destination)
+        self.__destination = destination
+
+    def __call__(self, *args, **kwargs):
+        source = self.source(*args, **kwargs)
+        assert isinstance(source, types.GeneratorType)
+        generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), self.processors, source)
+        self.destination(generator, *args, **kwargs)
+
+    @property
+    def destination(self): return self.__destination
+
+
+class Stage(ABC):
     def __repr__(self): return self.name
     def __init__(self, *args, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
 
-    def __add__(self, other):
-        assert isinstance(other, (Pipeline, Processor))
-        contents = [self] + ([other] if isinstance(other, Processor) else list(other))
-        return Pipeline(contents)
-
     def __call__(self, *args, **kwargs):
-        source = args[0] if bool(args) and isinstance(args[0], types.GeneratorType) else None
-        process = self.process(source, *args, **kwargs) if source is not None else self.generator(*args, **kwargs)
-        yield from iter(process)
+        generator = self.generator(*args, **kwargs)
+        yield from iter(generator)
 
-    def process(self, source, *args, **kwargs):
-        for content in iter(source):
-            generator = self.generator(content, *args, **kwargs)
-            yield from iter(generator)
-
-    def generator(self, *args, **kwargs):
-        start = time.time()
-        if not inspect.isgeneratorfunction(self.execute):
-            self.execute(*args, **kwargs)
-            LOGGER.info("Processed: {}|{:.2f}s".format(repr(self), time.time() - start))
-            return
-        generator = self.execute(*args, **kwargs)
-        assert isinstance(generator, types.GeneratorType)
-        for content in iter(generator):
-            LOGGER.info("Processed: {}|{:.2f}s".format(repr(self), time.time() - start))
-            yield content
-            start = time.time()
-
+    @abstractmethod
+    def generator(self, *args, **kwargs): pass
     @abstractmethod
     def execute(self, *args, **kwargs): pass
     @property
     def name(self): return self.__name
 
 
-class Calculator(Processor, ABC):
-    def __init_subclass__(cls, *args, calculations={}, **kwargs):
-        assert isinstance(calculations, dict)
-        existing = ODict([(key, value) for key, value in getattr(cls, "__calculations__", {}).items()])
-        calculations = existing | calculations
-        cls.__calculations__ = calculations
+class Source(Stage, ABC):
+    def __add__(self, stage):
+        assert isinstance(stage, (Processor, Destination))
+        return Pipeline(self, stage)
 
-    def __init__(self, *args, name, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        calculations = ODict(list(self.__class__.__calculations__.items()))
-        order = list(kwargs.get("calculations", calculations.keys()))
-        calculations = {key: calculations[key](*args, **kwargs) for key in order}
-        self.__calculations = calculations
-
-    @property
-    def calculations(self): return self.__calculations
+    def generator(self, *args, **kwargs):
+        start = time.time()
+        generator = self.execute(*args, **kwargs)
+        assert isinstance(generator, types.GeneratorType)
+        for content in iter(generator):
+            LOGGER.info("Source: {}|{:.2f}s".format(repr(self), time.time() - start))
+            yield content
+            start = time.time()
 
 
-class Downloader(Processor, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        pages = {key: value for key, value in getattr(cls, "__pages__", {}).items()}
-        pages.update(kwargs.get("pages", {}))
-        cls.__pages__ = pages
-
-    def __getitem__(self, key): return self.pages[key]
-    def __init__(self, *args, source, **kwargs):
-        super().__init__(*args, **kwargs)
-        pages = list(self.__class__.__pages__.items())
-        pages = {key: page(source) for key, page in iter(pages)}
-        self.__pages = pages
-
-    @property
-    def pages(self): return self.__pages
+class Processor(Stage, ABC):
+    def generator(self, stage, *args, **kwargs):
+        start = time.time()
+        assert isinstance(stage, (Source, Processor))
+        generator = self.execute(*args, **kwargs)
+        assert isinstance(generator, types.GeneratorType)
+        for content in iter(generator):
+            LOGGER.info("Processor: {}|{:.2f}s".format(repr(self), time.time() - start))
+            yield content
+            start = time.time()
 
 
-class Files(Processor, ABC):
-    def __init__(self, *args, repository, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__repository = repository
-        self.__locks = Locks()
-
-    @property
-    def repository(self): return self.__repository
-    @property
-    def locks(self): return self.__locks
+class Destination(Stage, ABC):
+    def generator(self, stage, *args, **kwargs):
+        start = time.time()
+        assert isinstance(stage, (Source, Processor))
+        self.execute(*args, **kwargs)
+        LOGGER.info("Destination: {}|{:.2f}s".format(repr(self), time.time() - start))
+        return
+        yield
 
 
-class Loader(Files, ABC):
-    def __init__(self, *args, repository, **kwargs):
-        super().__init__(*args, repository=repository, **kwargs)
-        if not os.path.isdir(repository):
-            raise FileNotFoundError(repository)
+class Downloader(Source, ABC): pass
+class Calculator(Processor, ABC): pass
+class Filter(Processor, ABC): pass
 
-    @staticmethod
-    def read(*args, file, filetype, **kwargs):
-        content = load(*args, file=file, filetype=filetype, **kwargs)
-        return content
-
-
-class Saver(Files, ABC):
-    def __init__(self, *args, repository, **kwargs):
-        super().__init__(*args, repository=repository, **kwargs)
-        if not os.path.isdir(repository):
-            os.mkdir(repository)
-
-    @staticmethod
-    def write(content, *args, file, mode, **kwargs):
-        save(content, *args, file=file, mode=mode, **kwargs)
-        LOGGER.info("Saved: {}".format(str(file)))
-
+class Loader(Source, ABC): pass
+class Saver(Destination, ABC): pass
 
 
 
