@@ -12,14 +12,17 @@ import types
 import queue
 import logging
 import inspect
+import multiprocessing
 from functools import reduce
 from abc import ABC, ABCMeta, abstractmethod
+from collections import namedtuple as ntuple
 
+import pandas as pd
 from support.files import load, save
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Downloader", "Calculator", "Filter", "Loader", "Saver", "Producer", "Consumer"]
+__all__ = ["Downloader", "Parser", "Calculator", "Filter", "Table", "Loader", "Saver", "Producer", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -43,13 +46,11 @@ class PipelineMeta(ABCMeta):
 
 
 class Pipeline(ABC, metaclass=PipelineMeta):
-    def __repr__(self): return "|".format([repr(stage) for stage in self.stages])
+    def __repr__(self): return "|".join([repr(stage) for stage in self.stages])
     def __init__(self, source): self.__source = source
-
     def __call__(self, *args, **kwargs):
         source, processors = self.stages[0](*args, **kwargs), self.stages[1:]
         assert isinstance(source, types.GeneratorType)
-        assert all([inspect.isgeneratorfunction(processor.__call__) for processor in processors])
         generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), processors, source)
         yield from iter(generator)
 
@@ -60,7 +61,6 @@ class Pipeline(ABC, metaclass=PipelineMeta):
 
 
 class OpenPipeline(Pipeline):
-    def __repr__(self): return "|".join([super().__repr__()] + [repr(processor) for processor in self.processors])
     def __init__(self, source, processors):
         assert isinstance(source, Source)
         assert isinstance(processors, list)
@@ -79,7 +79,6 @@ class OpenPipeline(Pipeline):
 
 
 class ClosedPipeline(OpenPipeline):
-    def __repr__(self): return "|".join([super().__repr__(), repr(self.destination)])
     def __init__(self, source, processors, destination):
         assert isinstance(destination, Destination)
         super().__init__(source, processors)
@@ -93,9 +92,12 @@ class ClosedPipeline(OpenPipeline):
 
 class Stage(ABC):
     def __repr__(self): return self.name
+    def __call__(self, *args, **kwargs): return self.process(*args, **kwargs)
     def __init__(self, *args, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
 
+    @abstractmethod
+    def process(self, *args, **kwargs): pass
     @abstractmethod
     def generator(self, *args, **kwargs): pass
     @abstractmethod
@@ -109,41 +111,93 @@ class Source(Stage, ABC):
         assert isinstance(stage, (Processor, Destination))
         return Pipeline(self, stage)
 
+    def process(self, *args, **kwargs):
+        generator = self.generator(*args, **kwargs)
+        assert isinstance(generator, types.GeneratorType)
+        return generator
+
     def generator(self, *args, **kwargs):
         assert inspect.isgeneratorfunction(self.execute)
         start = time.time()
         generator = self.execute(*args, **kwargs)
         for content in iter(generator):
-            LOGGER.info("Source: {}|{:.2f}s".format(repr(self), time.time() - start))
+            LOGGER.info("Source: {}[{:.2f}s]".format(repr(self), time.time() - start))
             yield content
             start = time.time()
 
 
 class Processor(Stage, ABC):
+    def process(self, stage, *args, **kwargs):
+        assert isinstance(stage, types.GeneratorType)
+        for content in iter(stage):
+            generator = self.generator(content, *args, **kwargs)
+            assert isinstance(generator, types.GeneratorType)
+            yield from iter(generator)
+
     def generator(self, *args, **kwargs):
         assert inspect.isgeneratorfunction(self.execute)
         start = time.time()
         generator = self.execute(*args, **kwargs)
         assert isinstance(generator, types.GeneratorType)
         for content in iter(generator):
-            LOGGER.info("Processor: {}|{:.2f}s".format(repr(self), time.time() - start))
+            LOGGER.info("Processor: {}[{:.2f}s]".format(repr(self), time.time() - start))
             yield content
             start = time.time()
 
 
 class Destination(Stage, ABC):
+    def process(self, stage, *args, **kwargs):
+        assert isinstance(stage, types.GeneratorType)
+        for content in iter(stage):
+            generator = self.generator(content, *args, **kwargs)
+            assert isinstance(generator, types.GeneratorType)
+            yield from iter(generator)
+
     def generator(self, *args, **kwargs):
         assert not inspect.isgeneratorfunction(self.execute)
         start = time.time()
         self.execute(*args, **kwargs)
-        LOGGER.info("Destination: {}|{:.2f}s".format(repr(self), time.time() - start))
+        LOGGER.info("Destination: {}[{:.2f}s]".format(repr(self), time.time() - start))
         return
         yield
 
 
 class Downloader(Source, ABC): pass
+class Parser(Processor, ABC): pass
 class Calculator(Processor, ABC): pass
 class Filter(Processor, ABC): pass
+
+
+class Table(Destination, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        Axes = ntuple("Axes", "index columns")
+        axes = getattr(cls, "__axes__", Axes([], []))
+        index = kwargs.get("index", axes.index)
+        columns = kwargs.get("columns", axes.columns)
+        cls.__axes__ = Axes(index, columns)
+
+    def __bool__(self): return not bool(self.table.empty)
+    def __len__(self): return len(self.table.index)
+
+    def __init__(self, *args, name, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        axes = self.__class__.__axes__
+        self.__table = pd.DataFrame(columns=axes.index + axes.columns)
+        self.__mutex = multiprocessing.Lock()
+        self.__columns = axes.columns
+        self.__index = axes.index
+
+    @property
+    def table(self): return self.__table
+    @table.setter
+    def table(self, table): self.__table = table
+
+    @property
+    def mutex(self): return self.__mutex
+    @property
+    def columns(self): return self.__columns
+    @property
+    def index(self): return self.__index
 
 
 class Loader(Source, ABC):
@@ -152,18 +206,17 @@ class Loader(Source, ABC):
         if not os.path.isdir(repository):
             raise FileNotFoundError(repository)
         self.__repository = repository
-        self.__locks = locks
+        self.__mutex = locks
 
-    @staticmethod
-    def read(*args, file, filetype, **kwargs):
+    def read(self, *args, file, filetype, **kwargs):
         content = load(*args, file=file, filetype=filetype, **kwargs)
-        LOGGER.info("Load: {}".format(str(file)))
+        LOGGER.info("Loaded: {}[{}]".format(repr(self), str(file)))
         return content
 
     @property
     def repository(self): return self.__repository
     @property
-    def locks(self): return self.__locks
+    def mutex(self): return self.__mutex
 
 
 class Saver(Destination, ABC):
@@ -172,17 +225,16 @@ class Saver(Destination, ABC):
         if not os.path.isdir(repository):
             os.mkdir(repository)
         self.__repository = repository
-        self.__locks = locks
+        self.__mutex = locks
 
-    @staticmethod
-    def write(content, *args, file, filemode, **kwargs):
+    def write(self, content, *args, file, filemode, **kwargs):
         save(content, *args, file=file, mode=filemode, **kwargs)
-        LOGGER.info("Save: {}".format(str(file)))
+        LOGGER.info("Saved: {}[{}]".format(str(self), str(file)))
 
     @property
     def repository(self): return self.__repository
     @property
-    def locks(self): return self.__locks
+    def mutex(self): return self.__mutex
 
 
 class Producer(Source, ABC):

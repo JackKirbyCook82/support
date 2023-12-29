@@ -20,8 +20,8 @@ LOGGER = logging.getLogger(__name__)
 
 
 class StandardQueue(queue.Queue):
-    def __bool__(self): return not self.empty
     def __repr__(self): return self.name
+    def __bool__(self): return not self.empty
     def __len__(self): return self.size
 
     def __new__(cls, contents, *args, size=None, **kwargs):
@@ -49,6 +49,10 @@ class StandardQueue(queue.Queue):
 
 
 class PriorityQueue(queue.PriorityQueue):
+    def __repr__(self): return self.name
+    def __bool__(self): return not self.empty
+    def __len__(self): return self.size
+
     def __init_subclass__(cls, *args, **kwargs):
         ascending = kwargs.get("ascending", getattr(cls, "__ascending__", True))
         assert isinstance(ascending, bool)

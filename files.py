@@ -16,29 +16,9 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["save", "load", "getFileLocker"]
+__all__ = ["save", "load"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
-
-
-class FileLockerMeta(type):
-    instances = {}
-
-    def __call__(cls, name, *args, **kwargs):
-        if name not in FileLockerMeta.instances.keys():
-            FileLockerMeta.instances[name] = super(FileLockerMeta, cls).__call__(*args, **kwargs)
-        return FileLockerMeta.instances[name]
-
-
-class FileLocker(dict, metaclass=FileLockerMeta):
-    def __getitem__(self, file):
-        if file not in self.keys():
-            self[file] = multiprocessing.Lock()
-        return super().__getitem__(file)
-
-
-def getFileLocker(name):
-    return FileLocker(name)
 
 
 def dispatcher(mainfunction):
