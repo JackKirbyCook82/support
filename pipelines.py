@@ -12,7 +12,6 @@ import types
 import queue
 import logging
 import inspect
-import multiprocessing
 from functools import reduce
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
@@ -22,7 +21,7 @@ from support.files import load, save
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Downloader", "Parser", "Calculator", "Filter", "Table", "Loader", "Saver", "Producer", "Consumer"]
+__all__ = ["Processor", "Downloader", "Parser", "Calculator", "Filter", "Loader", "Saver", "Producer", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -166,38 +165,6 @@ class Downloader(Source, ABC): pass
 class Parser(Processor, ABC): pass
 class Calculator(Processor, ABC): pass
 class Filter(Processor, ABC): pass
-
-
-class Table(Destination, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        Axes = ntuple("Axes", "index columns")
-        axes = getattr(cls, "__axes__", Axes([], []))
-        index = kwargs.get("index", axes.index)
-        columns = kwargs.get("columns", axes.columns)
-        cls.__axes__ = Axes(index, columns)
-
-    def __bool__(self): return not bool(self.table.empty)
-    def __len__(self): return len(self.table.index)
-
-    def __init__(self, *args, name, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        axes = self.__class__.__axes__
-        self.__table = pd.DataFrame(columns=axes.index + axes.columns)
-        self.__mutex = multiprocessing.Lock()
-        self.__columns = axes.columns
-        self.__index = axes.index
-
-    @property
-    def table(self): return self.__table
-    @table.setter
-    def table(self, table): self.__table = table
-
-    @property
-    def mutex(self): return self.__mutex
-    @property
-    def columns(self): return self.__columns
-    @property
-    def index(self): return self.__index
 
 
 class Loader(Source, ABC):
