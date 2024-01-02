@@ -20,7 +20,7 @@ from support.locks import Locks
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Files", "Reader", "Writer"]
+__all__ = ["Files", "FileReader", "FileWriter"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
 
@@ -28,7 +28,7 @@ __license__ = ""
 LOGGER = logging.getLogger(__name__)
 
 
-class Reader(Producer, ABC):
+class FileReader(Producer, ABC):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, Files)
@@ -50,7 +50,7 @@ class Reader(Producer, ABC):
     def files(self): return self.__source
 
 
-class Writer(Consumer, ABC):
+class FileWriter(Consumer, ABC):
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(destination, Files)
@@ -79,6 +79,10 @@ class Files(object):
         self.__mutex = Locks(name=locks_name, timeout=timeout)
         self.__repository = repository
         self.__name = files_name
+
+#    def done(self): pass
+#    def get(self): pass
+#    def put(self, content): pass
 
     @property
     def repository(self): return self.__repository

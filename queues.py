@@ -14,12 +14,12 @@ from support.pipelines import Producer, Consumer
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["LIFOQueue", "FIFOQueue", "LIPOQueue", "HIPOQueue", "Reader", "Writer"]
+__all__ = ["LIFOQueue", "FIFOQueue", "LIPOQueue", "HIPOQueue", "QueueReader", "QueueWriter"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
 
-class Reader(Producer, ABC):
+class QueueReader(Producer, ABC):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, (StandardQueue, PriorityQueue))
@@ -45,7 +45,7 @@ class Reader(Producer, ABC):
     def queue(self): return self.__source
 
 
-class Writer(Consumer, ABC):
+class QueueWriter(Consumer, ABC):
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(destination, (StandardQueue, PriorityQueue))
@@ -84,9 +84,9 @@ class StandardQueue(queue.Queue):
         self.__capacity = capacity
         self.__timeout = timeout
 
-    def done(self): super().task_done()
-    def get(self): return super().get(timeout=self.timeout)
-    def put(self, content): super().put(content, timeout=self.timeout)
+#    def done(self): super().task_done()
+#    def get(self): return super().get(timeout=self.timeout)
+#    def put(self, content): super().put(content, timeout=self.timeout)
 
     @property
     def size(self): return super().qsize()
@@ -128,14 +128,14 @@ class PriorityQueue(queue.PriorityQueue):
         self.__capacity = capacity
         self.__timeout = timeout
 
-    def done(self): super().task_done()
-    def get(self): return super().get(timeout=self.timeout)[1]
-    def put(self, content):
-        priority = self.priority(content)
-        assert isinstance(priority, int)
-        multiplier = (int(not self.ascending) * 2) - 1
-        couple = (multiplier * priority, content)
-        super().put(couple, timeout=self.timeout)
+#    def done(self): super().task_done()
+#    def get(self): return super().get(timeout=self.timeout)[1]
+#    def put(self, content):
+#        priority = self.priority(content)
+#        assert isinstance(priority, int)
+#        multiplier = (int(not self.ascending) * 2) - 1
+#        couple = (multiplier * priority, content)
+#        super().put(couple, timeout=self.timeout)
 
     @property
     def empty(self): return super().empty()

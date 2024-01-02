@@ -15,12 +15,12 @@ from support.locks import Lock
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Table", "Reader", "Writer"]
+__all__ = ["Table", "TableReader", "TableWriter"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
 
-class Reader(Producer, ABC):
+class TableReader(Producer, ABC):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, Table)
@@ -35,7 +35,7 @@ class Reader(Producer, ABC):
     def table(self): return self.__source
 
 
-class Writer(Consumer, ABC):
+class TableWriter(Consumer, ABC):
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(destination, Table)
@@ -62,6 +62,10 @@ class Table(object):
         self.__mutex = Lock(name=lock_name, timeout=timeout)
         self.__capacity = capacity
         self.__name = table_name
+
+#    def done(self): pass
+#    def get(self): pass
+#    def put(self, content): pass
 
     @property
     def size(self): return len(self.table.index)
