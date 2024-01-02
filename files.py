@@ -7,18 +7,83 @@ Created on Sun 14 2023
 """
 
 import os.path
-import multiprocessing
+import logging
 import xarray as xr
 import pandas as pd
 import dask.dataframe as dk
+from abc import ABC
 from functools import update_wrapper
 from collections import OrderedDict as ODict
 
+from support.pipelines import Producer, Consumer
+from support.locks import Locks
+
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["save", "load"]
+__all__ = ["Files", "Loader", "Saver"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+class Loader(Producer, ABC):
+    def __init__(self, *args, source, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert isinstance(source, Files)
+        self.__source = source
+
+#    def read(self, *args, file, filetype, **kwargs):
+#        content = load(*args, file=file, filetype=filetype, **kwargs)
+#        LOGGER.info("Loaded: {}[{}]".format(repr(self), str(file)))
+#        return content
+
+#    @property
+#    def repository(self): return self.source.repository
+#    @property
+#    def mutex(self): return self.source.mutex
+
+    @property
+    def source(self): return self.__source
+    @property
+    def files(self): return self.__source
+
+
+class Saver(Consumer, ABC):
+    def __init__(self, *args, destination, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert isinstance(destination, Files)
+        self.__destination = destination
+
+#    def write(self, content, *args, file, filemode, **kwargs):
+#        save(content, *args, file=file, mode=filemode, **kwargs)
+#        LOGGER.info("Saved: {}[{}]".format(str(self), str(file)))
+
+#    @property
+#    def repository(self): return self.destination.repository
+#    @property
+#    def mutex(self): return self.destination.mutex
+
+    @property
+    def destination(self): return self.__destination
+    @property
+    def files(self): return self.__destination
+
+
+class Files(object):
+    def __repr__(self): return self.name
+    def __init__(self, *args, repository, timeout=None, **kwargs):
+        files_name = kwargs.get("name", self.__class__.__name__)
+        locks_name = str(files_name).replace("File", "Lock")
+        self.__mutex = Locks(name=locks_name, timeout=timeout)
+        self.__repository = repository
+        self.__name = files_name
+
+    @property
+    def repository(self): return self.__repository
+    @property
+    def mutex(self): return self.__mutex
 
 
 def dispatcher(mainfunction):

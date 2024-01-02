@@ -6,22 +6,16 @@ Created on Weds Jul 12 2023
 
 """
 
-import os
 import time
 import types
-import queue
 import logging
 import inspect
 from functools import reduce
 from abc import ABC, ABCMeta, abstractmethod
-from collections import namedtuple as ntuple
-
-import pandas as pd
-from support.files import load, save
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Processor", "Downloader", "Parser", "Calculator", "Filter", "Loader", "Saver", "Producer", "Consumer"]
+__all__ = ["Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -31,44 +25,44 @@ LOGGER = logging.getLogger(__name__)
 
 class PipelineMeta(ABCMeta):
     def __call__(cls, feed, stage):
-        assert isinstance(feed, (OpenPipeline, Source))
-        assert isinstance(stage, (Processor, Destination))
-        source = feed.source if isinstance(feed, OpenPipeline) else feed
+        assert isinstance(feed, (OpenPipeline, Producer))
+        assert isinstance(stage, (Processor, Consumer))
+        producer = feed.producer if isinstance(feed, OpenPipeline) else feed
         processors = feed.processors if isinstance(feed, OpenPipeline) else []
         processors = processors + ([stage] if isinstance(stage, Processor) else [])
-        destination = stage if isinstance(stage, Destination) else None
-        if destination is not None:
-            instance = super(PipelineMeta, ClosedPipeline).__call__(source, processors, destination)
+        consumer = stage if isinstance(stage, Consumer) else None
+        if consumer is not None:
+            instance = super(PipelineMeta, ClosedPipeline).__call__(producer, processors, consumer)
         else:
-            instance = super(PipelineMeta, OpenPipeline).__call__(source, processors)
+            instance = super(PipelineMeta, OpenPipeline).__call__(producer, processors)
         return instance
 
 
 class Pipeline(ABC, metaclass=PipelineMeta):
     def __repr__(self): return "|".join([repr(stage) for stage in self.stages])
-    def __init__(self, source): self.__source = source
+    def __init__(self, producer): self.__producer = producer
     def __call__(self, *args, **kwargs):
-        source, processors = self.stages[0](*args, **kwargs), self.stages[1:]
-        assert isinstance(source, types.GeneratorType)
-        generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), processors, source)
+        producer, processors = self.stages[0](*args, **kwargs), self.stages[1:]
+        assert isinstance(producer, types.GeneratorType)
+        generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), processors, producer)
         yield from iter(generator)
 
     @property
     def stages(self): return [self.source]
     @property
-    def source(self): return self.__source
+    def producer(self): return self.__producer
 
 
 class OpenPipeline(Pipeline):
-    def __init__(self, source, processors):
-        assert isinstance(source, Source)
+    def __init__(self, producer, processors):
+        assert isinstance(producer, Producer)
         assert isinstance(processors, list)
         assert all([isinstance(processor, Processor) for processor in processors])
-        super().__init__(source)
+        super().__init__(producer)
         self.__processors = processors
 
     def __add__(self, stage):
-        assert isinstance(stage, (Processor, Destination))
+        assert isinstance(stage, (Processor, Consumer))
         return Pipeline(self, stage)
 
     @property
@@ -78,22 +72,24 @@ class OpenPipeline(Pipeline):
 
 
 class ClosedPipeline(OpenPipeline):
-    def __init__(self, source, processors, destination):
-        assert isinstance(destination, Destination)
-        super().__init__(source, processors)
-        self.__destination = destination
+    def __init__(self, producer, processors, consumer):
+        assert isinstance(consumer, Consumer)
+        super().__init__(producer, processors)
+        self.__consumer = consumer
 
     @property
-    def stages(self): return super().stages + [self.destination]
+    def stages(self): return super().stages + [self.consumer]
     @property
-    def destination(self): return self.__destination
+    def consumer(self): return self.__consumer
 
 
 class Stage(ABC):
     def __repr__(self): return self.name
-    def __call__(self, *args, **kwargs): return self.process(*args, **kwargs)
     def __init__(self, *args, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
+
+    def __call__(self, *args, **kwargs):
+        return self.process(*args, **kwargs)
 
     @abstractmethod
     def process(self, *args, **kwargs): pass
@@ -105,9 +101,9 @@ class Stage(ABC):
     def name(self): return self.__name
 
 
-class Source(Stage, ABC):
+class Producer(Stage, ABC):
     def __add__(self, stage):
-        assert isinstance(stage, (Processor, Destination))
+        assert isinstance(stage, (Processor, Consumer))
         return Pipeline(self, stage)
 
     def process(self, *args, **kwargs):
@@ -120,7 +116,7 @@ class Source(Stage, ABC):
         start = time.time()
         generator = self.execute(*args, **kwargs)
         for content in iter(generator):
-            LOGGER.info("Source: {}[{:.2f}s]".format(repr(self), time.time() - start))
+            LOGGER.info("Produced: {}[{:.2f}s]".format(repr(self), time.time() - start))
             yield content
             start = time.time()
 
@@ -139,12 +135,12 @@ class Processor(Stage, ABC):
         generator = self.execute(*args, **kwargs)
         assert isinstance(generator, types.GeneratorType)
         for content in iter(generator):
-            LOGGER.info("Processor: {}[{:.2f}s]".format(repr(self), time.time() - start))
+            LOGGER.info("Processed: {}[{:.2f}s]".format(repr(self), time.time() - start))
             yield content
             start = time.time()
 
 
-class Destination(Stage, ABC):
+class Consumer(Stage, ABC):
     def process(self, stage, *args, **kwargs):
         assert isinstance(stage, types.GeneratorType)
         for content in iter(stage):
@@ -156,86 +152,10 @@ class Destination(Stage, ABC):
         assert not inspect.isgeneratorfunction(self.execute)
         start = time.time()
         self.execute(*args, **kwargs)
-        LOGGER.info("Destination: {}[{:.2f}s]".format(repr(self), time.time() - start))
+        LOGGER.info("Consumed: {}[{:.2f}s]".format(repr(self), time.time() - start))
         return
         yield
 
-
-class Downloader(Source, ABC): pass
-class Parser(Processor, ABC): pass
-class Calculator(Processor, ABC): pass
-class Filter(Processor, ABC): pass
-
-
-class Loader(Source, ABC):
-    def __init__(self, *args, repository, locks, name, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        if not os.path.isdir(repository):
-            raise FileNotFoundError(repository)
-        self.__repository = repository
-        self.__mutex = locks
-
-    def read(self, *args, file, filetype, **kwargs):
-        content = load(*args, file=file, filetype=filetype, **kwargs)
-        LOGGER.info("Loaded: {}[{}]".format(repr(self), str(file)))
-        return content
-
-    @property
-    def repository(self): return self.__repository
-    @property
-    def mutex(self): return self.__mutex
-
-
-class Saver(Destination, ABC):
-    def __init__(self, *args, repository, locks, name, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        if not os.path.isdir(repository):
-            os.mkdir(repository)
-        self.__repository = repository
-        self.__mutex = locks
-
-    def write(self, content, *args, file, filemode, **kwargs):
-        save(content, *args, file=file, mode=filemode, **kwargs)
-        LOGGER.info("Saved: {}[{}]".format(str(self), str(file)))
-
-    @property
-    def repository(self): return self.__repository
-    @property
-    def mutex(self): return self.__mutex
-
-
-class Producer(Source, ABC):
-    def __init__(self, *args, source, timeout, name, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        self.__source = source
-        self.__timeout = timeout
-
-    def reader(self, *args, **kwargs):
-        while not bool(self.source):
-            try:
-                yield self.source.get(timeout=self.timeout)
-                self.source.done()
-            except queue.Empty:
-                pass
-    @property
-    def source(self): return self.__source
-    @property
-    def timeout(self): return self.__timeout
-
-
-class Consumer(Destination, ABC):
-    def __init__(self, *args, destination, timeout, name, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        self.__destination = destination
-        self.__timeout = timeout
-
-    def write(self, content, *args, **kwargs):
-        self.destination.put(content, timeout=self.timeout)
-
-    @property
-    def destination(self): return self.__destination
-    @property
-    def timeout(self): return self.__timeout
 
 
 
