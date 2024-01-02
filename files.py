@@ -20,7 +20,7 @@ from support.locks import Locks
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Files", "Loader", "Saver"]
+__all__ = ["Files", "Reader", "Writer"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
 
@@ -28,7 +28,7 @@ __license__ = ""
 LOGGER = logging.getLogger(__name__)
 
 
-class Loader(Producer, ABC):
+class Reader(Producer, ABC):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, Files)
@@ -50,7 +50,7 @@ class Loader(Producer, ABC):
     def files(self): return self.__source
 
 
-class Saver(Consumer, ABC):
+class Writer(Consumer, ABC):
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(destination, Files)
