@@ -15,7 +15,7 @@ from abc import ABC, ABCMeta, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Producer", "Processor", "Consumer"]
+__all__ = ["Producer", "Processor", "Consumer", "Reader", "Writer", "Stack"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -48,7 +48,7 @@ class Pipeline(ABC, metaclass=PipelineMeta):
         yield from iter(generator)
 
     @property
-    def stages(self): return [self.source]
+    def stages(self): return [self.producer]
     @property
     def producer(self): return self.__producer
 
@@ -97,6 +97,19 @@ class Stage(ABC):
     def generator(self, *args, **kwargs): pass
     @abstractmethod
     def execute(self, *args, **kwargs): pass
+    @property
+    def name(self): return self.__name
+
+
+class Stack(ABC):
+    def __repr__(self): return self.name
+    def __init__(self, *args, **kwargs):
+        self.__name = kwargs.get("name", self.__class__.__name__)
+
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
+    @abstractmethod
+    def write(self, *args, **kwargs): pass
     @property
     def name(self): return self.__name
 
@@ -156,6 +169,29 @@ class Consumer(Stage, ABC):
         return
         yield
 
+
+class Reader(Producer, ABC):
+    def __init__(self, *args, source, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__source = source
+
+    def read(self, *args, **kwargs):
+        return self.source.read(*args, **kwargs)
+
+    @property
+    def source(self): return self.__source
+
+
+class Writer(Consumer, ABC):
+    def __init__(self, *args, destination, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__destination = destination
+
+    def write(self, *args, **kwargs):
+        self.destination.write(*args, **kwargs)
+
+    @property
+    def destination(self): return self.__destination
 
 
 

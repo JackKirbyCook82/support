@@ -7,87 +7,72 @@ Created on Sun 14 2023
 """
 
 import os.path
-import logging
 import xarray as xr
 import pandas as pd
 import dask.dataframe as dk
-from abc import ABC
 from functools import update_wrapper
 from collections import OrderedDict as ODict
 
-from support.pipelines import Producer, Consumer
 from support.locks import Locks
+from support.pipelines import Stack
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Files", "FileReader", "FileWriter"]
+__all__ = ["DataframeFile"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
 
 
-LOGGER = logging.getLogger(__name__)
-
-
-class FileReader(Producer, ABC):
-    def __init__(self, *args, source, **kwargs):
+class File(Stack):
+    def __init__(self, *args, repository, capacity=None, timeout=None, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(source, Files)
-        self.__source = source
-
-#    def read(self, *args, file, filetype, **kwargs):
-#        content = load(*args, file=file, filetype=filetype, **kwargs)
-#        LOGGER.info("Loaded: {}[{}]".format(repr(self), str(file)))
-#        return content
-
-#    @property
-#    def repository(self): return self.source.repository
-#    @property
-#    def mutex(self): return self.source.mutex
-
-    @property
-    def source(self): return self.__source
-    @property
-    def files(self): return self.__source
-
-
-class FileWriter(Consumer, ABC):
-    def __init__(self, *args, destination, **kwargs):
-        super().__init__(*args, **kwargs)
-        assert isinstance(destination, Files)
-        self.__destination = destination
-
-#    def write(self, content, *args, file, filemode, **kwargs):
-#        save(content, *args, file=file, mode=filemode, **kwargs)
-#        LOGGER.info("Saved: {}[{}]".format(str(self), str(file)))
-
-#    @property
-#    def repository(self): return self.destination.repository
-#    @property
-#    def mutex(self): return self.destination.mutex
-
-    @property
-    def destination(self): return self.__destination
-    @property
-    def files(self): return self.__destination
-
-
-class Files(object):
-    def __repr__(self): return self.name
-    def __init__(self, *args, repository, timeout=None, **kwargs):
-        files_name = kwargs.get("name", self.__class__.__name__)
-        locks_name = str(files_name).replace("File", "Lock")
-        self.__mutex = Locks(name=locks_name, timeout=timeout)
+        name = str(self.name).replace("File", "Lock")
+        self.__mutex = Locks(name=name, timeout=timeout)
         self.__repository = repository
-        self.__name = files_name
+        self.__capacity = capacity
+        self.__timeout = timeout
 
-#    def done(self): pass
-#    def get(self): pass
-#    def put(self, content): pass
+    def folders(self, *path): return (folder for folder in os.listdir(self.repository, *path) if os.path.isdir(folder))
+    def files(self, *path): return (file for file in os.listdir(self.repository, *path) if os.path.isfile(file))
+    def folder(self, *path): return os.path.join(self.repository, *path)
+    def file(self, *path): return os.path.join(self.repository, *path)
+
+    def read(self, *args, file, filetype, **kwargs):
+        with self.mutex[str(file)]:
+            content = load(*args, file=file, filetype=filetype, **kwargs)
+            return content
+
+    def write(self, content, *args, file, filemode, **kwargs):
+        with self.mutex[str(file)]:
+            save(content, *args, file=file, mode=filemode, **kwargs)
 
     @property
     def repository(self): return self.__repository
     @property
+    def capacity(self): return self.__capacity
+    @property
     def mutex(self): return self.__mutex
+
+
+class DataframeFile(File):
+    def __init__(self, *args, datetypes=[], datatypes={}, **kwargs):
+        assert isinstance(datetypes, list) and isinstance(datatypes, dict)
+        super().__init__(*args, **kwargs)
+        self.__datetypes = datetypes
+        self.__datatypes = datatypes
+
+    def read(self, *args, **kwargs):
+        parameters = dict(datetypes=self.datetypes, datatypes=self.datatypes, filetype=pd.DataFrame)
+        return super().read(*args, **parameters, **kwargs)
+
+    def write(self, *args, **kwargs):
+        parameters = dict(datetypes=self.datetypes, datatypes=self.datatypes, filetype=pd.DataFrame)
+        super().write(*args, **parameters, **kwargs)
+
+    @property
+    def datetypes(self): return self.__datetypes
+    @property
+    def datatypes(self): return self.__datatypes
 
 
 def dispatcher(mainfunction):
