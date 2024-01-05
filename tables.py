@@ -24,9 +24,8 @@ class Table(Stack, ABC):
         tabletype = kwargs.get("tabletype", getattr(cls, "__tabletype__", None))
         cls.__tabletype__ = tabletype
 
-    def __bool__(self): return not self.empty
     def __len__(self): return self.size
-
+    def __bool__(self): return not self.empty
     def __init__(self, *args, timeout=None, **kwargs):
         super().__init__(*args, **kwargs)
         tabletype = self.__class__.__tabletype__

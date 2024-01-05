@@ -23,8 +23,8 @@ class Queue(Stack, ABC):
         queuetype = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
         cls.__queuetype__ = queuetype
 
-    def __bool__(self): return not self.empty
     def __len__(self): return self.size
+    def __bool__(self): return not self.empty
     def __init__(self, contents, *args, capacity=None, timeout=None, **kwargs):
         super().__init__(*args, **kwargs)
         queuetype = self.__class__.__queuetype__
