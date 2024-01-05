@@ -6,7 +6,6 @@ Created on Sun 14 2023
 
 """
 
-import logging
 import multiprocessing
 
 __version__ = "1.0.0"
@@ -14,9 +13,6 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["Lock", "Locks"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
-
-
-LOGGER = logging.getLogger(__name__)
 
 
 class Lock(object):
@@ -31,12 +27,10 @@ class Lock(object):
 
     def __enter__(self):
         self.mutex.acquire(timeout=self.timeout)
-        LOGGER.info("Locked: {}[{}]".format(repr(self), str(self.key)))
         return self
 
     def __exit__(self, error_type, error_value, error_traceback):
         self.mutex.release()
-        LOGGER.info("Unlocked: {}[{}]".format(repr(self), str(self.key)))
 
     @property
     def timeout(self): return self.__timeout

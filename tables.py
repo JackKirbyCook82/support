@@ -20,37 +20,40 @@ __license__ = ""
 
 
 class Table(Stack, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        tabletype = kwargs.get("tabletype", getattr(cls, "__tabletype__", None))
+        cls.__tabletype__ = tabletype
+
     def __bool__(self): return not self.empty
     def __len__(self): return self.size
 
-    def __init__(self, *args, capacity=None, timeout=None, **kwargs):
+    def __init__(self, *args, timeout=None, **kwargs):
         super().__init__(*args, **kwargs)
+        tabletype = self.__class__.__tabletype__
         name = str(self.name).replace("Table", "Lock")
-        self.__mutex = Lock(name=name, timeout=timeout)
-        self.__table = pd.DataFrame()
-        self.__capacity = capacity
+        assert tabletype is not None
+        self.__mutex = Lock(id(self), name=name, timeout=timeout)
+        self.__table = tabletype()
 
     def read(self, *args, **kwargs):
         with self.mutex:
             return self.table
 
-    def write(self, table, *args, **kwargs):
+    def write(self, other, *args, **kwargs):
+        table, other = self.table, other[self.header]
         with self.mutex:
-            table = self.combine(table, *args, **kwargs)
+            table = self.combine(table, other, *args, **kwargs)
             table = self.parser(table, *args, **kwargs)
             table = self.format(table, *args, **kwargs)
             self.table = table
 
     @abstractmethod
     def combine(self, table, *args, **kwargs): pass
+    @abstractmethod
+    def parser(self, table, *args, **kwargs): pass
+    @abstractmethod
+    def format(self, table, *args, **kwargs): pass
 
-    @staticmethod
-    def parser(table, *args, **kwargs): return table
-    @staticmethod
-    def format(table, *args, **kwargs): return table
-
-    @property
-    def capacity(self): return self.__capacity
     @property
     def mutex(self): return self.__mutex
     @property
@@ -59,13 +62,23 @@ class Table(Stack, ABC):
     def table(self, table): self.__table = table
 
 
-class DataframeTable(Table):
-    def combine(self, table): return pd.concat([self.table, table], axis=0)
+class DataframeTable(Table, ABC, tabletype=pd.DataFrame):
+    @staticmethod
+    def combine(dataframe, other, *args, **kwargs): return pd.concat([dataframe, other], axis=0)
+    @staticmethod
+    def parser(dataframe, *args, **kwargs): return dataframe.reset_index(drop=True, inplace=False)
+    @staticmethod
+    def format(dataframe, *args, **kwargs): return dataframe
 
     @property
     def size(self): return len(self.table.index)
     @property
     def empty(self): return bool(self.table.empty)
+
+    @property
+    @abstractmethod
+    def header(self): pass
+
 
 
 

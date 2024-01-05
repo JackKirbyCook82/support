@@ -10,6 +10,7 @@ import os.path
 import xarray as xr
 import pandas as pd
 import dask.dataframe as dk
+from abc import ABC, abstractmethod
 from functools import update_wrapper
 from collections import OrderedDict as ODict
 
@@ -24,22 +25,25 @@ __license__ = ""
 
 
 class File(Stack):
-    def __init__(self, *args, repository, capacity=None, timeout=None, **kwargs):
+    def __init_subclass__(cls, *args, **kwargs):
+        filetype = kwargs.get("filetype", getattr(cls, "__filetype__", None))
+        cls.__filetype__ = filetype
+
+    def __init__(self, *args, repository, timeout=None, **kwargs):
         super().__init__(*args, **kwargs)
+        filetype = self.__class__.__filetype__
         name = str(self.name).replace("File", "Lock")
+        assert filetype is not None
         self.__mutex = Locks(name=name, timeout=timeout)
         self.__repository = repository
-        self.__capacity = capacity
-        self.__timeout = timeout
+        self.__filetype = filetype
 
-    def folders(self, *path): return (folder for folder in os.listdir(self.repository, *path) if os.path.isdir(folder))
-    def files(self, *path): return (file for file in os.listdir(self.repository, *path) if os.path.isfile(file))
-    def folder(self, *path): return os.path.join(self.repository, *path)
-    def file(self, *path): return os.path.join(self.repository, *path)
+    def directory(self, *path): return (content for content in os.listdir(os.path.join(self.repository, *path)))
+    def path(self, *path): return os.path.join(self.repository, *path)
 
-    def read(self, *args, file, filetype, **kwargs):
+    def read(self, *args, file, **kwargs):
         with self.mutex[str(file)]:
-            content = load(*args, file=file, filetype=filetype, **kwargs)
+            content = load(*args, file=file, filetype=self.filetype, **kwargs)
             return content
 
     def write(self, content, *args, file, filemode, **kwargs):
@@ -47,32 +51,31 @@ class File(Stack):
             save(content, *args, file=file, mode=filemode, **kwargs)
 
     @property
-    def repository(self): return self.__repository
+    def filetype(self): return self.__filetype
     @property
-    def capacity(self): return self.__capacity
+    def repository(self): return self.__repository
     @property
     def mutex(self): return self.__mutex
 
 
-class DataframeFile(File):
-    def __init__(self, *args, datetypes=[], datatypes={}, **kwargs):
-        assert isinstance(datetypes, list) and isinstance(datatypes, dict)
-        super().__init__(*args, **kwargs)
-        self.__datetypes = datetypes
-        self.__datatypes = datatypes
-
+class DataframeFile(File, ABC, filetype=pd.DataFrame):
     def read(self, *args, **kwargs):
-        parameters = dict(datetypes=self.datetypes, datatypes=self.datatypes, filetype=pd.DataFrame)
+        datetypes = self.datetypes(*args, **kwargs)
+        datatypes = self.datatypes(*args, **kwargs)
+        parameters = dict(datetypes=datetypes, datatypes=datatypes)
         return super().read(*args, **parameters, **kwargs)
 
     def write(self, *args, **kwargs):
-        parameters = dict(datetypes=self.datetypes, datatypes=self.datatypes, filetype=pd.DataFrame)
+        dataheader = self.dataheader(*args, **kwargs)
+        parameters = dict(dataheader=dataheader)
         super().write(*args, **parameters, **kwargs)
 
-    @property
-    def datetypes(self): return self.__datetypes
-    @property
-    def datatypes(self): return self.__datatypes
+    @abstractmethod
+    def dataheader(self, *args, **kwargs): pass
+    @abstractmethod
+    def datetypes(self, *args, **kwargs): pass
+    @abstractmethod
+    def datatypes(self, *args, **kwargs): pass
 
 
 def dispatcher(mainfunction):
@@ -130,19 +133,19 @@ def save_netcdf(content, *args, file, mode, **kwargs):
 
 @save.register(pd.DataFrame, "csv")
 @save.register(dk.DataFrame, "csv")
-def save_csv(content, *args, file, mode, **kwargs):
+def save_csv(content, *args, file, mode, dataheader, **kwargs):
     header = not os.path.isfile(file) or mode == "w"
     parms = dict(index=False, header=header)
     if isinstance(content, dk.DataFrame):
         update = dict(compute=True, single_file=True, header_first_partition_only=True)
         parms.update(update)
-    content.to_csv(file, mode=mode, **parms)
+    content[dataheader].to_csv(file, mode=mode, **parms)
 
 @save.register(pd.DataFrame, "hdf")
 @save.register(dk.DataFrame, "hdf")
-def save_hdf5(self, content, *args, file, group=None, mode, **kwargs):
+def save_hdf5(self, content, *args, file, group=None, mode, dataheader, **kwargs):
     parms = dict(format="fixed", append=False)
-    content.to_hdf(file, group, mode=mode, **parms)
+    content[dataheader].to_hdf(file, group, mode=mode, **parms)
 
 
 @dispatcher
@@ -165,7 +168,7 @@ def load_csv_immediate(*args, file, datatypes={}, datetypes=[], **kwargs):
     return pd.read_csv(file,  iterator=False, **parms)
 
 @load.register(pd.DataFrame, "hdf")
-def load_hdf5(*args, file, group=None, **kwargs):
+def load_hdf5(*args, file, group=None, datatypes={}, datetypes=[], **kwargs):
     return pd.read_csv(file, key=group, iterator=False)
 
 
