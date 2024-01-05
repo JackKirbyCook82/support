@@ -20,14 +20,13 @@ __license__ = ""
 
 class Queue(Stack, ABC):
     def __init_subclass__(cls, *args, **kwargs):
-        queuetype = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
-        cls.__queuetype__ = queuetype
+        cls.__type__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
 
     def __len__(self): return self.size
     def __bool__(self): return not self.empty
     def __init__(self, contents, *args, capacity=None, timeout=None, **kwargs):
         super().__init__(*args, **kwargs)
-        queuetype = self.__class__.__queuetype__
+        queuetype = self.__class__.__type__
         assert isinstance(contents, list)
         assert (len(contents) <= capacity) if bool(capacity) else True
         assert queuetype is not None

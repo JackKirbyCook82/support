@@ -26,39 +26,38 @@ __license__ = ""
 
 class File(Stack):
     def __init_subclass__(cls, *args, **kwargs):
-        filetype = kwargs.get("filetype", getattr(cls, "__filetype__", None))
-        cls.__filetype__ = filetype
+        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
 
     def __init__(self, *args, repository, timeout=None, **kwargs):
         super().__init__(*args, **kwargs)
-        filetype = self.__class__.__filetype__
+        filetype = self.__class__.__type__
         name = str(self.name).replace("File", "Lock")
         assert filetype is not None
         self.__mutex = Locks(name=name, timeout=timeout)
         self.__repository = repository
-        self.__filetype = filetype
+        self.__type = filetype
 
     def directory(self, *path): return (content for content in os.listdir(os.path.join(self.repository, *path)))
     def path(self, *path): return os.path.join(self.repository, *path)
 
     def read(self, *args, file, **kwargs):
         with self.mutex[str(file)]:
-            content = load(*args, file=file, filetype=self.filetype, **kwargs)
+            content = load(*args, file=file, type=self.type, **kwargs)
             return content
 
-    def write(self, content, *args, file, filemode, **kwargs):
+    def write(self, content, *args, file, mode, **kwargs):
         with self.mutex[str(file)]:
-            save(content, *args, file=file, mode=filemode, **kwargs)
+            save(content, *args, file=file, mode=mode, **kwargs)
 
-    @property
-    def filetype(self): return self.__filetype
     @property
     def repository(self): return self.__repository
     @property
     def mutex(self): return self.__mutex
+    @property
+    def type(self): return self.__type
 
 
-class DataframeFile(File, ABC, filetype=pd.DataFrame):
+class DataframeFile(File, ABC, type=pd.DataFrame):
     def read(self, *args, **kwargs):
         datetypes = self.datetypes(*args, **kwargs)
         datatypes = self.datatypes(*args, **kwargs)
@@ -94,16 +93,17 @@ def dispatcher(mainfunction):
         return decorator
 
     def save_wrapper(content, *args, file, **kwargs):
-        filetype = type(content)
         fileext = str(os.path.splitext(file)[-1]).strip(".")
+        filetype = type(content)
         try:
             function = retrieve(filetype, fileext)
             return function(content, *args, file=file, **kwargs)
         except IndexError:
             return mainfunction(content, *args, file=file, **kwargs)
 
-    def load_wrapper(*args, filetype, file, **kwargs):
+    def load_wrapper(*args, file, **kwargs):
         fileext = str(os.path.splitext(file)[-1]).strip(".")
+        filetype = kwargs["type"]
         try:
             function = retrieve(filetype, fileext)
             return function(*args, file=file, **kwargs)

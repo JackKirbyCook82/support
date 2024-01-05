@@ -9,7 +9,7 @@ Created on Weds Jul 12 2023
 import pandas as pd
 from abc import ABC, abstractmethod
 
-from support.locks import Lock
+from support.locks import Locks
 from support.pipelines import Stack
 
 __version__ = "1.0.0"
@@ -21,8 +21,7 @@ __license__ = ""
 
 class Table(Stack, ABC):
     def __init_subclass__(cls, *args, **kwargs):
-        tabletype = kwargs.get("tabletype", getattr(cls, "__tabletype__", None))
-        cls.__tabletype__ = tabletype
+        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
 
     def __len__(self): return self.size
     def __bool__(self): return not self.empty
@@ -31,37 +30,51 @@ class Table(Stack, ABC):
         tabletype = self.__class__.__tabletype__
         name = str(self.name).replace("Table", "Lock")
         assert tabletype is not None
-        self.__mutex = Lock(id(self), name=name, timeout=timeout)
-        self.__table = tabletype()
+        self.__mutex = Locks(name=name, timeout=timeout)
+        self.__type = tabletype
+        self.__tables = dict()
 
-    def read(self, *args, **kwargs):
-        with self.mutex:
-            return self.table
+    def read(self, *args, table, **kwargs):
+        with self.mutex[str(table)]:
+            return self.tables[table]
 
-    def write(self, other, *args, **kwargs):
-        table, other = self.table, other[self.header]
-        with self.mutex:
-            table = self.combine(table, other, *args, **kwargs)
-            table = self.parser(table, *args, **kwargs)
-            table = self.format(table, *args, **kwargs)
-            self.table = table
+    def write(self, other, *args, table, **kwargs):
+        assert isinstance(other, self.type)
+        with self.mutex[str(table)]:
+            content = self.tables.get(table, None)
+            content = self.create(content, *args, table=table, **kwargs)
+            content = self.combine(content, other, *args, table=table, **kwargs)
+            content = self.parser(content, *args, table=table, **kwargs)
+            content = self.format(content, *args, table=table, **kwargs)
+            self.tables[table] = content
 
+    @staticmethod
     @abstractmethod
-    def combine(self, table, *args, **kwargs): pass
+    def create(content, *args, **kwargs): pass
+    @staticmethod
     @abstractmethod
-    def parser(self, table, *args, **kwargs): pass
+    def combine(content, other, *args, **kwargs): pass
+    @staticmethod
     @abstractmethod
-    def format(self, table, *args, **kwargs): pass
+    def parser(content, *args, **kwargs): pass
+    @staticmethod
+    @abstractmethod
+    def format(content, *args, **kwargs): pass
 
+    @property
+    def tables(self): return self.__tables
     @property
     def mutex(self): return self.__mutex
     @property
-    def table(self): return self.__table
-    @table.setter
-    def table(self, table): self.__table = table
+    def type(self): return self.__type
 
 
-class DataframeTable(Table, ABC, tabletype=pd.DataFrame):
+class DataframeTable(Table, ABC, type=pd.DataFrame):
+    def create(self, dataframe, *args, table, **kwargs):
+        header = self.header(*args, table=table, **kwargs)
+        dataframe = dataframe if dataframe is not None else pd.DataFrame(columns=header)
+        return dataframe
+
     @staticmethod
     def combine(dataframe, other, *args, **kwargs): return pd.concat([dataframe, other], axis=0)
     @staticmethod
@@ -69,14 +82,17 @@ class DataframeTable(Table, ABC, tabletype=pd.DataFrame):
     @staticmethod
     def format(dataframe, *args, **kwargs): return dataframe
 
+    @staticmethod
+    @abstractmethod
+    def header(*args, **kwargs): pass
+
     @property
     def size(self): return len(self.table.index)
     @property
     def empty(self): return bool(self.table.empty)
 
-    @property
-    @abstractmethod
-    def header(self): pass
+
+
 
 
 
