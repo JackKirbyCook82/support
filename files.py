@@ -25,17 +25,11 @@ __license__ = ""
 
 
 class File(Stack):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
-
     def __init__(self, *args, repository, timeout=None, **kwargs):
         super().__init__(*args, **kwargs)
-        filetype = self.__class__.__type__
         name = str(self.name).replace("File", "Lock")
-        assert filetype is not None
         self.__mutex = Locks(name=name, timeout=timeout)
         self.__repository = repository
-        self.__type = filetype
 
     def directory(self, *path): return (content for content in os.listdir(os.path.join(self.repository, *path)))
     def path(self, *path): return os.path.join(self.repository, *path)
@@ -53,8 +47,6 @@ class File(Stack):
     def repository(self): return self.__repository
     @property
     def mutex(self): return self.__mutex
-    @property
-    def type(self): return self.__type
 
 
 class DataframeFile(File, ABC, type=pd.DataFrame):

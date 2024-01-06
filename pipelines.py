@@ -97,21 +97,32 @@ class Stage(ABC):
     def generator(self, *args, **kwargs): pass
     @abstractmethod
     def execute(self, *args, **kwargs): pass
+
     @property
     def name(self): return self.__name
 
 
 class Stack(ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
+
     def __repr__(self): return self.name
     def __init__(self, *args, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
+        stackname = kwargs.get("name", self.__class__.__name__)
+        stacktype = self.__class__.__type__
+        assert stacktype is not None
+        self.__name = stackname
+        self.__type = stacktype
 
     @abstractmethod
     def read(self, *args, **kwargs): pass
     @abstractmethod
     def write(self, *args, **kwargs): pass
+
     @property
     def name(self): return self.__name
+    @property
+    def type(self): return self.__type
 
 
 class Producer(Stage, ABC):

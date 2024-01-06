@@ -19,18 +19,14 @@ __license__ = ""
 
 
 class Queue(Stack, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.__type__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
-
-    def __len__(self): return self.size
     def __bool__(self): return not self.empty
+    def __len__(self): return self.size
+
     def __init__(self, contents, *args, capacity=None, timeout=None, **kwargs):
         super().__init__(*args, **kwargs)
-        queuetype = self.__class__.__type__
         assert isinstance(contents, list)
         assert (len(contents) <= capacity) if bool(capacity) else True
-        assert queuetype is not None
-        self.__queue = queuetype(capacity if capacity is not None else 0)
+        self.__queue = self.type(capacity if capacity is not None else 0)
         self.__timeout = timeout
         for content in contents:
             self.write(content)
@@ -39,10 +35,11 @@ class Queue(Stack, ABC):
     def empty(self): return super().empty()
     @property
     def size(self): return super().qsize()
-    @property
-    def queue(self): return self.__queue
+
     @property
     def timeout(self): return self.__timeout
+    @property
+    def queue(self): return self.__queue
 
 
 class StandardQueue(Queue):
@@ -90,9 +87,9 @@ class PriorityQueue(Queue):
     def priority(self): return self.__priority
 
 
-class FIFOQueue(StandardQueue, queue=queue.Queue): pass
-class LIFOQueue(StandardQueue, queue=queue.LifoQueue): pass
-class HIPOQueue(PriorityQueue, queue=queue.PriorityQueue, ascending=True): pass
-class LIPOQueue(PriorityQueue, queue=queue.PriorityQueue, ascending=False): pass
+class FIFOQueue(StandardQueue, type=queue.Queue): pass
+class LIFOQueue(StandardQueue, type=queue.LifoQueue): pass
+class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=True): pass
+class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=False): pass
 
 
