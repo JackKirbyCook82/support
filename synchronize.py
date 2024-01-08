@@ -18,6 +18,7 @@ __all__ = ["Routine"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
+import types
 
 LOGGER = logging.getLogger(__name__)
 
@@ -63,19 +64,9 @@ class Routine(threading.Thread):
 
     def process(self, *args, **kwargs):
         routine = self.routine.__call__ if hasattr(self.routine, "__call__") else self.routine
-        if not inspect.isgeneratorfunction(routine):
-            self.results = routine(*args, **kwargs)
-        else:
-            generator = routine(*args, **kwargs)
-            self.results = list(generator)
-
-    @staticmethod
-    def generator(routine):
-        function = routine.__call__ if isinstance(routine, object) else routine
-        if inspect.isgeneratorfunction(function):
-            return function
-        generator = lambda *args, **kwargs: (yield function(*args, **kwargs))
-        return generator
+        results = routine(*args, **kwargs)
+        generator = results if isinstance(results, types.GeneratorType) else iter([results])
+        self.results = list(generator)
 
     @property
     def routine(self): return self.__routine

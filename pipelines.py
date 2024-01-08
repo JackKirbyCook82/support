@@ -42,13 +42,8 @@ class Pipeline(ABC, metaclass=PipelineMeta):
     def __repr__(self): return "|".join([repr(stage) for stage in self.stages])
     def __init__(self, producer): self.__producer = producer
     def __call__(self, *args, **kwargs):
-        producer, processors = self.stages[0](*args, **kwargs), self.stages[1:]
-        assert isinstance(producer, types.GeneratorType)
-        generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), processors, producer)
-        yield from iter(generator)
+        return self.execute(*args, **kwargs)
 
-    @property
-    def stages(self): return [self.producer]
     @property
     def producer(self): return self.__producer
 
@@ -65,8 +60,12 @@ class OpenPipeline(Pipeline):
         assert isinstance(stage, (Processor, Consumer))
         return Pipeline(self, stage)
 
-    @property
-    def stages(self): return super().stages + list(self.processors)
+    def execute(self, *args, **kwargs):
+        producer = self.producer(*args, **kwargs)
+        assert isinstance(producer, types.GeneratorType)
+        generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), self.processors, producer)
+        yield from iter(generator)
+
     @property
     def processors(self): return self.__processors
 
@@ -77,8 +76,12 @@ class ClosedPipeline(OpenPipeline):
         super().__init__(producer, processors)
         self.__consumer = consumer
 
-    @property
-    def stages(self): return super().stages + [self.consumer]
+    def execute(self, *args, **kwargs):
+        producer = self.producer(*args, **kwargs)
+        assert isinstance(producer, types.GeneratorType)
+        generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), self.processors, producer)
+        return self.consumer(generator, *args, **kwargs)
+
     @property
     def consumer(self): return self.__consumer
 
@@ -93,8 +96,6 @@ class Stage(ABC):
 
     @abstractmethod
     def process(self, *args, **kwargs): pass
-    @abstractmethod
-    def generator(self, *args, **kwargs): pass
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
@@ -131,14 +132,10 @@ class Producer(Stage, ABC):
         return Pipeline(self, stage)
 
     def process(self, *args, **kwargs):
-        generator = self.generator(*args, **kwargs)
-        assert isinstance(generator, types.GeneratorType)
-        return generator
-
-    def generator(self, *args, **kwargs):
         assert inspect.isgeneratorfunction(self.execute)
-        start = time.time()
         generator = self.execute(*args, **kwargs)
+        assert isinstance(generator, types.GeneratorType)
+        start = time.time()
         for content in iter(generator):
             LOGGER.info("Produced: {}[{:.2f}s]".format(repr(self), time.time() - start))
             yield content
@@ -148,37 +145,25 @@ class Producer(Stage, ABC):
 class Processor(Stage, ABC):
     def process(self, stage, *args, **kwargs):
         assert isinstance(stage, types.GeneratorType)
-        for content in iter(stage):
-            generator = self.generator(content, *args, **kwargs)
+        for query in iter(stage):
+            assert inspect.isgeneratorfunction(self.execute)
+            generator = self.execute(query, *args, **kwargs)
             assert isinstance(generator, types.GeneratorType)
-            yield from iter(generator)
-
-    def generator(self, *args, **kwargs):
-        assert inspect.isgeneratorfunction(self.execute)
-        start = time.time()
-        generator = self.execute(*args, **kwargs)
-        assert isinstance(generator, types.GeneratorType)
-        for content in iter(generator):
-            LOGGER.info("Processed: {}[{:.2f}s]".format(repr(self), time.time() - start))
-            yield content
             start = time.time()
+            for content in iter(generator):
+                LOGGER.info("Processed: {}[{:.2f}s]".format(repr(self), time.time() - start))
+                yield content
+                start = time.time()
 
 
 class Consumer(Stage, ABC):
     def process(self, stage, *args, **kwargs):
         assert isinstance(stage, types.GeneratorType)
-        for content in iter(stage):
-            generator = self.generator(content, *args, **kwargs)
-            assert isinstance(generator, types.GeneratorType)
-            yield from iter(generator)
-
-    def generator(self, *args, **kwargs):
-        assert not inspect.isgeneratorfunction(self.execute)
-        start = time.time()
-        self.execute(*args, **kwargs)
-        LOGGER.info("Consumed: {}[{:.2f}s]".format(repr(self), time.time() - start))
-        return
-        yield
+        for query in iter(stage):
+            assert not inspect.isgeneratorfunction(self.execute)
+            start = time.time()
+            self.execute(query, *args, **kwargs)
+            LOGGER.info("Consumed: {}[{:.2f}s]".format(repr(self), time.time() - start))
 
 
 class Reader(Producer, ABC):
