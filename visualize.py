@@ -115,10 +115,10 @@ class Axes(object, metaclass=AxesMeta):
 
 class Coordinate(ntuple("Coordinate", "variable name ticks labels rotation")):
     def __call__(self, ax, *args, **kwargs):
-        getattr(ax, "set_{}label".format(self.variable))(self.name)
-        getattr(ax, "set_{}ticks".format(self.variable))(self.ticks)
-        getattr(ax, "set_{}ticklabels".format(self.variable))(self.labels)
-        for label in getattr(ax, "get_{}ticklabels".format(self.variable))():
+        getattr(ax, f"set_{self.variable}label")(self.name)
+        getattr(ax, f"set_{self.variable}ticks")(self.ticks)
+        getattr(ax, f"set_{self.variable}ticklabels")(self.labels)
+        for label in getattr(ax, f"get_{self.variable}ticklabels")():
             label.set_rotation(self.rotation)
 
 

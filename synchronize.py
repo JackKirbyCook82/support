@@ -7,7 +7,6 @@ Created on Weds Jul 12 2023
 """
 
 import sys
-import inspect
 import logging
 import traceback
 import threading
@@ -42,25 +41,25 @@ class Routine(threading.Thread):
         return self
 
     def start(self, *args, **kwargs):
-        LOGGER.info("Started: {}".format(repr(self)))
+        LOGGER.info(f"Started: {repr(self)}")
         threading.Thread.start(self)
         return self
 
     def join(self, *args, **kwargs):
         threading.Thread.join(self)
-        LOGGER.info("Stopped: {}".format(repr(self)))
+        LOGGER.info(f"Stopped: {repr(self)}")
         return self
 
     def run(self):
         try:
-            LOGGER.info("Running: {}".format(repr(self)))
+            LOGGER.info(f"Running: {repr(self)}")
             self.process(*self.arguments, **self.parameters)
         except BaseException as error:
-            LOGGER.error("Error: {}[{}]".format(repr(self), error.__class__.__name__))
+            LOGGER.error(f"Error: {repr(self)}[{error.__class__.__name__}]")
             error_type, error_value, error_traceback = sys.exc_info()
             traceback.print_exception(error_type, error_value, error_traceback)
         else:
-            LOGGER.info("Completed: {}".format(repr(self)))
+            LOGGER.info(f"Completed: {repr(self)}")
 
     def process(self, *args, **kwargs):
         routine = self.routine.__call__ if hasattr(self.routine, "__call__") else self.routine

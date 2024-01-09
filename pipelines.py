@@ -15,7 +15,7 @@ from abc import ABC, ABCMeta, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Producer", "Processor", "Consumer", "Reader", "Writer", "Stack"]
+__all__ = ["Stack", "Producer", "Processor", "Consumer", "Reader", "Writer", "Terminal"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -86,23 +86,6 @@ class ClosedPipeline(OpenPipeline):
     def consumer(self): return self.__consumer
 
 
-class Stage(ABC):
-    def __repr__(self): return self.name
-    def __init__(self, *args, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
-
-    def __call__(self, *args, **kwargs):
-        return self.process(*args, **kwargs)
-
-    @abstractmethod
-    def process(self, *args, **kwargs): pass
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
-
-    @property
-    def name(self): return self.__name
-
-
 class Stack(ABC):
     def __init_subclass__(cls, *args, **kwargs):
         cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
@@ -126,6 +109,23 @@ class Stack(ABC):
     def type(self): return self.__type
 
 
+class Stage(ABC):
+    def __repr__(self): return self.name
+    def __init__(self, *args, **kwargs):
+        self.__name = kwargs.get("name", self.__class__.__name__)
+
+    def __call__(self, *args, **kwargs):
+        return self.process(*args, **kwargs)
+
+    @abstractmethod
+    def process(self, *args, **kwargs): pass
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
+
+    @property
+    def name(self): return self.__name
+
+
 class Producer(Stage, ABC):
     def __add__(self, stage):
         assert isinstance(stage, (Processor, Consumer))
@@ -137,7 +137,7 @@ class Producer(Stage, ABC):
         assert isinstance(generator, types.GeneratorType)
         start = time.time()
         for content in iter(generator):
-            LOGGER.info("Produced: {}[{:.2f}s]".format(repr(self), time.time() - start))
+            LOGGER.info(f"Produced: {repr(self)}[{time.time() - start:.2f}s]")
             yield content
             start = time.time()
 
@@ -151,7 +151,7 @@ class Processor(Stage, ABC):
             assert isinstance(generator, types.GeneratorType)
             start = time.time()
             for content in iter(generator):
-                LOGGER.info("Processed: {}[{:.2f}s]".format(repr(self), time.time() - start))
+                LOGGER.info(f"Processed: {repr(self)}[{time.time() - start:.2f}s]")
                 yield content
                 start = time.time()
 
@@ -163,16 +163,22 @@ class Consumer(Stage, ABC):
             assert not inspect.isgeneratorfunction(self.execute)
             start = time.time()
             self.execute(query, *args, **kwargs)
-            LOGGER.info("Consumed: {}[{:.2f}s]".format(repr(self), time.time() - start))
+            LOGGER.info(f"Consumed: {repr(self)}[{time.time() - start:.2f}s]")
+
+
+class Terminal(Stage, ABC):
+    def __init__(self, *args, stack, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__stack = stack
+
+    @property
+    def stack(self): return self.__stack
 
 
 class Reader(Producer, ABC):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
         self.__source = source
-
-    def read(self, *args, **kwargs):
-        return self.source.read(*args, **kwargs)
 
     @property
     def source(self): return self.__source
@@ -183,15 +189,8 @@ class Writer(Consumer, ABC):
         super().__init__(*args, **kwargs)
         self.__destination = destination
 
-    def write(self, *args, **kwargs):
-        self.destination.write(*args, **kwargs)
-
     @property
     def destination(self): return self.__destination
-
-
-
-
 
 
 

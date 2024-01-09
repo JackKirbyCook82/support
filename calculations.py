@@ -73,11 +73,11 @@ class StageMeta(ABCMeta):
 class Stage(Node, metaclass=StageMeta):
     def __repr__(self):
         nodes = ', '.join([repr(type(node)) for node in list(self.children)])
-        return "{}[{}]".format(repr(type(self)), nodes)
+        return f"{repr(type(self))}[{nodes}]"
 
     def __str__(self):
         nodes = ", ".join([str(type(node)) for node in list(self.children)])
-        return "{}[{}]".format(str(type(self)), nodes)
+        return f"{str(type(self))}[{nodes}]"
 
     def __init__(self, *args, variable, **kwargs):
         super().__init__(*args, **kwargs)

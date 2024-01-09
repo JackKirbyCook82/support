@@ -44,10 +44,10 @@ class Meta(ABCMeta):
 
 
 class VariantKeyError(Exception):
-    def __str__(self): return "{}[{}]".foramt(self.__class__.__name__, self.args[0].__name__ if isclass(self.args[0]) else type(self.args[0]).__name__)
+    def __str__(self): return f"{self.__class__.__name__}[{self.args[0].__name__ if isclass(self.args[0]) else type(self.args[0]).__name__}]"
 
 class VariantValueError(Exception):
-    def __str__(self): return "{}[{}]".format(self.__class__.__name__, mrostr(self.args[0]))
+    def __str__(self): return f"{self.__class__.__name__}[{mrostr(self.args[0])}]"
 
 class VariantMeta(Meta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
