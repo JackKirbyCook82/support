@@ -7,6 +7,7 @@ Created on Weds Jul 12 2023
 """
 
 import sys
+import types
 import logging
 import traceback
 import threading
@@ -17,7 +18,6 @@ __all__ = ["Routine"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
-import types
 
 LOGGER = logging.getLogger(__name__)
 

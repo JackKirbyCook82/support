@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Weds Aug 17 2022
-@name:   Visualization Objects
+@name:   Graphing Objects
 @author: Jack Kirby Cook
 
 """
@@ -32,13 +32,16 @@ class Figure(object):
         assert isinstance(axes, Axes)
         self.axes[position] = axes
 
-    def __call__(self, *args, **kwargs):
+    def setup(self, *args, **kwargs):
         figure = plt.figure(figsize=self.size)
         figure.suptitle(self.name if self.name is not None else None)
         for position, axes in self.axes.items():
             ax = figure.add_subplot(*self.layout, position, projection=axes.projection)
-            axes(ax, *args, **kwargs)
+            axes.setup(ax, *args, **kwargs)
         plt.tight_layout()
+
+    @staticmethod
+    def start(*args, **kwargs):
         plt.show()
 
     @property
@@ -92,16 +95,16 @@ class Axes(object, metaclass=AxesMeta):
             return self.coords[variable]
         return super().__getattr__(variable)
 
-    def __call__(self, ax, *args, **kwargs):
+    def setup(self, ax, *args, **kwargs):
         ax.set_title(self.name if self.name is not None else None)
         for variable, coordinate in self.coords.items():
             if coordinate is None:
                 continue
             assert coordinate.variable == variable
-            coordinate(ax, *args, **kwargs)
+            coordinate.setup(ax, *args, **kwargs)
         for name, plot in self.plots.items():
             assert plot.name == name
-            plot(ax, *args, **kwargs)
+            plot.setup(ax, *args, **kwargs)
 
     @property
     def projection(self): return self.__projection
@@ -114,7 +117,7 @@ class Axes(object, metaclass=AxesMeta):
 
 
 class Coordinate(ntuple("Coordinate", "variable name ticks labels rotation")):
-    def __call__(self, ax, *args, **kwargs):
+    def setup(self, ax, *args, **kwargs):
         getattr(ax, f"set_{self.variable}label")(self.name)
         getattr(ax, f"set_{self.variable}ticks")(self.ticks)
         getattr(ax, f"set_{self.variable}ticklabels")(self.labels)
@@ -156,11 +159,8 @@ class Plot(ABC, metaclass=PlotMeta):
             return self.data[variable]
         return super().__getattr__(variable)
 
-    def __call__(self, ax, *args, **kwargs):
-        self.execute(ax, *args, **kwargs)
-
     @abstractmethod
-    def execute(self, ax, *args, **kwargs): pass
+    def setup(self, ax, *args, **kwargs): pass
 
     @property
     def projection(self): return self.__projection
@@ -176,27 +176,27 @@ class AxesPolar(Axes, projection="polar", coordinates=["r", "θ"]): pass
 
 
 class Hist2D(Plot, projection=None, data=["x", "y"]):
-    def execute(self, ax, *args, **kwargs):
+    def setup(self, ax, *args, **kwargs):
         ax.hist(self.y, bins=self.x, label=self.name)
 
 class Line2D(Plot, projection=None, data=["x", "y"]):
-    def execute(self, ax, *args, **kwargs):
+    def setup(self, ax, *args, **kwargs):
         ax.plot(self.x, self.y, label=self.name)
 
 class Scatter2D(Plot, projection=None, data=["x", "y", "s"]):
-    def execute(self, ax, *args, **kwargs):
+    def setup(self, ax, *args, **kwargs):
         ax.scatter(self.x, self.y, s=self.s, label=self.name)
 
 class Line3D(Plot, projection="3d", data=["x", "y", "z"]):
-    def execute(self, ax, *args, **kwargs):
+    def setup(self, ax, *args, **kwargs):
         ax.plot(self.x, self.y, self.z, label=self.name)
 
 class Scatter3D(Plot, projection="3d", data=["x", "y", "z", "s"]):
-    def execute(self, ax, *args, **kwargs):
+    def setup(self, ax, *args, **kwargs):
         ax.scatter(self.x, self.y, self.z, s=self.s, label=self.name)
 
 class Surface3D(Plot, projection="3d", data=["xx", "yy", "zz"]):
-    def execute(self, ax, *args, **kwargs):
+    def setup(self, ax, *args, **kwargs):
         ax.plot_surface(self.xx, self.yy, self.zz, label=self.name)
 
 

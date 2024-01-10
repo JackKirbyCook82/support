@@ -86,29 +86,6 @@ class ClosedPipeline(OpenPipeline):
     def consumer(self): return self.__consumer
 
 
-class Stack(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
-
-    def __repr__(self): return self.name
-    def __init__(self, *args, **kwargs):
-        stackname = kwargs.get("name", self.__class__.__name__)
-        stacktype = self.__class__.__type__
-        assert stacktype is not None
-        self.__name = stackname
-        self.__type = stacktype
-
-    @abstractmethod
-    def read(self, *args, **kwargs): pass
-    @abstractmethod
-    def write(self, *args, **kwargs): pass
-
-    @property
-    def name(self): return self.__name
-    @property
-    def type(self): return self.__type
-
-
 class Stage(ABC):
     def __repr__(self): return self.name
     def __init__(self, *args, **kwargs):
@@ -166,14 +143,27 @@ class Consumer(Stage, ABC):
             LOGGER.info(f"Consumed: {repr(self)}[{time.time() - start:.2f}s]")
 
 
-class Terminal(Stage, ABC):
-    def __init__(self, *args, stack, **kwargs):
-        super().__init__(*args, **kwargs)
-        assert isinstance(stack, Stack)
-        self.__stack = stack
+class Stack(ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
+
+    def __repr__(self): return self.name
+    def __init__(self, *args, **kwargs):
+        stackname = kwargs.get("name", self.__class__.__name__)
+        stacktype = self.__class__.__type__
+        assert stacktype is not None
+        self.__name = stackname
+        self.__type = stacktype
+
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
+    @abstractmethod
+    def write(self, *args, **kwargs): pass
 
     @property
-    def stack(self): return self.__stack
+    def name(self): return self.__name
+    @property
+    def type(self): return self.__type
 
 
 class Reader(Producer, ABC):
