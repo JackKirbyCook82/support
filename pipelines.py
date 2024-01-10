@@ -169,6 +169,7 @@ class Consumer(Stage, ABC):
 class Terminal(Stage, ABC):
     def __init__(self, *args, stack, **kwargs):
         super().__init__(*args, **kwargs)
+        assert isinstance(stack, Stack)
         self.__stack = stack
 
     @property
@@ -178,6 +179,7 @@ class Terminal(Stage, ABC):
 class Reader(Producer, ABC):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
+        assert isinstance(source, Stack)
         self.__source = source
 
     @property
@@ -187,6 +189,7 @@ class Reader(Producer, ABC):
 class Writer(Consumer, ABC):
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
+        assert isinstance(destination, Stack)
         self.__destination = destination
 
     @property
