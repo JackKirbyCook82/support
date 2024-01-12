@@ -15,7 +15,7 @@ from abc import ABC, ABCMeta, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Stack", "Producer", "Processor", "Consumer", "Reader", "Writer", "Terminal"]
+__all__ = ["Producer", "Processor", "Consumer", "Reader", "Writer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -143,33 +143,9 @@ class Consumer(Stage, ABC):
             LOGGER.info(f"Consumed: {repr(self)}[{time.time() - start:.2f}s]")
 
 
-class Stack(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
-
-    def __repr__(self): return self.name
-    def __init__(self, *args, **kwargs):
-        stackname = kwargs.get("name", self.__class__.__name__)
-        stacktype = self.__class__.__type__
-        assert stacktype is not None
-        self.__name = stackname
-        self.__type = stacktype
-
-    @abstractmethod
-    def read(self, *args, **kwargs): pass
-    @abstractmethod
-    def write(self, *args, **kwargs): pass
-
-    @property
-    def name(self): return self.__name
-    @property
-    def type(self): return self.__type
-
-
 class Reader(Producer, ABC):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(source, Stack)
         self.__source = source
 
     @property
@@ -179,7 +155,6 @@ class Reader(Producer, ABC):
 class Writer(Consumer, ABC):
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(destination, Stack)
         self.__destination = destination
 
     @property

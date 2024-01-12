@@ -7,10 +7,10 @@ Created on Weds Jul 12 2023
 """
 import numpy as np
 import pandas as pd
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 
 from support.locks import Lock
-from support.pipelines import Stack
+from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -19,29 +19,34 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
 
-class Table(Stack, ABC):
+class TableMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
+
+    def __call__(cls, *args, **kwargs):
+        filename = kwargs.get("name", cls.__name__)
+        filetype = cls.__type__
+        assert filetype is not None
+        instance = super(cls, TableMeta).__call__(filename, filetype, *args, **kwargs)
+        return instance
+
+
+class Table(ABC, metaclass=TableMeta):
     def __bool__(self): return not self.empty if self.table is not None else False
     def __len__(self): return self.size
 
-    def __init__(self, contents, *args, timeout=None, **kwargs):
+    def __init__(self, table, tablename, tabletype, *args, timeout=None, **kwargs):
         super().__init__(*args, **kwargs)
         name = str(self.name).replace("Table", "Lock")
-        assert isinstance(contents, self.type)
         self.__mutex = Lock(name=name, timeout=timeout)
-        self.__table = contents
-
-    def read(self, *args, **kwargs):
-        with self.mutex:
-            return self.table
-
-    def write(self, table, *args, **kwargs):
-        assert isinstance(table, self.type)
-        with self.mutex:
-            table = self.execute(table, *args, **kwargs)
-            self.table = table
+        self.__type = tabletype
+        self.__name = tablename
+        self.__table = table
 
     @abstractmethod
-    def execute(self, other, *args, **kwargs): pass
+    def read(self, *args, **kwargs): pass
+    @abstractmethod
+    def write(self, content, *args, **kwargs): pass
 
     @property
     def table(self): return self.__table
@@ -49,19 +54,56 @@ class Table(Stack, ABC):
     def table(self, table): self.__table = table
     @property
     def mutex(self): return self.__mutex
+    @property
+    def type(self): return self.__type
+    @property
+    def name(self): return self.__name
+
+
+including = lambda key, include: key in include if bool(include) else True
+excluding = lambda key, exclude: key in exclude if bool(exclude) else True
 
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
-    def __init__(self, *args, **kwargs):
-        dataframe = pd.DataFrame(columns=self.header)
-        super().__init__(dataframe, *args, **kwargs)
+    def __init__(self, *args, **kwargs): super().__init__(pd.DataFrame(columns=self.header), *args, **kwargs)
+    def __iter__(self): return ((index, record) for index, record in self.table.to_dict("records", index=True).items())
 
-    def execute(self, dataframe, *args, **kwargs):
-        start = self.table.index.max() + 1 if not bool(self.table.empty) else 0
-        index = np.arange(start, start + len(dataframe.index))
-        dataframe = dataframe.set_index(index, drop=True, inplace=False)[self.header]
-        dataframe = pd.concat([self.table, dataframe], axis=0)
-        return dataframe
+    def dataframe(self, include=[], exclude=[]): return self.table[self.table.index.isin(include) if bool(include) else ~self.table.index.isin(exclude)]
+    def records(self, include=[], exclude=[]): return ((key, record) for key, record in iter(self) if (key in include if bool(include) else (key not in exclude)))
+    def content(self, index): return {key: record for key, record in iter(self)}[index]
+
+    @typedispatcher
+    def read(self, method, *args, **kwargs): raise ValueError(method)
+    @typedispatcher
+    def write(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
+
+    @read.register(pd.DataFrame)
+    def read_dataframe(self, *args, include=[], exclude=[], **kwargs): return self.select(include, exclude)
+    @read.register(list)
+    def read_records(self, *args, include=[], exclude=[], **kwargs): return self.records(include, exclude)
+    @read.register(dict)
+    def read_content(self, *args, index, **kwargs): return self.content(index)
+
+    @write.register(pd.DataFrame)
+    def write_dataframe(self, dataframe, *args, **kwargs):
+        assert isinstance(dataframe, self.type)
+        with self.mutex:
+            start = self.table.index.max() + 1 if not bool(self.table.empty) else 0
+            index = np.arange(start, start + len(dataframe.index))
+            dataframe = dataframe.set_index(index, drop=True, inplace=False)[self.header]
+            dataframe = pd.concat([self.table, dataframe], axis=0)
+            self.table = dataframe
+
+    @write.register(list)
+    def write_records(self, records, *args, **kwargs):
+        assert all([isinstance(record, dict) for record in records])
+        dataframe = pd.DataFrame.from_records(records, columns=self.header)
+        self.write(dataframe, *args, **kwargs)
+
+    @write.register(dict)
+    def write_content(self, content, *args, **kwargs):
+        dataframe = pd.DataFrame.from_records([content], columns=self.header)
+        self.write(dataframe, *args, **kwargs)
 
     @property
     def empty(self): return bool(self.table.empty)

@@ -10,12 +10,11 @@ import os.path
 import xarray as xr
 import pandas as pd
 import dask.dataframe as dk
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from functools import update_wrapper
 from collections import OrderedDict as ODict
 
 from support.locks import Locks
-from support.pipelines import Stack
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -24,12 +23,26 @@ __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = ""
 
 
-class File(Stack):
-    def __init__(self, *args, repository, timeout=None, **kwargs):
+class FileMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
+
+    def __call__(cls, contents, *args, capacity, **kwargs):
+        filename = kwargs.get("name", cls.__name__)
+        filetype = cls.__type__
+        assert filetype is not None
+        instance = super(cls, FileMeta).__call__(filename, filetype, *args, **kwargs)
+        return instance
+
+
+class File(ABC, metaclass=FileMeta):
+    def __init__(self, filename, filetype, *args, repository, timeout=None, **kwargs):
         super().__init__(*args, **kwargs)
-        name = str(self.name).replace("File", "Lock")
-        self.__mutex = Locks(name=name, timeout=timeout)
+        lockname = str(filename).replace("File", "Lock")
+        self.__mutex = Locks(name=lockname, timeout=timeout)
         self.__repository = repository
+        self.__type = filetype
+        self.__name = filename
 
     def directory(self, *path): return (content for content in os.listdir(os.path.join(self.repository, *path)))
     def path(self, *path): return os.path.join(self.repository, *path)
@@ -47,6 +60,10 @@ class File(Stack):
     def repository(self): return self.__repository
     @property
     def mutex(self): return self.__mutex
+    @property
+    def type(self): return self.__type
+    @property
+    def name(self): return self.__name
 
 
 class DataframeFile(File, ABC, type=pd.DataFrame):
