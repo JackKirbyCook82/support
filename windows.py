@@ -26,7 +26,8 @@ class Column(ntuple("Column", "name width justify parser")):
 
 
 class Table(ABC):
-    pass
+    @property
+    def layout(self): pass
 
 
 class Window(ABC):
@@ -35,7 +36,7 @@ class Window(ABC):
         self.__name = kwargs.get("name", self.__class__.__name__)
 
     def __call__(self, *args, **kwargs):
-        window = gui.Window(repr(self), [[]], resizable=True, finalize=True)
+        window = gui.Window(repr(self), self.layout, resizable=True, finalize=True)
         window.Maximize()
         while True:
             event, values = window.read()
@@ -43,6 +44,8 @@ class Window(ABC):
                 break
         window.close()
 
+    @abstractmethod
+    def layout(self, *args, **kwargs): pass
     @abstractmethod
     def process(self, *args, **kwargs): pass
     @abstractmethod
