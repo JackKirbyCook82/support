@@ -27,17 +27,17 @@ class FileMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
 
-    def __call__(cls, contents, *args, capacity, **kwargs):
+    def __call__(cls, *args, **kwargs):
         filename = kwargs.get("name", cls.__name__)
         filetype = cls.__type__
         assert filetype is not None
-        instance = super(cls, FileMeta).__call__(filename, filetype, *args, **kwargs)
+        instance = super(FileMeta, cls).__call__(filename, filetype, *args, **kwargs)
         return instance
 
 
 class File(ABC, metaclass=FileMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
     def __init__(self, filename, filetype, *args, repository, timeout=None, **kwargs):
-        super().__init__(*args, **kwargs)
         lockname = str(filename).replace("File", "Lock")
         self.__mutex = Locks(name=lockname, timeout=timeout)
         self.__repository = repository

@@ -27,7 +27,7 @@ class TableMeta(ABCMeta):
         filename = kwargs.get("name", cls.__name__)
         filetype = cls.__type__
         assert filetype is not None
-        instance = super(cls, TableMeta).__call__(filename, filetype, *args, **kwargs)
+        instance = super(TableMeta, cls).__call__(filename, filetype, *args, **kwargs)
         return instance
 
 
@@ -35,10 +35,10 @@ class Table(ABC, metaclass=TableMeta):
     def __bool__(self): return not self.empty if self.table is not None else False
     def __len__(self): return self.size
 
+    def __init_subclass__(cls, *args, **kwargs): pass
     def __init__(self, table, tablename, tabletype, *args, timeout=None, **kwargs):
-        super().__init__(*args, **kwargs)
-        name = str(self.name).replace("Table", "Lock")
-        self.__mutex = Lock(name=name, timeout=timeout)
+        lockname = str(tablename).replace("Table", "Lock")
+        self.__mutex = Lock(name=lockname, timeout=timeout)
         self.__type = tabletype
         self.__name = tablename
         self.__table = table
@@ -60,13 +60,9 @@ class Table(ABC, metaclass=TableMeta):
     def name(self): return self.__name
 
 
-including = lambda key, include: key in include if bool(include) else True
-excluding = lambda key, exclude: key in exclude if bool(exclude) else True
-
-
 class DataframeTable(Table, ABC, type=pd.DataFrame):
     def __init__(self, *args, **kwargs): super().__init__(pd.DataFrame(columns=self.header), *args, **kwargs)
-    def __iter__(self): return ((index, record) for index, record in self.table.to_dict("records", index=True).items())
+    def __iter__(self): return ((index, record) for index, record in self.table.to_dict("index").items())
 
     def dataframe(self, include=[], exclude=[]): return self.table[self.table.index.isin(include) if bool(include) else ~self.table.index.isin(exclude)]
     def records(self, include=[], exclude=[]): return ((key, record) for key, record in iter(self) if (key in include if bool(include) else (key not in exclude)))

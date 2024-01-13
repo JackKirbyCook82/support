@@ -1,24 +1,32 @@
 # -*- coding: utf-8 -*-
 """
-Created on Weds Jan 10 2024
+Created on Sat Jan 13 2024
 @name:   Windows Objects
 @author: Jack Kirby Cook
 
 """
 
 import PySimpleGUI as gui
+from enum import IntEnum
 from abc import ABC, abstractmethod
+from collections import namedtuple as ntuple
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = []
+__all__ = ["Window", "Table", "Column", "Justify"]
 __copyright__ = "Copyright 2022, Jack Kirby Cook"
 __license__ = ""
 
 
-tab = lambda key, name, layout: gui.Tab(name, layout, key=key)
-tabgroup = lambda key, tabs: gui.TabGroup(tabs, key=key)
-table = lambda key, header, layout: gui.Table(layout, header, key=key, enable_events=True)
+Justify = IntEnum("Justify", ["LEFT", "CENTER", "RIGHT"], start=1)
+
+
+class Column(ntuple("Column", "name width justify parser")):
+    pass
+
+
+class Table(ABC):
+    pass
 
 
 class Window(ABC):
@@ -28,6 +36,7 @@ class Window(ABC):
 
     def __call__(self, *args, **kwargs):
         window = gui.Window(repr(self), [[]], resizable=True, finalize=True)
+        window.Maximize()
         while True:
             event, values = window.read()
             if event == gui.WINDOW_CLOSED:

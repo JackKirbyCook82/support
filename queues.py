@@ -29,7 +29,7 @@ class QueueMeta(ABCMeta):
         instance = queuetype()
         for content in contents:
             instance.put(content)
-        wrapper = super(cls, QueueMeta).__call__(queuename, queuetype, *args, **kwargs)
+        wrapper = super(QueueMeta, cls).__call__(queuename, queuetype, *args, **kwargs)
         return wrapper
 
 
@@ -38,6 +38,7 @@ class Queue(ABC, metaclass=QueueMeta):
     def __repr__(self): return self.name
     def __len__(self): return self.size
 
+    def __init_subclass__(cls, *args, **kwargs): pass
     def __init__(self, name, instance, *args, timeout=None, **kwargs):
         self.__timeout = timeout
         self.__queue = instance
