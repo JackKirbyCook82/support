@@ -29,7 +29,7 @@ class ElementMeta(ABCMeta):
         attrs = {key: value for key, value in attrs.items() if not isinstance(value, Format) or not isinstance(value, Column)}
         return super(ElementMeta, mcs).__new__(mcs, name, bases, attrs)
 
-    def __call__(cls, *args, name, **kwargs):
+    def __call__(cls, *args, **kwargs):
         instance = super(ElementMeta, cls).__call__(*args, **cls.parameters, **kwargs)
         return instance
 
@@ -84,18 +84,6 @@ class Element(ABC, metaclass=ElementMeta):
     def name(self): return self.__name
 
 
-class Window(Element, ABC):
-    def __init__(self, *args, name, **kwargs):
-        key = f"--{str(name).lower()}--"
-        layout = self.layout(*args, **kwargs)
-        window = gui.Window(layout, key=key, resizable=True, finalize=True)
-        super().__init__(name, window)
-
-    def __enter__(self): return self.element
-    def __exit__(self, error_type, error_value, error_traceback):
-        self.element.close()
-
-
 class Text(Element, ABC, metaclass=TextMeta):
     def __init__(self, *args, name, content, formats={}, **kwargs):
         key = f"--{str(name).lower()}--"
@@ -118,6 +106,32 @@ class Table(Element, ABC, metaclass=TableMeta):
         return [[parser(row) for name, parser in columns.items()] for row in rows]
 
 
+class Window(Element, ABC):
+    def __str__(self): return f"--{str(self.name).lower()}--"
+    def __repr__(self): return self.name
+
+    def __init__(self, *args, name, **kwargs):
+        key = f"--{str(name).lower()}--"
+        layout = self.layout(*args, **kwargs)
+        window = gui.Window(name, layout, key=key, resizable=True, finalize=True)
+        self.__window = window
+        self.__name = name
+
+    def __enter__(self): return self
+    def __exit__(self, error_type, error_value, error_traceback):
+        self.window.close()
+
+#    def read(self):
+#        return self.window.read()
+
+    @abstractmethod
+    def layout(self, *args, **kwargs): pass
+    @property
+    def window(self): return self.__window
+    @property
+    def name(self): return self.__name
+
+
 class Driver(ABC):
     def __init_subclass__(cls, *args, window, **kwargs): cls.__window__ = window
     def __init__(self, *args, **kwargs):
@@ -126,11 +140,15 @@ class Driver(ABC):
 
     def __repr__(self): return self.name
     def __call__(self, *args, **kwargs):
-        with self.window(*args, **kwargs) as window:
+        title = repr(self)
+        with self.window(*args, name=title, **kwargs) as window:
+            assert isinstance(window, Window)
             while True:
-                event, handles = window.read()
-                if event == gui.WINDOW_CLOSED:
-                    break
+                pass
+
+#                event, handles = window.read()
+#                if event == gui.WINDOW_CLOSED:
+#                    break
 
     @property
     def window(self): return self.__window
