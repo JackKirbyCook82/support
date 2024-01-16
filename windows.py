@@ -14,7 +14,7 @@ from collections import namedtuple as ntuple
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Driver", "Window", "Text", "Table", "Format", "Column", "Justify"]
+__all__ = ["Window", "Text", "Table", "Format", "Column", "Justify"]
 __copyright__ = "Copyright 2022, Jack Kirby Cook"
 __license__ = ""
 
@@ -52,7 +52,8 @@ class TableMeta(ElementMeta):
         columns = {key: value for key, value in attrs.items() if isinstance(value, Column)}
         justify = kwargs.get("justify", getattr(cls, "__justify__", Justify.RIGHT))
         height = kwargs.get("height", getattr(cls, "__height__", None))
-        events = kwargs.get("event", getattr(cls, "__events__", False))
+        events = kwargs.get("events", getattr(cls, "__events__", False))
+        print(events)
         columns = getattr(cls, "__columns__", {}) | columns
         assert isinstance(height, (int, type(None))) and isinstance(events, bool)
         cls.__columns__ = columns
@@ -72,12 +73,13 @@ class TableMeta(ElementMeta):
 class Element(ABC, metaclass=ElementMeta):
     def __str__(self): return f"--{str(self.name).lower()}--"
     def __repr__(self): return self.name
-    def __init__(self, name, element):
+    def __init__(self, *args, name, element, **kwargs):
         self.__element = element
         self.__name = name
 
+    @staticmethod
     @abstractmethod
-    def layout(self, *args, **kwargs): pass
+    def layout(*args, **kwargs): pass
     @property
     def element(self): return self.__element
     @property
@@ -90,7 +92,11 @@ class Text(Element, ABC, metaclass=TextMeta):
         formats = ODict([(value.name, value.parser) for value in formats.values()])
         layout = self.layout(*args, content=content, formats=formats, **kwargs)
         element = gui.Text(layout, key=key)
-        super().__init__(name, element)
+        super().__init__(*args, name=name, element=element, **kwargs)
+        self.__formats = formats
+
+    @property
+    def formats(self): return self.__formats
 
 
 class Table(Element, ABC, metaclass=TableMeta):
@@ -99,21 +105,24 @@ class Table(Element, ABC, metaclass=TableMeta):
         columns = ODict([(value.name, value.parser) for value in columns.values()])
         layout = self.layout(*args, rows=rows, columns=columns, **kwargs)
         element = gui.Table(layout, key=key, headings=header, enable_events=events, **formatting)
-        super().__init__(name, element)
+        super().__init__(*args, name=name, element=element, **kwargs)
+        self.__columns = columns
+
+    def __call__(self, *args, rows=[], **kwargs):
+        layout = self.layout(*args, rows=rows, columns=self.columns, **kwargs)
+        self.element.update(layout)
 
     @staticmethod
-    def layout(*args, rows=[], columns={}, **kwargs):
-        return [[parser(row) for name, parser in columns.items()] for row in rows]
+    def layout(*args, rows=[], columns={}, **kwargs): return [[parser(row) for name, parser in columns.items()] for row in rows]
+    @property
+    def columns(self): return self.__columns
 
 
-class Window(Element, ABC):
-    def __str__(self): return f"--{str(self.name).lower()}--"
+class Window(ABC):
     def __repr__(self): return self.name
-
     def __init__(self, *args, name, **kwargs):
-        key = f"--{str(name).lower()}--"
         layout = self.layout(*args, **kwargs)
-        window = gui.Window(name, layout, key=key, resizable=True, finalize=True)
+        window = gui.Window(name, layout, resizable=True, finalize=True)
         self.__window = window
         self.__name = name
 
@@ -121,35 +130,9 @@ class Window(Element, ABC):
     def __exit__(self, error_type, error_value, error_traceback):
         self.window.close()
 
-#    def read(self):
-#        return self.window.read()
-
+    @staticmethod
     @abstractmethod
-    def layout(self, *args, **kwargs): pass
-    @property
-    def window(self): return self.__window
-    @property
-    def name(self): return self.__name
-
-
-class Driver(ABC):
-    def __init_subclass__(cls, *args, window, **kwargs): cls.__window__ = window
-    def __init__(self, *args, **kwargs):
-        self.__window = kwargs.get("window", self.__class__.__window__)
-        self.__name = kwargs.get("name", self.__class__.__name__)
-
-    def __repr__(self): return self.name
-    def __call__(self, *args, **kwargs):
-        title = repr(self)
-        with self.window(*args, name=title, **kwargs) as window:
-            assert isinstance(window, Window)
-            while True:
-                pass
-
-#                event, handles = window.read()
-#                if event == gui.WINDOW_CLOSED:
-#                    break
-
+    def layout(*args, **kwargs): pass
     @property
     def window(self): return self.__window
     @property
