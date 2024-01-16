@@ -14,7 +14,7 @@ from collections import namedtuple as ntuple
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Window", "Text", "Table", "Format", "Column", "Justify"]
+__all__ = ["Windows", "Window", "Text", "Table", "Format", "Column", "Justify"]
 __copyright__ = "Copyright 2022, Jack Kirby Cook"
 __license__ = ""
 
@@ -130,6 +130,9 @@ class Window(ABC):
     def __exit__(self, error_type, error_value, error_traceback):
         self.window.close()
 
+    def __call__(self, *args, **kwargs):
+        pass
+
     @staticmethod
     @abstractmethod
     def layout(*args, **kwargs): pass
@@ -137,6 +140,40 @@ class Window(ABC):
     def window(self): return self.__window
     @property
     def name(self): return self.__name
+
+
+class Windows(ABC):
+    def __init__(self, *args, windows={}, **kwargs):
+        assert isinstance(windows, dict)
+        assert all([issubclass(window, Windows) for window in windows.values()])
+
+    def __enter__(self): return self
+    def __exit__(self, error_type, error_value, error_traceback):
+        self.window.close()
+
+    def __call__(self, *args, **kwargs):
+        pass
+
+
+# while True:
+#     window, event, handles = gui.read_all_windows()
+#     print(event, handles)
+#     if event == gui.WINDOW_CLOSED:
+#         break
+#     if event is None:
+#         continue
+#     for index in handles[event]:
+#         target = self.targets[index]
+#         target_window = TargetWindow(*args, name="target", target=target, **kwargs)
+
+
+
+
+
+
+
+
+
 
 
 
