@@ -91,8 +91,9 @@ class Window(Element, ABC):
         window = gui.Window(layout, key=key, resizable=True, finalize=True)
         super().__init__(name, window)
 
-    @property
-    def window(self): return self.__window
+    def __enter__(self): return self.element
+    def __exit__(self, error_type, error_value, error_traceback):
+        self.element.close()
 
 
 class Text(Element, ABC, metaclass=TextMeta):
@@ -118,18 +119,21 @@ class Table(Element, ABC, metaclass=TableMeta):
 
 
 class Driver(ABC):
-    def __repr__(self): return self.name
+    def __init_subclass__(cls, *args, window, **kwargs): cls.__window__ = window
     def __init__(self, *args, **kwargs):
+        self.__window = kwargs.get("window", self.__class__.__window__)
         self.__name = kwargs.get("name", self.__class__.__name__)
 
+    def __repr__(self): return self.name
     def __call__(self, *args, **kwargs):
+        with self.window(*args, **kwargs) as window:
+            while True:
+                event, handles = window.read()
+                if event == gui.WINDOW_CLOSED:
+                    break
 
-        while True:
-            event, handles = window.read()
-            if event == gui.WINDOW_CLOSED:
-                break
-        window.close()
-
+    @property
+    def window(self): return self.__window
     @property
     def name(self): return self.__name
 
