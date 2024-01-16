@@ -14,7 +14,7 @@ from collections import namedtuple as ntuple
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Window", "Textual", "Tabular", "Format", "Column", "Justify"]
+__all__ = ["Driver", "Window", "Text", "Table", "Format", "Column", "Justify"]
 __copyright__ = "Copyright 2022, Jack Kirby Cook"
 __license__ = ""
 
@@ -26,91 +26,110 @@ Format = ntuple("Format", "name font parser")
 
 class ElementMeta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        attrs = {key: value for key, value in attrs.items() if not isinstance(value, Column) and not isinstance(value, Format)}
+        attrs = {key: value for key, value in attrs.items() if not isinstance(value, Format) or not isinstance(value, Column)}
         return super(ElementMeta, mcs).__new__(mcs, name, bases, attrs)
 
+    def __call__(cls, *args, name, **kwargs):
+        instance = super(ElementMeta, cls).__call__(*args, **cls.parameters, **kwargs)
+        return instance
+
+    @property
+    def parameters(cls): return {}
+
+
+class TextMeta(ElementMeta):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        formats = {key: value for key, value in attrs.items() if isinstance(value, Format)}
+        formats = getattr(cls, "__formats__", {}) | formats
+        cls.__formats__ = formats
+
+    @property
+    def parameters(cls): return dict(formats=cls.__formats__)
+
+
+class TableMeta(ElementMeta):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         columns = {key: value for key, value in attrs.items() if isinstance(value, Column)}
-        formats = {key: value for key, value in attrs.items() if isinstance(value, Format)}
-        cls.__columns__ = getattr(cls, "__columns__", {}) | columns
-        cls.__formats__ = getattr(cls, "__formats__", {}) | formats
+        justify = kwargs.get("justify", getattr(cls, "__justify__", Justify.RIGHT))
+        height = kwargs.get("height", getattr(cls, "__height__", None))
+        events = kwargs.get("event", getattr(cls, "__events__", False))
+        columns = getattr(cls, "__columns__", {}) | columns
+        assert isinstance(height, (int, type(None))) and isinstance(events, bool)
+        cls.__columns__ = columns
+        cls.__justify__ = justify
+        cls.__height__ = height
+        cls.__events__ = events
 
-    def __call__(cls, *args, name, **kwargs):
-        parameters = dict(name=name, formats=cls.__formats__, columns=cls.__columns__)
-        instance = super(ElementMeta, cls).__call__(*args, **parameters, **kwargs)
-        return instance
+    @property
+    def parameters(cls):
+        header = [str(value.name) for value in cls.__columns__.values()]
+        width = [int(value.width) for value in cls.__columns__.values()]
+        justify = str(cls.__justify__.name).lower()
+        formatting = dict(col_widths=width, row_height=cls.__height__, auto_size_columns=False, justification=justify)
+        return dict(columns=cls.__columns__, header=header, formatting=formatting, events=cls.__events__)
 
 
 class Element(ABC, metaclass=ElementMeta):
-    def __repr__(self): return self.name
     def __str__(self): return f"--{str(self.name).lower()}--"
-    def __init__(self, *args, name, **kwargs): self.__name = name
-
-    def __call__(self, *args, **kwargs):
-        return self.execute(*args, **kwargs)
+    def __repr__(self): return self.name
+    def __init__(self, name, element):
+        self.__element = element
+        self.__name = name
 
     @abstractmethod
-    def execute(self, *args, **kwargs): pass
+    def layout(self, *args, **kwargs): pass
+    @property
+    def element(self): return self.__element
     @property
     def name(self): return self.__name
 
 
-class Textual(Element, ABC):
-    def __init__(self, *args, formats, **kwargs):
-        super().__init__(args, **kwargs)
-        self.__formats = ODict([(value.name, value.parser) for value in formats.values()])
-
-    @property
-    def formats(self): return self.__formats
-
-
-class Tabular(Element, ABC):
-    def __init__(self, *args, columns, justify=Justify.RIGHT, height=None, events=False, **kwargs):
-        super().__init__(*args, **kwargs)
-        assert isinstance(height, (int, type(None))) and isinstance(events, bool)
-        header = [str(value.name) for value in columns.values()]
-        width = [int(value.width) for value in columns.values()]
-        justify = str(justify.name).lower()
-        formatting = dict(col_widths=width, row_height=height, auto_size_columns=False, justification=justify)
-        parameters = dict(headings=header, enable_events=events) | formatting
-        self.__columns = ODict([(value.name, value.parser) for value in columns.values()])
-        self.__parameters = parameters
-
-    @property
-    def columns(self): return self.__columns
-    @property
-    def parameters(self): return self.__parameters
-
-
-class Window(ABC):
-    def __str__(self): return f"--{str(self.name).lower()}--"
-    def __repr__(self): return self.name
-    def __init__(self, *args, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__window = None
-
-    def __call__(self, *args, **kwargs):
+class Window(Element, ABC):
+    def __init__(self, *args, name, **kwargs):
+        key = f"--{str(name).lower()}--"
         layout = self.layout(*args, **kwargs)
-        self.window = gui.Window(self.name, layout, resizable=True, finalize=True)
-        while True:
-            self.refresh(*args, **kwargs)
-            event, handles = self.window.read()
-            handles = handles if isinstance(handles, dict) else {}
-            self.execute(event, handles, *args, **kwargs)
-            if event == gui.WINDOW_CLOSED:
-                break
-        self.window.close()
-        self.window = None
-
-    @abstractmethod
-    def layout(self, *args, **kwargs): pass
-    @abstractmethod
-    def execute(self, event, handles, *args, **kwargs): pass
+        window = gui.Window(layout, key=key, resizable=True, finalize=True)
+        super().__init__(name, window)
 
     @property
     def window(self): return self.__window
-    @window.setter
-    def window(self, window): self.__window = window
+
+
+class Text(Element, ABC, metaclass=TextMeta):
+    def __init__(self, *args, name, content, formats={}, **kwargs):
+        key = f"--{str(name).lower()}--"
+        formats = ODict([(value.name, value.parser) for value in formats.values()])
+        layout = self.layout(*args, content=content, formats=formats, **kwargs)
+        element = gui.Text(layout, key=key)
+        super().__init__(name, element)
+
+
+class Table(Element, ABC, metaclass=TableMeta):
+    def __init__(self, *args, name, rows=[], columns={}, header, formatting, events, **kwargs):
+        key = f"--{str(name).lower()}--"
+        columns = ODict([(value.name, value.parser) for value in columns.values()])
+        layout = self.layout(*args, rows=rows, columns=columns, **kwargs)
+        element = gui.Table(layout, key=key, headings=header, enable_events=events, **formatting)
+        super().__init__(name, element)
+
+    @staticmethod
+    def layout(*args, rows=[], columns={}, **kwargs):
+        return [[parser(row) for name, parser in columns.items()] for row in rows]
+
+
+class Driver(ABC):
+    def __repr__(self): return self.name
+    def __init__(self, *args, **kwargs):
+        self.__name = kwargs.get("name", self.__class__.__name__)
+
+    def __call__(self, *args, **kwargs):
+
+        while True:
+            event, handles = window.read()
+            if event == gui.WINDOW_CLOSED:
+                break
+        window.close()
+
     @property
     def name(self): return self.__name
 
