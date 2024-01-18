@@ -37,6 +37,7 @@ class ElementMeta(ABCMeta):
     def parameters(cls): return {}
 
 
+class ButtonMeta(ElementMeta): pass
 class FrameMeta(ElementMeta):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         texts = {key: value for key, value in attrs.items() if isinstance(value, Text)}
@@ -72,7 +73,6 @@ class TableMeta(ElementMeta):
 class Element(ABC, metaclass=ElementMeta):
     def __repr__(self): return self.name
     def __str__(self): return self.key
-
     def __init__(self, *args, name, key, element, **kwargs):
         self.__element = element
         self.__name = name
@@ -84,6 +84,12 @@ class Element(ABC, metaclass=ElementMeta):
     def name(self): return self.__name
     @property
     def key(self): return self.__key
+
+
+class Button(Element, ABC, metaclass=ButtonMeta):
+    def __init__(self, *args, name, key, **kwargs):
+        element = gui.Button(name, key=key)
+        super().__init__(*args, name=name, key=key, element=element, **kwargs)
 
 
 class Frame(Element, ABC, metaclass=FrameMeta):
@@ -123,14 +129,13 @@ class WindowMeta(ABCMeta):
 
 
 class Window(ABC, metaclass=WindowMeta):
-    def __bool__(self): return self.started and not self.closed
+    def __bool__(self): return self.opened and not self.closed
     def __repr__(self): return self.name
     def __str__(self): return self.key
-
     def __init__(self, *args, name, key, **kwargs):
         layout = self.layout(*args, **kwargs)
         window = gui.Window(name, layout, resizable=True, finalize=False, metadata=key)
-        self.__started = False
+        self.__opened = False
         self.__closed = False
         self.__window = window
         self.__name = name
@@ -139,12 +144,12 @@ class Window(ABC, metaclass=WindowMeta):
     def start(self):
         self.window.finalize()
         self.closed = False
-        self.started = True
+        self.opened = True
 
     def stop(self):
         self.window.close()
         self.closed = True
-        self.started = False
+        self.opened = False
 
     @staticmethod
     @abstractmethod
@@ -155,9 +160,9 @@ class Window(ABC, metaclass=WindowMeta):
     @closed.setter
     def closed(self, closed): self.__closed = closed
     @property
-    def started(self): return self.__started
-    @started.setter
-    def started(self, started): self.__started = started
+    def opened(self): return self.__started
+    @opened.setter
+    def opened(self, opened): self.__opened = opened
     @property
     def window(self): return self.__window
     @property
@@ -168,7 +173,6 @@ class Window(ABC, metaclass=WindowMeta):
 
 class Windows(dict):
     def __bool__(self): return any([bool(window) for window in self.values()])
-
     def __enter__(self): return self
     def __exit__(self, error_type, error_value, error_traceback):
         for window in self.values():
