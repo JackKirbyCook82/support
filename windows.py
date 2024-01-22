@@ -14,7 +14,7 @@ from collections import namedtuple as ntuple
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Window", "Frame", "Table", "Button", "Text", "Column", "Justify"]
+__all__ = ["Terminal", "Window", "Frame", "Table", "Button", "Text", "Column", "Justify"]
 __copyright__ = "Copyright 2022, Jack Kirby Cook"
 __license__ = ""
 
@@ -41,7 +41,6 @@ class ElementMeta(ABCMeta):
         cls.__texts__ = texts
 
     def __call__(cls, *args, **kwargs):
-        print(kwargs)
         parameters = dict(trinket=cls.__trinket__, columns=cls.__columns__, texts=cls.__texts__)
         instance = super(ElementMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
@@ -60,7 +59,7 @@ class Element(ABC, metaclass=ElementMeta):
 
     @staticmethod
     def key(*args, name, index, trinket, **kwargs):
-        return f"{str(name).lower()}|{int(index):.0f}|{str(trinket.name).lower()}"
+        return f"--{str(name).lower()}|{str(trinket.name).lower()}[{int(index):.0f}]--"
 
     @property
     def element(self): return self.__element
@@ -118,6 +117,11 @@ class Table(Element, ABC, trinket=Trinket.TABLE):
         super().__init__(*args, name=name, element=element, **kwargs)
         self.__columns = columns
 
+    def update(self, content=[]):
+        assert isinstance(content, list)
+        layout = [[parser(row) for name, parser in self.columns.items()] for row in content]
+        self.element.update(layout)
+
     @property
     def columns(self): return self.__columns
 
@@ -131,19 +135,12 @@ class Window(Element, trinket=Trinket.WINDOW):
         self.__opened = False
         self.__closed = False
 
-    def __enter__(self):
-        self.start()
-        return self
-
-    def __exit__(self, error_type, error_value, error_traceback):
-        self.stop()
-
-    def start(self, *args, **kwargs):
+    def start(self):
         self.element.finalize()
         self.closed = False
         self.opened = True
 
-    def stop(self, *args, **kwargs):
+    def stop(self):
         self.element.close()
         self.closed = True
         self.opened = False
@@ -160,6 +157,36 @@ class Window(Element, trinket=Trinket.WINDOW):
     def opened(self): return self.__opened
     @opened.setter
     def opened(self, opened): self.__opened = opened
+
+
+class Terminal(Window, ABC):
+    def __enter__(self):
+        self.start()
+        return self
+
+    def __exit__(self, error_type, error_value, error_traceback):
+        self.stop()
+
+    def __call__(self, *args, **kwargs):
+        while True:
+            pass
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
