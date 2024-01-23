@@ -138,19 +138,18 @@ class WindowMeta(ABCMeta):
 
 
 class Window(ABC, metaclass=WindowMeta):
-    def __str__(self): return self.key(name=self.name, tag=self.tag, trinket=self.trinket)
     def __bool__(self): return self.opened and not self.closed
     def __repr__(self): return self.name
 
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, name, tag, **kwargs):
+    def __init__(self, *args, name, parent=None, **kwargs):
         layout = self.layout(*args, **kwargs)
         element = gui.Window(name, layout, resizable=True, finalize=False, metadata=self)
         self.__opened = False
         self.__closed = False
+        self.__parent = parent
         self.__element = element
         self.__name = name
-        self.__tag = tag
 
     def start(self):
         self.element.finalize()
@@ -166,10 +165,6 @@ class Window(ABC, metaclass=WindowMeta):
     @abstractmethod
     def layout(*args, **kwargs): pass
 
-    @staticmethod
-    def key(*args, name, tag, trinket, **kwargs):
-        return f"--{str(name).lower()}|{str(trinket.name).lower()}[{int(tag):.0f}]--"
-
     @property
     def closed(self): return self.__closed
     @closed.setter
@@ -179,11 +174,11 @@ class Window(ABC, metaclass=WindowMeta):
     @opened.setter
     def opened(self, opened): self.__opened = opened
     @property
+    def parent(self): return self.__parent
+    @property
     def element(self): return self.__element
     @property
     def name(self): return self.__name
-    @property
-    def tag(self): return self.__tag
 
 
 class Terminal(Window, ABC):
