@@ -19,7 +19,7 @@ __copyright__ = "Copyright 2022, Jack Kirby Cook"
 __license__ = ""
 
 
-Trinket = IntEnum("Trinket", ["WINDOW", "FRAME", "BUTTON", "TABLE"], start=1)
+Trinket = IntEnum("Trinket", ["FRAME", "BUTTON", "TABLE"], start=1)
 Justify = IntEnum("Justify", ["LEFT", "CENTER", "RIGHT"], start=1)
 Column = ntuple("Column", "name width parser")
 Text = ntuple("Format", "name font parser")
@@ -47,44 +47,47 @@ class ElementMeta(ABCMeta):
 
 
 class Element(ABC, metaclass=ElementMeta):
-    def __str__(self): return self.key(name=self.name, index=self.index, trinket=self.trinket)
+    def __str__(self): return self.key(name=self.name, tag=self.tag, trinket=self.trinket)
     def __repr__(self): return self.name
 
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, name, index, trinket, element, **kwargs):
+    def __init__(self, *args, name, tag, trinket, element, window, **kwargs):
+        self.__window = window
         self.__element = element
         self.__trinket = trinket
-        self.__index = index
         self.__name = name
+        self.__tag = tag
 
     @staticmethod
-    def key(*args, name, index, trinket, **kwargs):
-        return f"--{str(name).lower()}|{str(trinket.name).lower()}[{int(index):.0f}]--"
+    def key(*args, name, tag, trinket, **kwargs):
+        return f"--{str(name).lower()}|{str(trinket.name).lower()}[{int(tag):.0f}]--"
 
+    @property
+    def window(self): return self.__window
     @property
     def element(self): return self.__element
     @property
     def trinket(self): return self.__trinket
     @property
-    def index(self): return self.__index
-    @property
     def name(self): return self.__name
+    @property
+    def tag(self): return self.__tag
 
 
 class Button(Element, ABC, trinket=Trinket.BUTTON):
-    def __init__(self, *args, name, **kwargs):
-        key = self.key(*args, name=name, **kwargs)
+    def __init__(self, *args, name, tag, **kwargs):
+        key = self.key(*args, name=name, tag=tag, **kwargs)
         element = gui.Button(name, key=key, metadata=self)
-        super().__init__(*args, name=name, element=element, **kwargs)
+        super().__init__(*args, name=name, tag=tag, element=element, **kwargs)
 
 
 class Frame(Element, ABC, trinket=Trinket.FRAME):
-    def __init__(self, *args, name, content, texts={}, **kwargs):
+    def __init__(self, *args, name, tag, content, texts={}, **kwargs):
         create = lambda strings, font: [gui.Text(string, font=font) for string in strings] if isinstance(strings, list) else gui.Text(strings, font=font)
         texts = ODict([(value.name, create(value.parser(content), value.font)) for value in texts.values()])
         layout = self.layout(*args, **texts, **kwargs)
         element = gui.Frame("", layout)
-        super().__init__(*args, name=name, element=element, **kwargs)
+        super().__init__(*args, name=name, tag=tag, element=element, **kwargs)
 
     @staticmethod
     @abstractmethod
@@ -102,7 +105,8 @@ class Table(Element, ABC, trinket=Trinket.TABLE):
         cls.__height__ = height
         cls.__events__ = events
 
-    def __init__(self, *args, name, content=[], columns={}, **kwargs):
+    def __init__(self, *args, name, tag, contents=[], columns={}, **kwargs):
+        assert isinstance(contents, list)
         header = [str(value.name) for value in columns.values()]
         width = [int(value.width) for value in columns.values()]
         justify = str(self.__class__.__justify__.name).lower()
@@ -111,29 +115,42 @@ class Table(Element, ABC, trinket=Trinket.TABLE):
         columns = ODict([(value.name, value.parser) for value in columns.values()])
         formatting = dict(col_widths=width, row_height=height, auto_size_columns=False, justification=justify)
         parameters = dict(headings=header, enable_events=events)
-        layout = [[parser(row) for name, parser in columns.items()] for row in content]
-        key = self.key(*args, name=name, **kwargs)
+        layout = [[parser(row) for name, parser in columns.items()] for row in contents]
+        key = self.key(*args, name=name, tag=tag, **kwargs)
         element = gui.Table(layout, key=key, metadata=self, **formatting, **parameters)
-        super().__init__(*args, name=name, element=element, **kwargs)
+        super().__init__(*args, name=name, tag=tag, element=element, **kwargs)
         self.__columns = columns
 
-    def update(self, content=[]):
-        assert isinstance(content, list)
-        layout = [[parser(row) for name, parser in self.columns.items()] for row in content]
+    def refresh(self, contents=[]):
+        assert isinstance(contents, list)
+        layout = [[parser(row) for name, parser in self.columns.items()] for row in contents]
         self.element.update(layout)
 
     @property
     def columns(self): return self.__columns
 
 
-class Window(Element, trinket=Trinket.WINDOW):
+class WindowMeta(ABCMeta):
+    def __call__(cls, *args, **kwargs):
+        instance = super(WindowMeta, cls).__call__(*args, **kwargs)
+        instance.start()
+        return instance
+
+
+class Window(ABC, metaclass=WindowMeta):
+    def __str__(self): return self.key(name=self.name, tag=self.tag, trinket=self.trinket)
     def __bool__(self): return self.opened and not self.closed
-    def __init__(self, *args, name, **kwargs):
+    def __repr__(self): return self.name
+
+    def __init_subclass__(cls, *args, **kwargs): pass
+    def __init__(self, *args, name, tag, **kwargs):
         layout = self.layout(*args, **kwargs)
         element = gui.Window(name, layout, resizable=True, finalize=False, metadata=self)
-        super().__init__(*args, name=name, element=element, **kwargs)
         self.__opened = False
         self.__closed = False
+        self.__element = element
+        self.__name = name
+        self.__tag = tag
 
     def start(self):
         self.element.finalize()
@@ -149,6 +166,10 @@ class Window(Element, trinket=Trinket.WINDOW):
     @abstractmethod
     def layout(*args, **kwargs): pass
 
+    @staticmethod
+    def key(*args, name, tag, trinket, **kwargs):
+        return f"--{str(name).lower()}|{str(trinket.name).lower()}[{int(tag):.0f}]--"
+
     @property
     def closed(self): return self.__closed
     @closed.setter
@@ -157,21 +178,27 @@ class Window(Element, trinket=Trinket.WINDOW):
     def opened(self): return self.__opened
     @opened.setter
     def opened(self, opened): self.__opened = opened
+    @property
+    def element(self): return self.__element
+    @property
+    def name(self): return self.__name
+    @property
+    def tag(self): return self.__tag
 
 
 class Terminal(Window, ABC):
-    def __enter__(self):
-        self.start()
-        return self
-
-    def __exit__(self, error_type, error_value, error_traceback):
-        self.stop()
-
     def __call__(self, *args, **kwargs):
-        while True:
-            pass
+        while bool(self):
+            instance, event, values = gui.read_all_windows(timeout=2000)
+            if event == gui.TIMEOUT_EVENT:
+                continue
+            if event == gui.WINDOW_CLOSED:
+                window = instance.metadata
+                window.stop()
+                continue
 
-
+#    @abstractmethod
+#    def execute(self, *args, **kwargs): pass
 
 
 
