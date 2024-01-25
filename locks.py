@@ -21,7 +21,7 @@ class Lock(object):
 
     def __init__(self, *args, key=None, timeout=None, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__mutex = multiprocessing.Lock()
+        self.__mutex = multiprocessing.RLock()
         self.__timeout = timeout
         self.__key = key
 

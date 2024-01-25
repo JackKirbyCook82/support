@@ -86,7 +86,7 @@ class Frame(Element, ABC, trinket=Trinket.FRAME):
         create = lambda strings, font: [gui.Text(string, font=font) for string in strings] if isinstance(strings, list) else gui.Text(strings, font=font)
         texts = ODict([(value.name, create(value.parser(content), value.font)) for value in texts.values()])
         layout = self.layout(*args, **texts, **kwargs)
-        element = gui.Frame("", layout)
+        element = gui.Frame("", layout, expand_x=True, expand_y=True)
         super().__init__(*args, name=name, tag=tag, element=element, **kwargs)
 
     @staticmethod
@@ -184,6 +184,7 @@ class Window(ABC, metaclass=WindowMeta):
 class Terminal(Window, ABC):
     def __call__(self, *args, **kwargs):
         while bool(self):
+            self.execute(*args, **kwargs)
             instance, event, values = gui.read_all_windows(timeout=2000)
             if event == gui.TIMEOUT_EVENT:
                 continue
@@ -191,9 +192,12 @@ class Terminal(Window, ABC):
                 window = instance.metadata
                 window.stop()
                 continue
+            element = instance[event].metadata
+            parameters = values.get(event, None)
+            element.click(parameters, *args, **kwargs)
 
-#    @abstractmethod
-#    def execute(self, *args, **kwargs): pass
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
 
 
 

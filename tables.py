@@ -10,7 +10,7 @@ import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.locks import Lock
-from support.dispatchers import typedispatcher
+from support.dispatchers import typedispatcher, valuedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -62,14 +62,24 @@ class Table(ABC, metaclass=TableMeta):
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
     def __init__(self, *args, **kwargs): super().__init__(pd.DataFrame(columns=self.header), *args, **kwargs)
-    def __iter__(self): return ((index, record) for index, record in self.table.to_dict("index").items())
+    def __contains__(self, index): return index in self.table.index
 
+    def generator(self, include=[], exclude=[]): return ((index, record) for index, record in self.table.to_dict("index").items() if self.included(index, include, exclude))
     def dataframe(self, include=[], exclude=[]): return self.table[self.table.index.isin(include) if bool(include) else ~self.table.index.isin(exclude)]
-    def records(self, include=[], exclude=[]): return ((key, record) for key, record in iter(self) if (key in include if bool(include) else (key not in exclude)))
-    def content(self, index): return {key: record for key, record in iter(self)}[index]
+    def records(self, include=[], exclude=[]): return [(index, record) for (index, record) in self.generator(include=include, exclude=exclude)]
+    def content(self, index): return {key: record for key, record in self.generator()}[index]
 
-    @typedispatcher
-    def read(self, method, *args, **kwargs): raise ValueError(method)
+    def append(self, dataframe, *args, **kwargs):
+        start = self.table.index.max() + 1 if not bool(self.table.empty) else 0
+        index = np.arange(start, start + len(dataframe.index))
+        dataframe = dataframe.set_index(index, drop=True, inplace=False)[self.header]
+        return pd.concat([self.table, dataframe], axis=0)
+
+    @staticmethod
+    def included(index, include=[], exclude=[]): return index in include if bool(include) else (index not in exclude)
+
+    @valuedispatcher
+    def read(self, astype, *args, **kwargs): raise TypeError(astype.__name__)
     @typedispatcher
     def write(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
 
@@ -82,12 +92,8 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
 
     @write.register(pd.DataFrame)
     def write_dataframe(self, dataframe, *args, **kwargs):
-        assert isinstance(dataframe, self.type)
         with self.mutex:
-            start = self.table.index.max() + 1 if not bool(self.table.empty) else 0
-            index = np.arange(start, start + len(dataframe.index))
-            dataframe = dataframe.set_index(index, drop=True, inplace=False)[self.header]
-            dataframe = pd.concat([self.table, dataframe], axis=0)
+            dataframe = self.append(dataframe, *args, **kwargs)
             self.table = dataframe
 
     @write.register(list)
@@ -102,6 +108,8 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
         self.write(dataframe, *args, **kwargs)
 
     @property
+    def index(self): return self.table.index.values
+    @property
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
@@ -109,8 +117,6 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
     @property
     @abstractmethod
     def header(self): pass
-
-
 
 
 
