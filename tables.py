@@ -47,6 +47,8 @@ class Table(ABC, metaclass=TableMeta):
     def read(self, *args, **kwargs): pass
     @abstractmethod
     def write(self, content, *args, **kwargs): pass
+    @abstractmethod
+    def execute(self, content, *args, **kwargs): pass
 
     @property
     def table(self): return self.__table
@@ -69,7 +71,7 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
     def records(self, include=[], exclude=[]): return [(index, record) for (index, record) in self.generator(include=include, exclude=exclude)]
     def content(self, index): return {key: record for key, record in self.generator()}[index]
 
-    def append(self, dataframe, *args, **kwargs):
+    def execute(self, dataframe, *args, **kwargs):
         start = self.table.index.max() + 1 if not bool(self.table.empty) else 0
         index = np.arange(start, start + len(dataframe.index))
         dataframe = dataframe.set_index(index, drop=True, inplace=False)[self.header]
