@@ -15,7 +15,7 @@ from abc import ABC, ABCMeta, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Producer", "Processor", "Consumer", "Reader", "Writer"]
+__all__ = ["Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -143,22 +143,6 @@ class Consumer(Stage, ABC):
             LOGGER.info(f"Consumed: {repr(self)}[{time.time() - start:.2f}s]")
 
 
-class Reader(Producer, ABC):
-    def __init__(self, *args, source, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__source = source
-
-    @property
-    def source(self): return self.__source
-
-
-class Writer(Consumer, ABC):
-    def __init__(self, *args, destination, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__destination = destination
-
-    @property
-    def destination(self): return self.__destination
 
 
 

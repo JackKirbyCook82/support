@@ -95,7 +95,7 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
     @write.register(pd.DataFrame)
     def write_dataframe(self, dataframe, *args, **kwargs):
         with self.mutex:
-            dataframe = self.append(dataframe, *args, **kwargs)
+            dataframe = self.execute(dataframe, *args, **kwargs)
             self.table = dataframe
 
     @write.register(list)
