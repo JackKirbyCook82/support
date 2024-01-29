@@ -13,6 +13,8 @@ import inspect
 from functools import reduce
 from abc import ABC, ABCMeta, abstractmethod
 
+from support.meta import SingletonMeta
+
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Producer", "CycleProducer", "CycleBreaker", "Processor", "Consumer"]
@@ -135,8 +137,19 @@ class Producer(Generator, ABC, title="Produced"):
         yield from generator
 
 
-class CycleBreaker(object):
-    pass
+class CycleBreaker(object, metaclass=SingletonMeta):
+    def __bool__(self): return self.state
+    def __repr__(self): return self.name
+    def __init__(self, *args, **kwargs):
+        self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__state = True
+
+    @property
+    def state(self): return self.__state
+    @state.setter
+    def state(self, state): self.__state = state
+    @property
+    def name(self): return self.__name
 
 
 class CycleProducer(Producer, ABC):
