@@ -14,7 +14,7 @@ from collections import namedtuple as ntuple
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Terminal", "Window", "Frame", "Table", "Button", "Text", "Column", "Justify"]
+__all__ = ["Terminal", "Window", "Frame", "Table", "Button", "Input", "Text", "Column", "Justify"]
 __copyright__ = "Copyright 2022, Jack Kirby Cook"
 __license__ = ""
 
@@ -74,10 +74,15 @@ class Element(ABC, metaclass=ElementMeta):
     def tag(self): return self.__tag
 
 
-class Button(Element, ABC, trinket=Trinket.BUTTON):
+class Action(Element):
+    @abstractmethod
+    def click(self, *args, **kwargs): pass
+
+
+class Input(Element, ABC, trinket=Trinket.INPUT):
     def __init__(self, *args, name, tag, **kwargs):
         key = self.key(*args, name=name, tag=tag, **kwargs)
-        element = gui.Button(name, key=key, metadata=self)
+        element = gui.Input(key=key, metadata=self)
         super().__init__(*args, name=name, tag=tag, element=element, **kwargs)
 
 
@@ -94,7 +99,14 @@ class Frame(Element, ABC, trinket=Trinket.FRAME):
     def layout(*args, **kwargs): pass
 
 
-class Table(Element, ABC, trinket=Trinket.TABLE):
+class Button(Action, ABC, trinket=Trinket.BUTTON):
+    def __init__(self, *args, name, tag, **kwargs):
+        key = self.key(*args, name=name, tag=tag, **kwargs)
+        element = gui.Button(name, key=key, metadata=self)
+        super().__init__(*args, name=name, tag=tag, element=element, **kwargs)
+
+
+class Table(Action, ABC, trinket=Trinket.TABLE):
     def __init_subclass__(cls, *args, **kwargs):
         super().__init_subclass__(*args, **kwargs)
         justify = kwargs.get("justify", getattr(cls, "__justify__", Justify.RIGHT))

@@ -5,12 +5,11 @@ Created on Weds Jul 12 2023
 @author: Jack Kirby Cook
 
 """
-import numpy as np
+
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.locks import Lock
-from support.dispatchers import typedispatcher, valuedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -44,11 +43,11 @@ class Table(ABC, metaclass=TableMeta):
         self.__table = table
 
     @abstractmethod
-    def read(self, *args, **kwargs): pass
+    def execute(self, content, *args, **kwargs): pass
     @abstractmethod
     def write(self, content, *args, **kwargs): pass
     @abstractmethod
-    def execute(self, content, *args, **kwargs): pass
+    def read(self, *args, **kwargs): pass
 
     @property
     def table(self): return self.__table
@@ -64,50 +63,38 @@ class Table(ABC, metaclass=TableMeta):
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
     def __init__(self, *args, **kwargs): super().__init__(pd.DataFrame(columns=self.header), *args, **kwargs)
-    def __contains__(self, index): return index in self.table.index
+    def __iter__(self): return (self.parser(index, record) for index, record in self.table.to_dict("index").items())
 
-    def generator(self, include=[], exclude=[]): return ((index, record) for index, record in self.table.to_dict("index").items() if self.included(index, include, exclude))
-    def dataframe(self, include=[], exclude=[]): return self.table[self.table.index.isin(include) if bool(include) else ~self.table.index.isin(exclude)]
-    def records(self, include=[], exclude=[]): return [(index, record) for (index, record) in self.generator(include=include, exclude=exclude)]
-    def content(self, index): return {key: record for key, record in self.generator()}[index]
+    def read(self, *args, include=[], exclude=[], **kwargs):
+        with self.mutex:
+            mask = self.table.index.isin(include) if bool(include) else ~self.table.index.isin(exclude)
+            dataframe = self.table[mask]
+            return dataframe
 
-    def execute(self, dataframe, *args, **kwargs):
-        start = self.table.index.max() + 1 if not bool(self.table.empty) else 0
-        index = np.arange(start, start + len(dataframe.index))
-        dataframe = dataframe.set_index(index, drop=True, inplace=False)[self.header]
-        return pd.concat([self.table, dataframe], axis=0)
+    def remove(self, *args, include=[], exclude=[], **kwargs):
+        with self.mutex:
+            mask = self.table.index.isin(include) if bool(include) else ~self.table.index.isin(exclude)
+            dataframe = self.table[mask]
+            self.table = self.table[~mask]
+            return dataframe
+
+    def write(self, dataframe, args, **kwargs):
+        with self.mutex:
+            self.table = pd.concat([self.table, dataframe], axis=0)
+            self.execute(*args, **kwargs)
+
+    def update(self, dataframe, *args, **kwargs):
+        with self.mutex:
+            self.table.update(dataframe)
+            self.execute(*args, **kwargs)
+
+    def execute(self, *args, **kwargs):
+        pass
 
     @staticmethod
     def included(index, include=[], exclude=[]): return index in include if bool(include) else (index not in exclude)
-
-    @valuedispatcher
-    def read(self, astype, *args, **kwargs): raise TypeError(astype.__name__)
-    @typedispatcher
-    def write(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
-
-    @read.register(pd.DataFrame)
-    def read_dataframe(self, *args, include=[], exclude=[], **kwargs): return self.select(include, exclude)
-    @read.register(list)
-    def read_records(self, *args, include=[], exclude=[], **kwargs): return self.records(include, exclude)
-    @read.register(dict)
-    def read_content(self, *args, index, **kwargs): return self.content(index)
-
-    @write.register(pd.DataFrame)
-    def write_dataframe(self, dataframe, *args, **kwargs):
-        with self.mutex:
-            dataframe = self.execute(dataframe, *args, **kwargs)
-            self.table = dataframe
-
-    @write.register(list)
-    def write_records(self, records, *args, **kwargs):
-        assert all([isinstance(record, dict) for record in records])
-        dataframe = pd.DataFrame.from_records(records, columns=self.header)
-        self.write(dataframe, *args, **kwargs)
-
-    @write.register(dict)
-    def write_content(self, content, *args, **kwargs):
-        dataframe = pd.DataFrame.from_records([content], columns=self.header)
-        self.write(dataframe, *args, **kwargs)
+    @staticmethod
+    def parser(index, record): return record
 
     @property
     def index(self): return self.table.index.values

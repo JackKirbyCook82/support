@@ -13,11 +13,9 @@ import inspect
 from functools import reduce
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.meta import SingletonMeta
-
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Producer", "CycleProducer", "CycleBreaker", "Processor", "Consumer"]
+__all__ = ["Routine", "CycleRoutine", "Producer", "CycleProducer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = ""
 
@@ -111,6 +109,41 @@ class Stage(ABC):
     def title(self): return self.__title
 
 
+class Cycle(ABC):
+    def __bool__(self): return self.state
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__state = True
+
+    @property
+    def state(self): return self.__state
+    @state.setter
+    def state(self, state): self.__state = state
+
+
+class Routine(Stage, ABC, title="Performed"):
+    @staticmethod
+    def prepare(*args, **kwargs): return {}
+    def process(self, *args, **kwargs):
+        assert not inspect.isgeneratorfunction(self.execute)
+        parameters = self.prepare(*args, **kwargs)
+        kwargs = kwargs | parameters
+        start = time.time()
+        self.execute(*args, **kwargs)
+        LOGGER.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
+
+
+class CycleRoutine(Cycle, Routine, ABC):
+    def process(self, *args, **kwargs):
+        assert not inspect.isgeneratorfunction(self.execute)
+        parameters = self.prepare(*args, **kwargs)
+        kwargs = kwargs | parameters
+        while bool(self):
+            start = time.time()
+            self.execute(*args, **kwargs)
+            LOGGER.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
+
+
 class Generator(Stage, ABC, title="Generated"):
     def generator(self, *args, **kwargs):
         generator = self.execute(*args, **kwargs)
@@ -137,37 +170,14 @@ class Producer(Generator, ABC, title="Produced"):
         yield from generator
 
 
-class CycleBreaker(object, metaclass=SingletonMeta):
-    def __bool__(self): return self.state
-    def __repr__(self): return self.name
-    def __init__(self, *args, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__state = True
-
-    @property
-    def state(self): return self.__state
-    @state.setter
-    def state(self, state): self.__state = state
-    @property
-    def name(self): return self.__name
-
-
-class CycleProducer(Producer, ABC):
-    def __init__(self, *args, breaker, **kwargs):
-        super().__init__(*args, **kwargs)
-        assert isinstance(breaker, CycleBreaker)
-        self.__breaker = breaker
-
+class CycleProducer(Cycle, Producer, ABC):
     def process(self, *args, **kwargs):
         assert inspect.isgeneratorfunction(self.execute)
         parameters = self.prepare(*args, **kwargs)
         kwargs = kwargs | parameters
-        while bool(self.breaker):
+        while bool(self):
             generator = self.generator(*args, **kwargs)
             yield from generator
-
-    @property
-    def breaker(self): return self.__breaker
 
 
 class Processor(Generator, ABC, title="Processed"):

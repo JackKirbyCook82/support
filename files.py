@@ -54,11 +54,7 @@ class File(ABC, metaclass=FileMeta):
 
     def write(self, content, *args, file, mode, **kwargs):
         with self.mutex[str(file)]:
-            content = self.execute(content, *args, file=file, mode=mode, **kwargs)
             save(content, *args, file=file, mode=mode, **kwargs)
-
-    @abstractmethod
-    def execute(self, content, *args, **kwargs): pass
 
     @property
     def repository(self): return self.__repository
@@ -70,14 +66,13 @@ class File(ABC, metaclass=FileMeta):
     def name(self): return self.__name
 
 
-class DataframeFile(File, ABC, type=pd.DataFrame):
+class DataframeFile(File, type=pd.DataFrame):
     def read(self, *args, **kwargs):
         datetypes = self.datetypes(*args, **kwargs)
         datatypes = self.datatypes(*args, **kwargs)
         parameters = dict(datetypes=datetypes, datatypes=datatypes)
         return super().read(*args, **parameters, **kwargs)
 
-    def execute(self, dataframe, *args, **kwargs): return dataframe
     def write(self, dataframe, *args, **kwargs):
         dataheader = self.dataheader(dataframe, *args, **kwargs)
         parameters = dict(dataheader=dataheader)
