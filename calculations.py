@@ -196,7 +196,7 @@ class Constant(Stage):
 
 
 class CalculationMeta(ABCMeta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+    def __new__(mcs, name, bases, attrs, *args, register=None, **kwargs):
         sources = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "source"]
         constants = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "constant"]
         equations = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "equation"]
@@ -206,6 +206,10 @@ class CalculationMeta(ABCMeta):
             cls = super(CalculationMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
         except TypeError:
             cls = super(CalculationMeta, mcs).__new__(mcs, name, bases, attrs)
+        if register is not None:
+            calculations = [base for base in bases if type(base) is CalculationMeta]
+            for calculation in calculations:
+                setattr(calculation, register, cls)
         return cls
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
