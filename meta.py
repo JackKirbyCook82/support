@@ -18,7 +18,7 @@ __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Meta", "VariantMeta", "DelayerMeta", "SingletonMeta", "RegistryMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
-__license__ = ""
+__license__ = "MIT License"
 
 
 aslist = lambda x: [x] if not isinstance(x, (list, tuple)) else list(x)

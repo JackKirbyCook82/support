@@ -9,6 +9,7 @@ Created on Weds Jul 12 2023
 import types
 import logging
 import xarray as xr
+from enum import IntEnum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
@@ -19,10 +20,8 @@ __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Calculation", "equation", "source", "constant"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
-__license__ = ""
-
-
-LOGGER = logging.getLogger(__name__)
+__license__ = "MIT License"
+__logger__ = logging.getLogger(__name__)
 
 
 def equation(variable, dataname, datatype, *args, domain, function, **kwargs):
@@ -37,10 +36,10 @@ def source(variable, name, *args, position, variables={}, **kwargs):
     assert isinstance(variables, dict)
     title = lambda string: "|".join([str(substring).title() for substring in str(string).split("|")])
     varfunc = lambda string: ".".join([variable, string])
-    locfunc = lambda optional, required, fullname: "|".join([str(name), str(value)]).lower() if bool(fullname) else str(value).lower()
+    locfunc = lambda string, fullname: "|".join([str(name), str(string)]).lower() if bool(fullname) else str(string).lower()
     for key, value in variables.items():
         Location = ntuple("Location", "source destination")
-        location = Location(locfunc(name, value, kwargs.get("source", False)), locfunc(name, value, kwargs.get("destination", False)))
+        location = Location(locfunc(value, kwargs.get("source", False)), locfunc(value, kwargs.get("destination", False)))
         clsname = title("|".join([name, value]))
         varname = varfunc(key)
         attrs = dict(variable=varname, position=position, location=location)
@@ -196,7 +195,7 @@ class Constant(Stage):
 
 
 class CalculationMeta(ABCMeta):
-    def __new__(mcs, name, bases, attrs, *args, register=None, **kwargs):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
         sources = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "source"]
         constants = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "constant"]
         equations = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "equation"]
@@ -206,10 +205,6 @@ class CalculationMeta(ABCMeta):
             cls = super(CalculationMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
         except TypeError:
             cls = super(CalculationMeta, mcs).__new__(mcs, name, bases, attrs)
-        if register is not None:
-            calculations = [base for base in bases if type(base) is CalculationMeta]
-            for calculation in calculations:
-                setattr(calculation, register, cls)
         return cls
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):

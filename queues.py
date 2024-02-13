@@ -13,7 +13,7 @@ __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["LIFOQueue", "FIFOQueue", "LIPOQueue", "HIPOQueue"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
-__license__ = ""
+__license__ = "MIT License"
 
 
 class QueueMeta(ABCMeta):

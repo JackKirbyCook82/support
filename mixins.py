@@ -14,7 +14,7 @@ __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Node", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
-__license__ = ""
+__license__ = "MIT License"
 
 
 Style = ntuple("Style", "branch terminate run blank")

@@ -16,7 +16,7 @@ __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Terminal", "Window", "Frame", "Table", "Button", "Input", "Text", "Column", "Justify"]
 __copyright__ = "Copyright 2022, Jack Kirby Cook"
-__license__ = ""
+__license__ = "MIT License"
 
 
 Trinket = IntEnum("Trinket", ["FRAME", "BUTTON", "TABLE"], start=1)

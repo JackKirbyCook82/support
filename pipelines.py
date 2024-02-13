@@ -17,10 +17,8 @@ __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Routine", "CycleRoutine", "Producer", "CycleProducer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
-__license__ = ""
-
-
-LOGGER = logging.getLogger(__name__)
+__license__ = "MIT License"
+__logger__ = logging.getLogger(__name__)
 
 
 class PipelineMeta(ABCMeta):
@@ -130,7 +128,7 @@ class Routine(Stage, ABC, title="Performed"):
         kwargs = kwargs | parameters
         start = time.time()
         self.execute(*args, **kwargs)
-        LOGGER.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
+        __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
 
 
 class CycleRoutine(Cycle, Routine, ABC):
@@ -141,7 +139,7 @@ class CycleRoutine(Cycle, Routine, ABC):
         while bool(self):
             start = time.time()
             self.execute(*args, **kwargs)
-            LOGGER.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
+            __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
 
 
 class Generator(Stage, ABC, title="Generated"):
@@ -150,7 +148,7 @@ class Generator(Stage, ABC, title="Generated"):
         assert isinstance(generator, types.GeneratorType)
         start = time.time()
         for content in iter(generator):
-            LOGGER.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
+            __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
             yield content
             start = time.time()
 
@@ -196,7 +194,7 @@ class Consumer(Stage, ABC, title="Consumed"):
         for query in iter(stage):
             start = time.time()
             self.execute(query, *args, **kwargs)
-            LOGGER.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
+            __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
 
 
 

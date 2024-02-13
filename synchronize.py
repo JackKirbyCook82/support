@@ -17,10 +17,8 @@ __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["MainThread", "SideThread"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
-__license__ = ""
-
-
-LOGGER = logging.getLogger(__name__)
+__license__ = "MIT License"
+__logger__ = logging.getLogger(__name__)
 
 
 class Interface(ABC):
@@ -39,14 +37,14 @@ class Interface(ABC):
 
     def run(self):
         try:
-            LOGGER.info(f"Running: {repr(self)}")
+            __logger__.info(f"Running: {repr(self)}")
             self.process(*self.arguments, **self.parameters)
         except BaseException as error:
-            LOGGER.error(f"Error: {repr(self)}[{error.__class__.__name__}]")
+            __logger__.error(f"Error: {repr(self)}[{error.__class__.__name__}]")
             error_type, error_value, error_traceback = sys.exc_info()
             traceback.print_exception(error_type, error_value, error_traceback)
         else:
-            LOGGER.info(f"Completed: {repr(self)}")
+            __logger__.info(f"Completed: {repr(self)}")
 
     @abstractmethod
     def process(self, *args, **kwargs): pass
@@ -78,12 +76,12 @@ class SideThread(Interface, threading.Thread):
         Interface.__init__(self, *args, **kwargs)
 
     def start(self, *args, **kwargs):
-        LOGGER.info(f"Started: {repr(self)}")
+        __logger__.info(f"Started: {repr(self)}")
         threading.Thread.start(self)
 
     def join(self, *args, **kwargs):
         threading.Thread.join(self)
-        LOGGER.info(f"Stopped: {repr(self)}")
+        __logger__.info(f"Stopped: {repr(self)}")
 
     def process(self, *args, **kwargs):
         routine = self.routine.__call__ if hasattr(self.routine, "__call__") else self.routine

@@ -20,7 +20,7 @@ __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["DataframeFile"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
-__license__ = ""
+__license__ = "MIT License"
 
 
 class FileMeta(ABCMeta):
@@ -44,7 +44,7 @@ class File(ABC, metaclass=FileMeta):
         self.__type = filetype
         self.__name = filename
 
-    def directory(self, *path): return (content for content in os.listdir(os.path.join(self.repository, *path)))
+    def directory(self, *path): return os.listdir(os.path.join(self.repository, *path))
     def path(self, *path): return os.path.join(self.repository, *path)
 
     def read(self, *args, file, **kwargs):
@@ -52,9 +52,9 @@ class File(ABC, metaclass=FileMeta):
             content = load(*args, file=file, type=self.type, **kwargs)
             return content
 
-    def write(self, content, *args, file, mode, **kwargs):
+    def write(self, content, *args, file, filemode, **kwargs):
         with self.mutex[str(file)]:
-            save(content, *args, file=file, mode=mode, **kwargs)
+            save(content, *args, file=file, mode=filemode, **kwargs)
 
     @property
     def repository(self): return self.__repository
@@ -167,18 +167,18 @@ def load_netcdf(*args, file, partitions=None, **kwargs):
     return xr.open_dataset(file, chunks=partitions)
 
 @load.register(dk.DataFrame, "csv")
-def load_csv_delayed(*args, file, size, datatypes={}, datetypes=[], **kwargs):
+def load_csv_delayed(*args, file, size, dataheader, datatypes={}, datetypes=[], **kwargs):
     parms = dict(index_col=None, header=0, dtype=datatypes, parse_dates=datetypes)
-    return dk.read_csv(file, blocksize=size, **parms)
+    return dk.read_csv(file, blocksize=size, **parms)[dataheader]
 
 @load.register(pd.DataFrame, "csv")
-def load_csv_immediate(*args, file, datatypes={}, datetypes=[], **kwargs):
+def load_csv_immediate(*args, file, dataheader, datatypes={}, datetypes=[], **kwargs):
     parms = dict(index_col=None, header=0, dtype=datatypes, parse_dates=datetypes)
-    return pd.read_csv(file,  iterator=False, **parms)
+    return pd.read_csv(file,  iterator=False, **parms)[dataheader]
 
 @load.register(pd.DataFrame, "hdf")
-def load_hdf5(*args, file, group=None, datatypes={}, datetypes=[], **kwargs):
-    return pd.read_csv(file, key=group, iterator=False)
+def load_hdf5(*args, file, group=None, dataheader, datatypes={}, datetypes=[], **kwargs):
+    return pd.read_csv(file, key=group, iterator=False)[dataheader]
 
 
 
