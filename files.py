@@ -68,14 +68,15 @@ class File(ABC, metaclass=FileMeta):
 
 class DataframeFile(File, type=pd.DataFrame):
     def read(self, *args, **kwargs):
-        datetypes = self.datetypes(*args, **kwargs)
-        datatypes = self.datatypes(*args, **kwargs)
-        parameters = dict(datetypes=datetypes, datatypes=datatypes)
+        header = self.dataheader(*args, **kwargs)
+        dates = self.datetypes(*args, **kwargs)
+        types = self.datatypes(*args, **kwargs)
+        parameters = dict(header=header, datetypes=dates, datatypes=types)
         return super().read(*args, **parameters, **kwargs)
 
     def write(self, dataframe, *args, **kwargs):
-        dataheader = self.dataheader(dataframe, *args, **kwargs)
-        parameters = dict(dataheader=dataheader)
+        header = self.dataheader(*args, **kwargs)
+        parameters = dict(header=header)
         super().write(dataframe, *args, **parameters, **kwargs)
 
     @abstractmethod
@@ -137,24 +138,26 @@ def save(content, *args, file, **kwargs):
     raise ValueError(filetype, fileext)
 
 @save.register(xr.Dataset, "nc")
-def save_netcdf(content, *args, file, mode, **kwargs):
-    xr.Dataset.to_netcdf(content, file, mode=mode, compute=True)
+def save_netcdf(content, *args, file, mode, header, **kwargs):
+    columns = [column for column in header if column in content.columns]
+    xr.Dataset.to_netcdf(content[columns], file, mode=mode, compute=True)
 
 @save.register(pd.DataFrame, "csv")
 @save.register(dk.DataFrame, "csv")
-def save_csv(content, *args, file, mode, dataheader, **kwargs):
-    header = not os.path.isfile(file) or mode == "w"
-    parms = dict(index=False, header=header)
+def save_csv(content, *args, file, mode, header, **kwargs):
+    parms = dict(index=False, header=not os.path.isfile(file) or mode == "w")
     if isinstance(content, dk.DataFrame):
         update = dict(compute=True, single_file=True, header_first_partition_only=True)
         parms.update(update)
-    content[dataheader].to_csv(file, mode=mode, **parms)
+    columns = [column for column in header if column in content.columns]
+    content[columns].to_csv(file, mode=mode, **parms)
 
 @save.register(pd.DataFrame, "hdf")
 @save.register(dk.DataFrame, "hdf")
-def save_hdf5(self, content, *args, file, group=None, mode, dataheader, **kwargs):
+def save_hdf5(self, content, *args, file, mode, header, **kwargs):
     parms = dict(format="fixed", append=False)
-    content[dataheader].to_hdf(file, group, mode=mode, **parms)
+    columns = [column for column in header if column in content.columns]
+    content[columns].to_hdf(file, None, mode=mode, **parms)
 
 
 @dispatcher
@@ -167,18 +170,17 @@ def load_netcdf(*args, file, partitions=None, **kwargs):
     return xr.open_dataset(file, chunks=partitions)
 
 @load.register(dk.DataFrame, "csv")
-def load_csv_delayed(*args, file, size, dataheader, datatypes={}, datetypes=[], **kwargs):
-    parms = dict(index_col=None, header=0, dtype=datatypes, parse_dates=datetypes)
-    return dk.read_csv(file, blocksize=size, **parms)[dataheader]
+def load_csv_delayed(*args, file, size, header, types={}, dates=[], **kwargs):
+    parms = dict(index_col=None, header=0, dtype=types, parse_dates=dates)
+    return dk.read_csv(file, blocksize=size, **parms)[header]
 
 @load.register(pd.DataFrame, "csv")
-def load_csv_immediate(*args, file, dataheader, datatypes={}, datetypes=[], **kwargs):
-    parms = dict(index_col=None, header=0, dtype=datatypes, parse_dates=datetypes)
-    return pd.read_csv(file,  iterator=False, **parms)[dataheader]
-
+def load_csv_immediate(*args, file, header, types={}, dates=[], **kwargs):
+    parms = dict(index_col=None, header=0, dtype=types, parse_dates=dates)
+    return pd.read_csv(file,  iterator=False, **parms)[header]
 @load.register(pd.DataFrame, "hdf")
-def load_hdf5(*args, file, group=None, dataheader, datatypes={}, datetypes=[], **kwargs):
-    return pd.read_csv(file, key=group, iterator=False)[dataheader]
+def load_hdf5(*args, file, group=None, header, types={}, dates=[], **kwargs):
+    return pd.read_csv(file, key=group, iterator=False)[header]
 
 
 

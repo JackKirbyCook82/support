@@ -9,7 +9,6 @@ Created on Weds Jul 12 2023
 import types
 import logging
 import xarray as xr
-from enum import IntEnum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
@@ -32,7 +31,7 @@ def equation(variable, dataname, datatype, *args, domain, function, **kwargs):
     cls = type(clsname, (Equation,), {}, **attrs)
     yield cls
 
-def source(variable, name, *args, position, variables={}, **kwargs):
+def source(variable, name, *args, position, parameters={}, variables={}, **kwargs):
     assert isinstance(variables, dict)
     title = lambda string: "|".join([str(substring).title() for substring in str(string).split("|")])
     varfunc = lambda string: ".".join([variable, string])
@@ -42,7 +41,7 @@ def source(variable, name, *args, position, variables={}, **kwargs):
         location = Location(locfunc(value, kwargs.get("source", False)), locfunc(value, kwargs.get("destination", False)))
         clsname = title("|".join([name, value]))
         varname = varfunc(key)
-        attrs = dict(variable=varname, position=position, location=location)
+        attrs = dict(variable=varname, position=position, location=location, parameters=parameters)
         cls = type(clsname, (Source,), {}, **attrs)
         yield cls
 
@@ -138,15 +137,17 @@ class Equation(Stage):
 
 
 class Source(Stage):
-    def __init_subclass__(cls, *args, position, location, **kwargs):
-        assert isinstance(position, (int, str))
+    def __init_subclass__(cls, *args, position, location, parameters, **kwargs):
+        assert isinstance(position, (int, str)) and isinstance(parameters, dict)
         cls.__position__ = position
         cls.__location__ = location
+        cls.__parameters__ = parameters
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__position = self.__class__.__position__
         self.__location = self.__class__.__location__
+        self.__parameters = self.__class__.__parameters__
 
     def __call__(self, *args, **kwargs):
         try:
@@ -159,6 +160,7 @@ class Source(Stage):
     def locate(self, *args, **kwargs):
         dataset = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
         dataarray = dataset[self.location.source] if bool(self.location.source) else dataset
+        dataarray = dataarray.sel(self.parameters) if bool(self.parameters) else dataarray
         return dataarray
 
     def execute(self, order):
@@ -170,6 +172,8 @@ class Source(Stage):
     def position(self): return self.__position
     @property
     def location(self): return self.__location
+    @property
+    def parameters(self): return self.__parameters
 
 
 class Constant(Stage):
