@@ -66,7 +66,7 @@ class NamedCollection(ABC, metaclass=NamedCollectionMeta):
 
     def __getattr__(self, attr):
         if attr not in self.fields:
-            raise AttributeError(attr)
+            return super().__getattr__(attr)
         index = list(self.keys()).index(attr)
         value = list(self.values())[index]
         return value
@@ -103,8 +103,7 @@ class SliceOrderedDict(ODict):
             raise TypeError(type(key).__name__)
 
     @typedispatcher
-    def read(self, key):
-        raise TypeError(type(key).__name__)
+    def read(self, key): raise TypeError(type(key).__name__)
 
     @read.register(slice)
     def slice(self, key):

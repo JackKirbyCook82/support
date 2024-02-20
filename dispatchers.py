@@ -20,14 +20,12 @@ __license__ = "MIT License"
 
 class BaseRegistry(ODict, ABC):
     def __contains__(self, key):
-        match = self.execute(key)
-        return True if match is not None else False
+        key = self.execute(key)
+        return True if key is not None else False
 
     def __getitem__(self, key):
-        match = self.execute(key)
-        if match is None:
-            raise KeyError(key)
-        return super().__getitem__(match)
+        key = self.execute(key)
+        return super().__getitem__(key)
 
     @abstractmethod
     def execute(self, key): pass

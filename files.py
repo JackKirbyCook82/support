@@ -133,7 +133,7 @@ def dispatcher(mainfunction):
 
 @dispatcher
 def save(content, *args, file, **kwargs):
-    filetype = type(content)
+    filetype = type(content).__name__
     fileext = str(os.path.splitext(file)[-1]).strip(".")
     raise ValueError(filetype, fileext)
 
@@ -162,6 +162,7 @@ def save_hdf5(self, content, *args, file, mode, header, **kwargs):
 
 @dispatcher
 def load(*args, filetype, file, **kwargs):
+    filetype = filetype.__name__
     fileext = str(os.path.splitext(file)[-1]).strip(".")
     raise ValueError(filetype, fileext)
 
@@ -172,16 +173,22 @@ def load_netcdf(*args, file, partitions=None, **kwargs):
 @load.register(dk.DataFrame, "csv")
 def load_csv_delayed(*args, file, size, header, types={}, dates=[], **kwargs):
     parms = dict(index_col=None, header=0, dtype=types, parse_dates=dates)
-    return dk.read_csv(file, blocksize=size, **parms)[header]
+    content = dk.read_csv(file, blocksize=size, **parms)
+    columns = [column for column in header if column in content.columns]
+    return content[columns]
 
 @load.register(pd.DataFrame, "csv")
 def load_csv_immediate(*args, file, header, types={}, dates=[], **kwargs):
     parms = dict(index_col=None, header=0, dtype=types, parse_dates=dates)
-    return pd.read_csv(file,  iterator=False, **parms)[header]
+    content = pd.read_csv(file,  iterator=False, **parms)
+    columns = [column for column in header if column in content.columns]
+    return content[columns]
+
 @load.register(pd.DataFrame, "hdf")
 def load_hdf5(*args, file, group=None, header, types={}, dates=[], **kwargs):
-    return pd.read_csv(file, key=group, iterator=False)[header]
-
+    content = pd.read_csv(file, key=group, iterator=False)
+    columns = [column for column in header if column in content.columns]
+    return content[columns]
 
 
 

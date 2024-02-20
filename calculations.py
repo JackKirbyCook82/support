@@ -244,7 +244,7 @@ class Calculation(ABC, metaclass=CalculationMeta):
 
     def __getattr__(self, variable):
         if variable not in self.equations.keys():
-            raise AttributeError(variable)
+            return super().__getattr__(variable)
         return self.equations[variable]
 
     def __getitem__(self, group):
