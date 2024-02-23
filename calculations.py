@@ -212,16 +212,18 @@ class CalculationMeta(ABCMeta):
         return cls
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        sources = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ == "source"]
-        sources = {str(stage): stage for generator in iter(sources) for stage in iter(generator)}
-        constants = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ == "constant"]
-        constants = {str(stage): stage for generator in iter(constants) for stage in iter(generator)}
-        equations = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ == "equation"]
-        equations = {str(stage): stage for generator in iter(equations) for stage in iter(generator)}
+        sources, equations, constants = {}, {}, {}
+        for base in [base for base in reversed(bases) if type(base) is CalculationMeta]:
+            sources.update(getattr(base, "__sources__", {}))
+            equations.update(getattr(base, "__equations__", {}))
+            constants.update(getattr(base, "__constants__", {}))
+        sources = sources | cls.update("source", attrs)
+        equations = equations | cls.update("equation", attrs)
+        constants = constants | cls.update("constant", attrs)
         assert not set(sources.keys()) & set(constants.keys()) & set(equations.keys())
-        cls.__sources__ = getattr(cls, "__sources__", {}) | sources
-        cls.__constants__ = getattr(cls, "__constants__", {}) | constants
-        cls.__equations__ = getattr(cls, "__equations__", {}) | equations
+        cls.__sources__ = sources
+        cls.__constants__ = constants
+        cls.__equations__ = equations
 
     def __call__(cls, *args, **kwargs):
         sources = {key: value(*args, **kwargs) for key, value in cls.__sources__.items()}
@@ -234,6 +236,11 @@ class CalculationMeta(ABCMeta):
         stages = dict(sources=sources, constants=constants, equations=equations)
         instance = super(CalculationMeta, cls).__call__(*args, **stages, **kwargs)
         return instance
+
+    @staticmethod
+    def update(name, attrs):
+        update = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ == name]
+        return {str(stage): stage for generator in iter(update) for stage in iter(generator)}
 
 
 class Calculation(ABC, metaclass=CalculationMeta):

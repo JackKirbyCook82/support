@@ -7,10 +7,11 @@ Created on Sun 14 2023
 """
 
 import os.path
+import numpy as np
 import xarray as xr
 import pandas as pd
 import dask.dataframe as dk
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, ABCMeta
 from functools import update_wrapper
 from collections import OrderedDict as ODict
 
@@ -67,24 +68,31 @@ class File(ABC, metaclass=FileMeta):
 
 
 class DataframeFile(File, type=pd.DataFrame):
+    def __init_subclass__(cls, *args, header, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__header__ = header
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        header = self.__class__.__header__
+        self.__dataheader = list(header.keys())
+        self.__datatypes = {key: value for key, value in header.items() if not any([value is str, value is np.datetime64])}
+        self.__datetypes = [key for key, value in header.items() if value is np.datetime64]
+
     def read(self, *args, **kwargs):
-        header = self.dataheader(*args, **kwargs)
-        dates = self.datetypes(*args, **kwargs)
-        types = self.datatypes(*args, **kwargs)
-        parameters = dict(header=header, datetypes=dates, datatypes=types)
+        parameters = dict(header=self.dataheader, datetypes=self.datetypes, datatypes=self.datatypes)
         return super().read(*args, **parameters, **kwargs)
 
     def write(self, dataframe, *args, **kwargs):
-        header = self.dataheader(*args, **kwargs)
-        parameters = dict(header=header)
+        parameters = dict(header=self.dataheader)
         super().write(dataframe, *args, **parameters, **kwargs)
 
-    @abstractmethod
-    def dataheader(self, *args, **kwargs): pass
-    @abstractmethod
-    def datetypes(self, *args, **kwargs): pass
-    @abstractmethod
-    def datatypes(self, *args, **kwargs): pass
+    @property
+    def dataheader(self): return self.__dataheader
+    @property
+    def datatypes(self): return self.__datatypes
+    @property
+    def datetypes(self): return self.__datetypes
 
 
 def dispatcher(mainfunction):
