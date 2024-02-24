@@ -32,13 +32,13 @@ Filtering = IntEnum("Filtering", ["LOWER", "UPPER"], start=1)
 
 
 class Saver(Consumer, ABC, title="Saved"):
-    def __init__(self, args, file, **kwargs):
+    def __init__(self, *args, file, **kwargs):
         super().__init__(*args, **kwargs)
         self.file = file
 
 
 class Loader(Producer, ABC, title="Loaded"):
-    def __init__(self, args, file, **kwargs):
+    def __init__(self, *args, file, **kwargs):
         super().__init__(*args, **kwargs)
         self.file = file
 
@@ -66,16 +66,18 @@ class Parser(Processor, ABC, title="Parsed"):
         dataframe = dataset.to_dataframe()
         dataframe = dataframe.dropna(axis=0, how="all")
         dataframe = dataframe.reset_index(drop=False, inplace=False)
-        dataframe = dataframe.drop_duplicates(subset=self.index + self.scope, keep="last", inplace=False)
-        dataframe = dataframe.set_index(self.index + self.scope, drop=True, inplace=False)
+        columns = [column for column in self.index + self.scope if column in dataframe.columns]
+        dataframe = dataframe.drop_duplicates(subset=columns, keep="last", inplace=False)
+        dataframe = dataframe.set_index(columns, drop=True, inplace=False)
         columns = [column for column in self.columns if column in dataframe.columns]
         return dataframe[columns]
 
     @function.register.value(Parsing.UNFLATTEN)
     def unflatten(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
-        dataframe = dataframe.drop_duplicates(subset=self.index + self.scope, keep="last", inplace=False)
-        dataframe = dataframe.set_index(self.index + self.scope, drop=True, inplace=False)
+        columns = [column for column in self.index + self.scope if column in dataframe.columns]
+        dataframe = dataframe.drop_duplicates(subset=columns, keep="last", inplace=False)
+        dataframe = dataframe.set_index(columns, drop=True, inplace=False)
         dataset = xr.Dataset.from_dataframe(dataframe)
         for value in self.scope:
             dataset = dataset.squeeze(value)
@@ -119,13 +121,6 @@ class Filter(Processor, ABC, title="Filtered"):
         return reduce(lambda x, y: x & y, mask) if bool(mask) else None
 
     @typedispatcher
-    def size(self, content): raise TypeError(type(content).__name__)
-    @size.register(pd.DataFrame)
-    def flat(self, dataframe): return len(dataframe.index)
-    @size.register(xr.Dataset)
-    def notflat(self, dataarray): return np.count_nonzero(~np.isnan(dataarray.values))
-
-    @typedispatcher
     def function(self, content, *args, mask, **kwargs): raise TypeError(type(content).__name__)
 
     @function.register(pd.DataFrame)
@@ -137,7 +132,7 @@ class Filter(Processor, ABC, title="Filtered"):
 
     @function.register(xr.Dataset)
     def dataset(self, dataset, *args, mask, **kwargs):
-        dataset = dataset.where(mask, drop=False)
+        dataset = dataset.where(mask, drop=True)
         return dataset
 
     @property

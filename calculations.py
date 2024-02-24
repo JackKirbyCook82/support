@@ -224,7 +224,10 @@ class CalculationMeta(ABCMeta):
         cls.__sources__ = sources
         cls.__constants__ = constants
         cls.__equations__ = equations
+        if not any([type(subbase) is CalculationMeta for base in bases for subbase in base.__bases__]):
+            cls.__registry__ = dict()
 
+    def __getitem__(cls, key): return cls.__registry__[key]
     def __call__(cls, *args, **kwargs):
         sources = {key: value(*args, **kwargs) for key, value in cls.__sources__.items()}
         constants = {key: value(*args, **kwargs) for key, value in cls.__constants__.items()}
@@ -241,6 +244,9 @@ class CalculationMeta(ABCMeta):
     def update(name, attrs):
         update = [value for value in attrs.values() if isinstance(value, types.GeneratorType) and value.__name__ == name]
         return {str(stage): stage for generator in iter(update) for stage in iter(generator)}
+
+    @property
+    def registry(cls): return cls.__registry__
 
 
 class Calculation(ABC, metaclass=CalculationMeta):
