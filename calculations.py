@@ -9,6 +9,7 @@ Created on Weds Jul 12 2023
 import types
 import logging
 import xarray as xr
+from itertools import chain
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
@@ -198,6 +199,20 @@ class Constant(Stage):
     def position(self): return self.__position
 
 
+class CalculationVariable(ABC):
+    def __str__(self): return "|".join([str(value.name).lower() for value in self if value is not None])
+    def __hash__(self): return hash(tuple(self))
+
+    @property
+    def title(self): return "|".join([str(string).title() for string in str(self).split("|")])
+    @classmethod
+    def fields(cls): return list(cls._fields)
+
+    def items(self): return list(zip(self.keys(), self.values()))
+    def keys(self): return list(self._fields)
+    def values(self): return list(self)
+
+
 class CalculationMeta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         sources = [key for key, value in attrs.items() if isinstance(value, types.GeneratorType) and value.__name__ == "source"]
@@ -212,6 +227,9 @@ class CalculationMeta(ABCMeta):
         return cls
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
+        function = lambda x: type(x) is CalculationMeta or issubclass(type(x), CalculationMeta)
+        if not any([function(base) for base in bases]):
+            return
         sources, equations, constants = {}, {}, {}
         for base in [base for base in reversed(bases) if type(base) is CalculationMeta]:
             sources.update(getattr(base, "__sources__", {}))
@@ -224,10 +242,27 @@ class CalculationMeta(ABCMeta):
         cls.__sources__ = sources
         cls.__constants__ = constants
         cls.__equations__ = equations
-        if not any([type(subbase) is CalculationMeta for base in bases for subbase in base.__bases__]):
+        if not any([function(subbase) for base in bases for subbase in base.__bases__]):
+            fields = kwargs.get("fields", [])
+            variable_name = str(name).replace("Calculation", "Variable")
+            variable_bases = (CalculationVariable, ntuple("Fields", fields))
+            variable_attr = dict()
+            cls.__variable__ = type(variable_name, variable_bases, variable_attr)
             cls.__registry__ = dict()
+            cls.__fields__ = dict()
+            return
+        fields = [base.fields.items() for base in reversed(bases) if type(base) is CalculationMeta]
+        fields = {field: value for (field, value) in chain(*fields)}
+        update = {field: kwargs[field] for field in cls.variable.fields() if field in kwargs.keys()}
+        cls.__fields__ = fields | update
+        if len(cls.variable.fields()) == len(cls.fields):
+            values = [cls.fields[field] for field in cls.variable.fields()]
+            variable = cls.variable(*values)
+            cls.registry[variable] = cls
 
     def __getitem__(cls, key): return cls.__registry__[key]
+    def __iter__(cls): return iter(cls.__registry__.items())
+
     def __call__(cls, *args, **kwargs):
         sources = {key: value(*args, **kwargs) for key, value in cls.__sources__.items()}
         constants = {key: value(*args, **kwargs) for key, value in cls.__constants__.items()}
@@ -247,6 +282,10 @@ class CalculationMeta(ABCMeta):
 
     @property
     def registry(cls): return cls.__registry__
+    @property
+    def variable(cls): return cls.__variable__
+    @property
+    def fields(cls): return cls.__fields__
 
 
 class Calculation(ABC, metaclass=CalculationMeta):

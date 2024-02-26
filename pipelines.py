@@ -84,10 +84,19 @@ class ClosedPipeline(OpenPipeline):
     def consumer(self): return self.__consumer
 
 
-class Stage(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
+class StageMeta(ABCMeta):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        try:
+            cls = super(StageMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+        except TypeError:
+            cls = super(StageMeta, mcs).__new__(mcs, name, bases, attrs)
+        return cls
+
+    def __init__(cls, *args, **kwargs):
         cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
 
+
+class Stage(ABC, metaclass=StageMeta):
     def __init__(self, *args, **kwargs):
         self.__title = kwargs.get("title", self.__class__.__title__)
         self.__name = kwargs.get("name", self.__class__.__name__)

@@ -13,6 +13,7 @@ import pandas as pd
 import dask.dataframe as dk
 from abc import ABC, ABCMeta
 from functools import update_wrapper
+from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 from support.locks import Locks
@@ -68,16 +69,24 @@ class File(ABC, metaclass=FileMeta):
 
 
 class DataframeFile(File, type=pd.DataFrame):
-    def __init_subclass__(cls, *args, header, **kwargs):
+    def __init_subclass__(cls, *args, index, columns, **kwargs):
+        assert isinstance(index, dict) and isinstance(columns, dict)
+        Parameters = ntuple("Parameters", "index columns")
         super().__init_subclass__(*args, **kwargs)
-        cls.__header__ = header
+        cls.parameters = Parameters(index, columns)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        header = self.__class__.__header__
-        self.__dataheader = list(header.keys())
-        self.__datatypes = {key: value for key, value in header.items() if not any([value is str, value is np.datetime64])}
-        self.__datetypes = [key for key, value in header.items() if value is np.datetime64]
+        self.__dataheader = list(self.parameters.index.keys()) + list(self.parameters.columns.keys())
+        self.__datatypes = {key: value for key, value in (self.parameters.index | self.parameters.columns).items() if not any([value is str, value is np.datetime64])}
+        self.__datetypes = [key for key, value in (self.parameters.index | self.parameters.columns).items() if value is np.datetime64]
+
+    def parse(self, dataframe, *args, **kwargs):
+        index = [index for index in dataframe.columns if index in self.index]
+        dataframe = dataframe.drop_duplicates(subset=index, keep="last", inplace=False)
+        columns = [column for column in dataframe.columns if column in self.columns]
+        dataframe = dataframe.dropna(subset=columns, how="all", inplace=False)
+        return dataframe
 
     def read(self, *args, **kwargs):
         parameters = dict(header=self.dataheader, datetypes=self.datetypes, datatypes=self.datatypes)
@@ -86,6 +95,11 @@ class DataframeFile(File, type=pd.DataFrame):
     def write(self, dataframe, *args, **kwargs):
         parameters = dict(header=self.dataheader)
         super().write(dataframe, *args, **parameters, **kwargs)
+
+    @property
+    def index(self): return list(self.parameters.index.keys())
+    @property
+    def columns(self): return list(self.parameters.columns.keys())
 
     @property
     def dataheader(self): return self.__dataheader
