@@ -9,24 +9,22 @@ Created on Weds Jul 12 2023
 import logging
 import pandas as pd
 import xarray as xr
-from abc import ABC
 from enum import IntEnum
 from functools import reduce
+from itertools import product
+from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
+from collections import OrderedDict as ODict
 
+from support.dispatchers import typedispatcher
 from support.pipelines import Producer, Processor, Consumer
-from support.dispatchers import kwargsdispatcher, typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Saver", "Loader", "Calculator", "Parser", "Filter", "Parsing", "Filtering"]
+__all__ = ["Saver", "Loader", "Calculator", "Cleaner", "Parser", "Filter", "Pivoter", "Parsing", "Filtering"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
-
-
-Parsing = IntEnum("Parsing", ["FLATTEN", "UNFLATTEN"], start=1)
-Filtering = IntEnum("Filtering", ["FLOOR", "CEILING"], start=1)
 
 
 class Files(object):
@@ -74,24 +72,18 @@ class Calculator(Processor, ABC, title="Calculated"):
     def calculations(self): return self.__calculations
 
 
-class Formatting(object):
-    def __init_subclass__(cls, *args, index=[], columns=[], **kwargs):
-        assert isinstance(index, (dict, list)) and isinstance(columns, (dict, list))
-        Axes = ntuple("Axes", "index columns")
-        index = list(index.keys() if isinstance(index, dict) else index)
-        columns = list(columns.keys() if isinstance(columns, dict) else columns)
-        cls.__axes__ = Axes(index, columns)
+class Axes(ntuple("Axes", "index columns values scope")):
+    @property
+    def header(self): return [self.index] + self.columns + self.values + self.scope
 
-    def __init__(self, *args, drop=False, **kwargs):
-        assert isinstance(drop, bool)
-        super().__init__(*args, **kwargs)
-        self.__axes = self.__class__.__axes__
-        self.__drop = drop
 
+class Cleaner(Axes, Processor, ABC, title="Cleaned"):
     @typedispatcher
-    def format(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
-    @format.register(pd.DataFrame)
-    def dataframe(self, dataframe, *args, **kwargs):
+    def clean(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
+
+    @clean.register(pd.DataFrame)
+    def clean_dataframe(self, dataframe, *args, **kwargs):
+        assert isinstance(dataframe.index, pd.RangeIndex)
         index = [index for index in dataframe.columns if index in self.index]
         dataframe = dataframe.drop_duplicates(subset=index, keep="last", inplace=False)
         columns = [column for column in dataframe.columns if column in self.columns]
@@ -99,50 +91,79 @@ class Formatting(object):
         dataframe = dataframe.reset_index(drop=True, inplace=False)
         return dataframe
 
-    @property
-    def header(self): return self.index + self.columns
-    @property
-    def columns(self): return self.axes.columns
-    @property
-    def index(self): return self.axes.index
+
+class Pivoter(Axes, Processor, ABC, title="Pivoted"):
+    def __init__(self, *args, delimiter="|", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__delimiter = delimiter
+
+    @typedispatcher
+    def pivot(self, contents): raise TypeError(type(contents).__name__)
+
+    @pivot.register(xr.Dataset)
+    def pivot_dataset(self, dataset):
+        assert self.index in dataset.coords.keys()
+        assert all([column in dataset.data_vars.keys() for column in self.columns])
+        scope = [content for content in dataset.coords.keys() if content in self.scope]
+        values = [content for content in dataset.data_vars.keys() if content in self.values]
+        assert all([len(dataset[content].values) == 0 for content in dataset.coords.keys() if content in scope])
+        string = lambda column: str(self.delimiter).join([content.value for content in column])
+        dataset = dataset[values]
+        columns = [[(content, value) for value in list(dataset[content].values)] for content in self.columns]
+        columns = [ODict(list(contents)) for contents in product(*columns)]
+        for content in scope:
+            dataset.squeeze(content)
+        dataset = [dataset.sel(column).rename({self.index: string(column)}) for column in columns]
+        return dataset
+
+    @pivot.register(pd.DataFrame)
+    def pivot_dataframe(self, dataframe):
+        assert isinstance(dataframe.index, pd.RangeIndex)
+        assert self.index in dataframe.columns
+        assert all([column in dataframe.columns for column in self.columns])
+        scope = [content for content in dataframe.columns if content in self.scope]
+        values = [content for content in dataframe.columns if content in self.values]
+        assert all([len(set(dataframe[content].values)) == 0 for content in dataframe.columns if content in scope])
+        scope = {content: list(dataframe[content].values)[0] for content in self.scope}
+        dataframe = dataframe[[self.index] + self.columns + values]
+        dataframe = dataframe.pivot(index=self.index, columns=self.columns, values=values)
+        dataframe.columns = dataframe.columns.map(str(self.delimiter).join).str.strip(self.delimiter)
+        for key, value in scope.items():
+            dataframe[key] = value
+        return dataframe
 
     @property
-    def axes(self): return self.__axes
-    @property
-    def drop(self): return self.__drop
+    def delimiter(self): return self.__delimiter
 
 
-class Parser(Formatting, Processor, ABC, title="Parsed"):
+Parsing = IntEnum("Parsing", ["FLATTEN", "UNFLATTEN"], start=1)
+class Parser(Axes, Processor, ABC, title="Parsed"):
     def __init__(self, *args, parsing, **kwargs):
-        assert parsing in Parsing
         super().__init__(*args, **kwargs)
         self.__parsing = parsing
 
-    def parse(self, contents, *args, **kwargs):
-        transform = (isinstance(contents, pd.DataFrame) and self.parsing is Parsing.UNFLATTEN) or (isinstance(contents, xr.Dataset) and self.parsing is Parsing.FLATTEN)
-        formatting = bool(self.drop) and ((isinstance(contents, pd.DataFrame) and not bool(transform)) or (isinstance(contents, xr.Dataset) and bool(transform)))
-        contents = self.transform(contents, *args, parsing=self.parsing, **kwargs) if bool(transform) else contents
-        contents = self.format(contents, *args, **kwargs) if bool(formatting) else contents
-        return contents
+    @typedispatcher
+    def parse(self, contents): raise TypeError(type(contents).__name__)
 
-    @kwargsdispatcher("parsing")
-    def transform(self, content, *args, parsing, **kwargs): raise ValueError(str(parsing.name).title())
-
-    @transform.register.value(Parsing.FLATTEN)
-    def flatten(self, dataset, *args, **kwargs):
-        assert isinstance(dataset, xr.Dataset)
+    @parse.register(xr.Dataset)
+    def dataset(self, dataset, *args, **kwargs):
+        if self.parsing is Parsing.FLATTEN:
+            return dataset
         dataframe = dataset.to_dataframe()
         dataframe = dataframe.reset_index(drop=False, inplace=False)
-        header = [value for value in self.header if value in dataframe.columns]
+        header = [content for content in self.header if content in dataframe.columns]
         dataframe = dataframe[header]
         return dataframe
 
-    @transform.register.value(Parsing.UNFLATTEN)
-    def unflatten(self, dataframe, *args, **kwargs):
-        assert isinstance(dataframe, pd.DataFrame)
-        index = [value for value in self.index if value in dataframe.columns]
+    @parse.register(pd.DataFrame)
+    def dataframe(self, dataframe, *args, **kwargs):
+        if self.parsing is Parsing.UNFLATTEN:
+            return dataframe
+        assert isinstance(dataframe.index, pd.RangeIndex)
+        index = [self.index] + self.columns + self.scope
+        index = [content for content in index if content in dataframe.columns]
         dataframe = dataframe.set_index(index, drop=True, inplace=False)
-        columns = [value for value in self.columns if value in dataframe.columns]
+        columns = [value for value in self.values if value in dataframe.columns]
         dataframe = dataframe[columns]
         dataset = xr.Dataset.from_dataframe(dataframe)
         return dataset
@@ -151,42 +172,63 @@ class Parser(Formatting, Processor, ABC, title="Parsed"):
     def parsing(self): return self.__parsing
 
 
-class Filter(Formatting, Processor, ABC, title="Filtered"):
+class Criteria(ntuple("Criteria", "variable threshold"), ABC):
+    def __call__(self, content): return self.execute(content) if bool(self) else content
+    def __bool__(self): return self.threshold is not None
+    def __hash__(self): return hash(self.variable)
+
+    @abstractmethod
+    def execute(self, content): pass
+
+class Floor(Criteria):
+    def execute(self, content): return content[self.variable] >= self.threshold
+
+class Ceiling(Criteria):
+    def execute(self, content): return content[self.variable] <= self.threshold
+
+
+class Filtering(object):
+    FLOOR = Floor
+    CEILING = Ceiling
+
+class Filter(Processor, ABC, title="Filtered"):
     def __init__(self, *args, filtering={}, **kwargs):
-        assert isinstance(filtering, dict)
         super().__init__(*args, **kwargs)
+        assert isinstance(filtering, dict)
+        assert all([issubclass(criteria, Criteria) for criteria in filtering.keys()])
         self.__filtering = filtering
 
+    @typedispatcher
+    def mask(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
+    @typedispatcher
+    def filter(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
+
+    @mask.register(xr.Dataset)
     def mask(self, content, *args, **kwargs):
-        mask = {key: {variable: kwargs.get(variable, None) for variable in variables} for key, variables in self.filtering.items()}
-        mask = {key: {variable: threshold for variable, threshold in variables.items() if threshold is not None} for key, variables in mask.items()}
-        mask = [dict(filtering=filtering, variable=variable, threshold=threshold) for filtering, variables in mask.items() for variable, threshold in variables.items()]
-        mask = [self.criteria(content, *args, **parameters, **kwargs) for parameters in mask]
+        criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in content.data_vars.keys()]
+        criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
+        mask = [criteria(content) for criteria in criterion]
         return reduce(lambda x, y: x & y, mask) if bool(mask) else None
 
-    def filter(self, contents, *args, mask, **kwargs):
-        filtering, formatting = bool(mask is not None), bool(self.drop)
-        contents = self.filtration(contents, *args, mask=mask, **kwargs) if bool(filtering) else contents
-        contents = self.format(contents, *args, mask=mask, **kwargs) if bool(formatting) else contents
-        return contents
+    @mask.register(pd.DataFrame)
+    def mask_dataframe(self, content, *args, **kwargs):
+        criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in content.columns]
+        criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
+        mask = [criteria(content) for criteria in criterion]
+        return reduce(lambda x, y: x & y, mask) if bool(mask) else None
 
-    @kwargsdispatcher("filtering")
-    def criteria(self, content, *args, filtering, **kwargs): raise ValueError(str(filtering.name).title())
-    @criteria.register.value(Filtering.FLOOR)
-    def floor(self, content, *args, variable, threshold, **kwargs): return content[variable] >= threshold
-    @criteria.register.value(Filtering.CEILING)
-    def ceiling(self, content, *args, variable, threshold, **kwargs): return content[variable] <= threshold
+    @filter.register(xr.Dataset)
+    def filter_dataset(self, dataset, *args, mask, **kwargs):
+        dataset = dataset.where(mask, drop=True) if bool(mask is not None) else dataset
+        return dataset
 
-    @typedispatcher
-    def filtration(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
-    @filtration.register(xr.Dataset)
-    def dataset(self, dataset, *args, mask, **kwargs): return dataset.where(mask, drop=True)
-    @filtration.register(pd.DataFrame)
-    def dataframe(self, dataframe, *args, mask, **kwargs): return dataframe.where(mask).dropna(how="all", inplace=False)
+    @filter.register(pd.DataFrame)
+    def filter_dataframe(self, dataframe, *args, mask, **kwargs):
+        dataframe = dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
+        return dataframe
 
     @property
     def filtering(self): return self.__filtering
-
 
 
 
