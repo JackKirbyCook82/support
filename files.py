@@ -20,7 +20,7 @@ from support.locks import Locks
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DataframeFile"]
+__all__ = ["DataframeFile", "Header"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -46,17 +46,17 @@ class File(ABC, metaclass=FileMeta):
         self.__type = filetype
         self.__name = filename
 
-    def directory(self, *path): return os.listdir(os.path.join(self.repository, *path))
-    def path(self, *path): return os.path.join(self.repository, *path)
+#    def directory(self, *path): return os.listdir(os.path.join(self.repository, *path))
+#    def path(self, *path): return os.path.join(self.repository, *path)
 
-    def read(self, *args, file, **kwargs):
+    def load(self, *args, file, **kwargs):
         with self.mutex[str(file)]:
             content = load(*args, file=file, type=self.type, **kwargs)
             return content
 
-    def write(self, content, *args, file, filemode, **kwargs):
+    def save(self, content, *args, file, mode, **kwargs):
         with self.mutex[str(file)]:
-            save(content, *args, file=file, mode=filemode, **kwargs)
+            save(content, *args, file=file, mode=mode, **kwargs)
 
     @property
     def repository(self): return self.__repository
@@ -68,12 +68,15 @@ class File(ABC, metaclass=FileMeta):
     def name(self): return self.__name
 
 
-class DataframeFile(File, type=pd.DataFrame):
-    def __init_subclass__(cls, *args, index, columns, **kwargs):
+class Header(ntuple("Header", "index columns")):
+    def __new__(cls, index, columns):
         assert isinstance(index, dict) and isinstance(columns, dict)
-        Parameters = ntuple("Parameters", "index columns")
-        super().__init_subclass__(*args, **kwargs)
-        cls.parameters = Parameters(index, columns)
+        return super().__new__(cls, index, columns)
+
+
+class DataframeFile(File, type=pd.DataFrame):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.header = kwargs.get("axes", getattr(cls, "axes", None))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -88,13 +91,13 @@ class DataframeFile(File, type=pd.DataFrame):
         dataframe = dataframe.dropna(subset=columns, how="all", inplace=False)
         return dataframe
 
-    def read(self, *args, **kwargs):
+    def load(self, *args, **kwargs):
         parameters = dict(header=self.dataheader, datetypes=self.datetypes, datatypes=self.datatypes)
-        return super().read(*args, **parameters, **kwargs)
+        return super().load(*args, **parameters, **kwargs)
 
-    def write(self, dataframe, *args, **kwargs):
+    def save(self, dataframe, *args, **kwargs):
         parameters = dict(header=self.dataheader)
-        super().write(dataframe, *args, **parameters, **kwargs)
+        super().save(dataframe, *args, **parameters, **kwargs)
 
     @property
     def index(self): return list(self.parameters.index.keys())
