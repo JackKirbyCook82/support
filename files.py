@@ -11,8 +11,8 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 import dask.dataframe as dk
-from abc import ABC, ABCMeta
 from functools import update_wrapper
+from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
@@ -46,9 +46,6 @@ class File(ABC, metaclass=FileMeta):
         self.__type = filetype
         self.__name = filename
 
-#    def directory(self, *path): return os.listdir(os.path.join(self.repository, *path))
-#    def path(self, *path): return os.path.join(self.repository, *path)
-
     def load(self, *args, file, **kwargs):
         with self.mutex[str(file)]:
             content = load(*args, file=file, type=self.type, **kwargs)
@@ -76,20 +73,13 @@ class Header(ntuple("Header", "index columns")):
 
 class DataframeFile(File, type=pd.DataFrame):
     def __init_subclass__(cls, *args, **kwargs):
-        cls.header = kwargs.get("axes", getattr(cls, "axes", None))
+        cls.header = kwargs.get("header", getattr(cls, "header", None))
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__dataheader = list(self.parameters.index.keys()) + list(self.parameters.columns.keys())
-        self.__datatypes = {key: value for key, value in (self.parameters.index | self.parameters.columns).items() if not any([value is str, value is np.datetime64])}
-        self.__datetypes = [key for key, value in (self.parameters.index | self.parameters.columns).items() if value is np.datetime64]
-
-    def parse(self, dataframe, *args, **kwargs):
-        index = [index for index in dataframe.columns if index in self.index]
-        dataframe = dataframe.drop_duplicates(subset=index, keep="last", inplace=False)
-        columns = [column for column in dataframe.columns if column in self.columns]
-        dataframe = dataframe.dropna(subset=columns, how="all", inplace=False)
-        return dataframe
+        self.__dataheader = list(self.header.index.keys()) + list(self.header.columns.keys())
+        self.__datatypes = {key: value for key, value in (self.header.index | self.header.columns).items() if not any([value is str, value is np.datetime64])}
+        self.__datetypes = [key for key, value in (self.header.index | self.header.columns).items() if value is np.datetime64]
 
     def load(self, *args, **kwargs):
         parameters = dict(header=self.dataheader, datetypes=self.datetypes, datatypes=self.datatypes)
@@ -100,9 +90,9 @@ class DataframeFile(File, type=pd.DataFrame):
         super().save(dataframe, *args, **parameters, **kwargs)
 
     @property
-    def index(self): return list(self.parameters.index.keys())
+    def index(self): return list(self.header.index.keys())
     @property
-    def columns(self): return list(self.parameters.columns.keys())
+    def columns(self): return list(self.header.columns.keys())
 
     @property
     def dataheader(self): return self.__dataheader
