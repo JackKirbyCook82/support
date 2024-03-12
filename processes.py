@@ -20,7 +20,7 @@ from support.pipelines import Producer, CycleProducer, Processor, Consumer
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Saver", "Loader", "Calculator", "Downloader", "CycleDownloader", "Parser", "Filter", "Filtering", "Axes"]
+__all__ = ["Reader", "Writer", "Saver", "Loader", "Calculator", "Downloader", "CycleDownloader", "Filter", "Filtering"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -45,31 +45,53 @@ class Files(object):
     def file(self): return self.__file
 
 
-class Saver(Files, Consumer, ABC, title="Saved"):
-    def write(self, *args, folder, files={}, mode, **kwargs):
-        assert isinstance(folder, (str, type(None))) and isinstance(files, dict)
-        directory = os.path.join(self.repository, folder) if bool(folder) else self.repository
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        for file, content in files.items():
-            filepath = os.path.join(directory, file)
-            self.save(content, file=filepath, mode=mode)
-            __logger__.info("Saved: {}[{}]".format(repr(self), str(filepath)))
+class Parsers(object):
+    @staticmethod
+    def unflatten(dataframe, *args, index, columns, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame)
+        index = [content for content in index if content in dataframe.columns]
+        dataframe = dataframe.set_index(index, drop=True, inplace=False)
+        columns = [value for value in columns if value in dataframe.columns]
+        dataframe = dataframe[columns]
+        dataset = xr.Dataset.from_dataframe(dataframe)
+        return dataset
 
+    @staticmethod
+    def flatten(dataset, *args, header, **kwargs):
+        assert isinstance(dataset, xr.Dataset)
+        dataframe = dataset.to_dataframe()
+        dataframe = dataframe.reset_index(drop=False, inplace=False)
+        header = [content for content in header if content in dataframe.columns]
+        dataframe = dataframe[header]
+        return dataframe
 
-class Loader(Files, Producer, ABC, title="Loaded"):
-    def read(self, *args, folder, file, **kwargs):
-        assert isinstance(folder, str) and isinstance(file, str)
-        directory = os.path.join(self.repository, folder)
-        filepath = os.path.join(directory, file)
-        content = self.load(file=filepath)
-        return content
+    @staticmethod
+    def pivot(dataframe, *args, index, columns, scope, values, delimiter=None, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame)
+        assert all([column in dataframe.columns for column in index])
+        assert all([column in dataframe.columns for column in columns])
+        scope = [content for content in dataframe.columns if content in scope]
+        values = [content for content in dataframe.columns if content in values]
+        assert all([len(set(dataframe[content].values)) == 0 for content in dataframe.columns if content in scope])
+        scope = {content: list(dataframe[content].values)[0] for content in scope}
+        dataframe = dataframe[index + columns + values]
+        dataframe = dataframe.pivot(index=index, columns=columns, values=values)
+        if delimiter is not None:
+            dataframe.columns = dataframe.columns.map(str(delimiter).join).str.strip(delimiter)
+        for key, value in scope.items():
+            dataframe[key] = value
+        dataframe = dataframe.reset_index(drop=False, inplace=False)
+        return dataframe
 
-    def reader(self, *args, folders=[], files=[], **kwargs):
-        assert isinstance(folders, list) and isinstance(files, list)
-        for folder in folders:
-            contents = {os.path.splitext(file)[0]: self.read(*args, folder=folder, file=file, **kwargs) for file in files}
-            yield folder, contents
+    @staticmethod
+    def clean(dataframe, *args, index=[], columns, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame)
+        index = [index for index in index if index in dataframe.columns]
+        dataframe = dataframe.drop_duplicates(subset=index, keep="last", inplace=False)
+        columns = [column for column in columns if column in dataframe.columns]
+        dataframe = dataframe.dropna(subset=columns, how="all", inplace=False)
+        dataframe = dataframe.reset_index(drop=True, inplace=False)
+        return dataframe
 
 
 class Calculations(object):
@@ -114,84 +136,31 @@ class Websites(object):
     def pages(self): return self.__pages
 
 
-class Calculator(Calculations, Processor, ABC, title="Calculated"): pass
-class Downloader(Websites, Producer, ABC, title="Downloaded"): pass
-class CycleDownloader(Websites, CycleProducer, ABC, title="Downloaded"): pass
+class Saver(Parsers, Files, Consumer, ABC, title="Saved"):
+    def write(self, *args, folder, files={}, mode, **kwargs):
+        assert isinstance(folder, (str, type(None))) and isinstance(files, dict)
+        directory = os.path.join(self.repository, folder) if bool(folder) else self.repository
+        if not os.path.exists(directory):
+            os.makedirs(directory)
+        for file, content in files.items():
+            filepath = os.path.join(directory, file)
+            self.save(content, file=filepath, mode=mode)
+            __logger__.info("Saved: {}[{}]".format(repr(self), str(filepath)))
 
 
-class Axes(ntuple("Axes", "index columns values scope")):
-    def __new__(cls, index, columns, values, scope):
-        assert all([isinstance(contents, (list, dict)) for contents in (index, columns, values, scope)])
-        index = list(index.keys()) if isinstance(index, dict) else list(index)
-        columns = list(columns.keys()) if isinstance(columns, dict) else list(columns)
-        values = list(values.keys()) if isinstance(values, dict) else list(values)
-        scope = list(scope.keys()) if isinstance(scope, dict) else list(scope)
-        return super().__new__(cls, index, columns, values, scope)
+class Loader(Parsers, Files, Producer, ABC, title="Loaded"):
+    def read(self, *args, folder, file, **kwargs):
+        assert isinstance(folder, str) and isinstance(file, str)
+        directory = os.path.join(self.repository, folder)
+        filepath = os.path.join(directory, file)
+        content = self.load(file=filepath)
+        return content
 
-    @property
-    def header(self): return self.index + self.columns + self.values + self.scope
-
-
-class Parser(Processor, ABC, title="Parsed"):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.axes = kwargs.get("axes", getattr(cls, "axes", None))
-
-    def unflatten(self, dataframe, *args, **kwargs):
-        assert isinstance(dataframe, pd.DataFrame)
-        index = self.index + self.columns + self.scope
-        index = [content for content in index if content in dataframe.columns]
-        dataframe = dataframe.set_index(index, drop=True, inplace=False)
-        columns = [value for value in self.values if value in dataframe.columns]
-        dataframe = dataframe[columns]
-        dataset = xr.Dataset.from_dataframe(dataframe)
-        return dataset
-
-    def flatten(self, dataset, *args, **kwargs):
-        assert isinstance(dataset, xr.Dataset)
-        dataframe = dataset.to_dataframe()
-        dataframe = dataframe.reset_index(drop=False, inplace=False)
-        header = [content for content in self.header if content in dataframe.columns]
-        dataframe = dataframe[header]
-        return dataframe
-
-    @typedispatcher
-    def pivot(self, contents, *args, **kwargs): raise TypeError(type(contents).__name__)
-    @pivot.register(pd.DataFrame)
-    def pivot_dataframe(self, dataframe, *args, **kwargs):
-        assert all([column in dataframe.columns for column in self.index])
-        assert all([column in dataframe.columns for column in self.columns])
-        scope = [content for content in dataframe.columns if content in self.scope]
-        values = [content for content in dataframe.columns if content in self.values]
-        assert all([len(set(dataframe[content].values)) == 0 for content in dataframe.columns if content in scope])
-        scope = {content: list(dataframe[content].values)[0] for content in self.scope}
-        dataframe = dataframe[self.index + self.columns + values]
-        dataframe = dataframe.pivot(index=self.index, columns=self.columns, values=values)
-        dataframe.columns = dataframe.columns.map(str(self.delimiter).join).str.strip(self.delimiter)
-        for key, value in scope.items():
-            dataframe[key] = value
-        return dataframe
-
-    @typedispatcher
-    def clean(self, contents, *args, **kwargs): raise TypeError(type(contents).__name__)
-    @clean.register(pd.DataFrame)
-    def clean_dataframe(self, dataframe, *args, **kwargs):
-        index = [index for index in dataframe.columns if index in self.index]
-        dataframe = dataframe.drop_duplicates(subset=index, keep="last", inplace=False)
-        columns = [column for column in dataframe.columns if column in self.columns]
-        dataframe = dataframe.dropna(subset=columns, how="all", inplace=False)
-        dataframe = dataframe.reset_index(drop=True, inplace=False)
-        return dataframe
-
-    @property
-    def header(self): return type(self).axes.header
-    @property
-    def index(self): return type(self).axes.index
-    @property
-    def columns(self): return type(self).axes.columns
-    @property
-    def values(self): return type(self).axes.values
-    @property
-    def scope(self): return type(self).axes.scope
+    def reader(self, *args, folders=[], files=[], **kwargs):
+        assert isinstance(folders, list) and isinstance(files, list)
+        for folder in folders:
+            contents = {os.path.splitext(file)[0]: self.read(*args, folder=folder, file=file, **kwargs) for file in files}
+            yield folder, contents
 
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
@@ -213,7 +182,7 @@ class Filtering(object):
     FLOOR = Floor
     CEILING = Ceiling
 
-class Filter(Processor, ABC, title="Filtered"):
+class Filter(Parsers, Processor, ABC, title="Filtered"):
     def __init__(self, *args, filtering={}, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(filtering, dict)
@@ -253,6 +222,13 @@ class Filter(Processor, ABC, title="Filtered"):
 
     @property
     def filtering(self): return self.__filtering
+
+
+class Calculator(Parsers, Calculations, Processor, ABC, title="Calculated"): pass
+class CycleDownloader(Parsers, Websites, CycleProducer, ABC, title="Downloaded"): pass
+class Downloader(Parsers, Websites, Producer, ABC, title="Downloaded"): pass
+class Reader(Parsers, Producer, ABC, title="Read"): pass
+class Writer(Parsers, Consumer, ABC, title="Wrote"): pass
 
 
 

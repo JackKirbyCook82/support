@@ -11,16 +11,15 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 import dask.dataframe as dk
+from abc import ABC, ABCMeta
 from functools import update_wrapper
-from abc import ABC, ABCMeta, abstractmethod
-from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 from support.locks import Locks
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DataframeFile", "Header"]
+__all__ = ["DataframeFile"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -65,21 +64,16 @@ class File(ABC, metaclass=FileMeta):
     def name(self): return self.__name
 
 
-class Header(ntuple("Header", "index columns")):
-    def __new__(cls, index, columns):
-        assert isinstance(index, dict) and isinstance(columns, dict)
-        return super().__new__(cls, index, columns)
-
-
 class DataframeFile(File, type=pd.DataFrame):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.header = kwargs.get("header", getattr(cls, "header", None))
+    def __init_subclass__(cls, *args, header={}, **kwargs):
+        assert isinstance(header, dict)
+        cls.header = header
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__dataheader = list(self.header.index.keys()) + list(self.header.columns.keys())
-        self.__datatypes = {key: value for key, value in (self.header.index | self.header.columns).items() if not any([value is str, value is np.datetime64])}
-        self.__datetypes = [key for key, value in (self.header.index | self.header.columns).items() if value is np.datetime64]
+        self.__dataheader = list(self.header.keys())
+        self.__datatypes = {key: value for key, value in self.header.items() if not any([value is str, value is np.datetime64])}
+        self.__datetypes = [key for key, value in self.header.items() if value is np.datetime64]
 
     def load(self, *args, **kwargs):
         parameters = dict(header=self.dataheader, datetypes=self.datetypes, datatypes=self.datatypes)
