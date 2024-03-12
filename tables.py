@@ -48,6 +48,12 @@ class Table(ABC, metaclass=TableMeta):
     def write(self, content, *args, **kwargs): pass
     @abstractmethod
     def read(self, *args, **kwargs): pass
+    @property
+    @abstractmethod
+    def empty(self): pass
+    @property
+    @abstractmethod
+    def size(self): pass
 
     @property
     def table(self): return self.__table

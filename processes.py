@@ -163,6 +163,15 @@ class Loader(Parsers, Files, Producer, ABC, title="Loaded"):
             yield folder, contents
 
 
+class Writer(Parsers, Consumer, ABC, title="Wrote"):
+    @abstractmethod
+    def write(self, content, *args, **kwargs): pass
+
+class Reader(Parsers, Producer, ABC, title="Read"):
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
+
+
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
     def __call__(self, content): return self.execute(content) if bool(self) else content
     def __bool__(self): return self.threshold is not None
@@ -227,8 +236,6 @@ class Filter(Parsers, Processor, ABC, title="Filtered"):
 class Calculator(Parsers, Calculations, Processor, ABC, title="Calculated"): pass
 class CycleDownloader(Parsers, Websites, CycleProducer, ABC, title="Downloaded"): pass
 class Downloader(Parsers, Websites, Producer, ABC, title="Downloaded"): pass
-class Reader(Parsers, Producer, ABC, title="Read"): pass
-class Writer(Parsers, Consumer, ABC, title="Wrote"): pass
 
 
 
