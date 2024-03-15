@@ -43,9 +43,9 @@ class Table(ABC, metaclass=TableMeta):
         self.__table = table
 
     @abstractmethod
-    def execute(self, content, *args, **kwargs): pass
-    @abstractmethod
     def write(self, content, *args, **kwargs): pass
+    @abstractmethod
+    def update(self, content, *args, **kwargs): pass
     @abstractmethod
     def read(self, *args, **kwargs): pass
     @property
@@ -68,50 +68,30 @@ class Table(ABC, metaclass=TableMeta):
 
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
-    def __init__(self, *args, **kwargs): super().__init__(pd.DataFrame(columns=self.header), *args, **kwargs)
-    def __iter__(self): return (self.parser(index, record) for index, record in self.table.to_dict("index").items())
+    def __init_subclass__(cls, *args, header={}, **kwargs):
+        assert isinstance(header, dict)
+        cls.header = header
 
-    def read(self, *args, include=[], exclude=[], **kwargs):
-        with self.mutex:
-            mask = self.table.index.isin(include) if bool(include) else ~self.table.index.isin(exclude)
-            dataframe = self.table[mask]
-            return dataframe
+    def __init__(self, *args, **kwargs):
+        table = pd.DataFrame(columns=self.header)
+        super().__init__(table, *args, **kwargs)
 
-    def remove(self, *args, include=[], exclude=[], **kwargs):
+    def read(self, *args, **kwargs):
         with self.mutex:
-            mask = self.table.index.isin(include) if bool(include) else ~self.table.index.isin(exclude)
-            dataframe = self.table[mask]
-            self.table = self.table[~mask]
-            return dataframe
+            return self.table
 
     def write(self, dataframe, args, **kwargs):
         with self.mutex:
             self.table = pd.concat([self.table, dataframe], axis=0)
-            self.execute(*args, **kwargs)
 
     def update(self, dataframe, *args, **kwargs):
         with self.mutex:
             self.table.update(dataframe)
-            self.execute(*args, **kwargs)
 
-    def execute(self, *args, **kwargs):
-        pass
-
-    @staticmethod
-    def included(index, include=[], exclude=[]): return index in include if bool(include) else (index not in exclude)
-    @staticmethod
-    def parser(index, record): return record
-
-    @property
-    def index(self): return self.table.index.values
     @property
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
-
-    @property
-    @abstractmethod
-    def header(self): pass
 
 
 
