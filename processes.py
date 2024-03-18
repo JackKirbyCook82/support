@@ -11,6 +11,7 @@ import logging
 import numpy as np
 import pandas as pd
 import xarray as xr
+from itertools import chain
 from functools import reduce
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
@@ -20,7 +21,7 @@ from support.pipelines import Producer, CycleProducer, Processor, Consumer
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Reader", "Writer", "Saver", "Loader", "Calculator", "Downloader", "CycleDownloader", "Filter", "Filtering"]
+__all__ = ["Reader", "CycleReader", "Writer", "Saver", "Loader", "Calculator", "Downloader", "CycleDownloader", "Filter", "Filtering"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -66,21 +67,23 @@ class Parsers(object):
         return dataframe
 
     @staticmethod
-    def pivot(dataframe, *args, index, columns, scope, values, delimiter=None, **kwargs):
+    def pivot(dataframe, *args, columns=[], values=[], delimiter=None, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
-        assert all([column in dataframe.columns for column in index])
-        assert all([column in dataframe.columns for column in columns])
-        scope = [content for content in dataframe.columns if content in scope]
-        values = [content for content in dataframe.columns if content in values]
-        assert all([len(set(dataframe[content].values)) == 0 for content in dataframe.columns if content in scope])
-        scope = {content: list(dataframe[content].values)[0] for content in scope}
-        dataframe = dataframe[index + columns + values]
+        columns = [column for column in columns if column in dataframe.columns]
+        values = [value for value in values if value in dataframe.columns]
+        index = [column for column in dataframe.columns if column not in columns + values]
         dataframe = dataframe.pivot(index=index, columns=columns, values=values)
         if delimiter is not None:
             dataframe.columns = dataframe.columns.map(str(delimiter).join).str.strip(delimiter)
-        for key, value in scope.items():
-            dataframe[key] = value
         dataframe = dataframe.reset_index(drop=False, inplace=False)
+        return dataframe
+
+    @staticmethod
+    def melt(dataframe, *args, name, variable, columns=[], **kwargs):
+        assert isinstance(dataframe, pd.DataFrame)
+        index = [column for column in dataframe.columns if column not in columns]
+        dataframe = dataframe.melt(var_name=name, id_vars=index, value_name=variable, value_vars=columns)
+        dataframe = dataframe.dropna(how="all", inplace=False)
         return dataframe
 
     @staticmethod
@@ -171,6 +174,10 @@ class Reader(Parsers, Producer, ABC, title="Read"):
     @abstractmethod
     def read(self, *args, **kwargs): pass
 
+class CycleReader(Parsers, CycleProducer, ABC, title="Read"):
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
+
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
     def __call__(self, content): return self.execute(content) if bool(self) else content
@@ -234,8 +241,8 @@ class Filter(Parsers, Processor, ABC, title="Filtered"):
 
 
 class Calculator(Parsers, Calculations, Processor, ABC, title="Calculated"): pass
-class CycleDownloader(Parsers, Websites, CycleProducer, ABC, title="Downloaded"): pass
 class Downloader(Parsers, Websites, Producer, ABC, title="Downloaded"): pass
+class CycleDownloader(Parsers, Websites, CycleProducer, ABC, title="Downloaded"): pass
 
 
 

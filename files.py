@@ -65,15 +65,15 @@ class File(ABC, metaclass=FileMeta):
 
 
 class DataframeFile(File, type=pd.DataFrame):
-    def __init_subclass__(cls, *args, header={}, **kwargs):
-        assert isinstance(header, dict)
-        cls.header = header
+    def __init_subclass__(cls, *args, **kwargs):
+        header = {key: value for key, value in getattr(cls, "header", {}).items()}
+        cls.header = header | kwargs.get("header", {})
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__dataheader = list(self.header.keys())
-        self.__datatypes = {key: value for key, value in self.header.items() if not any([value is str, value is np.datetime64])}
-        self.__datetypes = [key for key, value in self.header.items() if value is np.datetime64]
+        self.__dataheader = list(type(self).header.keys())
+        self.__datatypes = {key: value for key, value in type(self).header.items() if not any([value is str, value is np.datetime64])}
+        self.__datetypes = [key for key, value in type(self).header.items() if value is np.datetime64]
 
     def load(self, *args, **kwargs):
         parameters = dict(header=self.dataheader, datetypes=self.datetypes, datatypes=self.datatypes)
@@ -82,11 +82,6 @@ class DataframeFile(File, type=pd.DataFrame):
     def save(self, dataframe, *args, **kwargs):
         parameters = dict(header=self.dataheader)
         super().save(dataframe, *args, **parameters, **kwargs)
-
-    @property
-    def index(self): return list(self.header.index.keys())
-    @property
-    def columns(self): return list(self.header.columns.keys())
 
     @property
     def dataheader(self): return self.__dataheader

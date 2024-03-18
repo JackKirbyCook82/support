@@ -6,6 +6,7 @@ Created on Weds Jul 12 2023
 
 """
 
+import numpy as np
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
@@ -48,6 +49,7 @@ class Table(ABC, metaclass=TableMeta):
     def update(self, content, *args, **kwargs): pass
     @abstractmethod
     def read(self, *args, **kwargs): pass
+
     @property
     @abstractmethod
     def empty(self): pass
@@ -57,8 +59,6 @@ class Table(ABC, metaclass=TableMeta):
 
     @property
     def table(self): return self.__table
-    @table.setter
-    def table(self, table): self.__table = table
     @property
     def mutex(self): return self.__mutex
     @property
@@ -68,30 +68,42 @@ class Table(ABC, metaclass=TableMeta):
 
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
-    def __init_subclass__(cls, *args, header={}, **kwargs):
-        assert isinstance(header, dict)
-        cls.header = header
-
     def __init__(self, *args, **kwargs):
-        table = pd.DataFrame(columns=self.header)
+        table = pd.DataFrame()
         super().__init__(table, *args, **kwargs)
 
     def read(self, *args, **kwargs):
         with self.mutex:
             return self.table
 
-    def write(self, dataframe, args, **kwargs):
+    def remove(self, dataframe, *args, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
-            self.table = pd.concat([self.table, dataframe], axis=0)
+            self.table = self.table.drop(dataframe.index, inplace=False)
+
+    def write(self, dataframe, *args, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame)
+        with self.mutex:
+            dataframes = [self.table, dataframe]
+            self.table = pd.concat(dataframes, axis=0)
 
     def update(self, dataframe, *args, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
             self.table.update(dataframe)
+
+    def sort(self, column, *args, reverse=False, **kwargs):
+        assert column in self.table.columns
+        assert isinstance(reverse, bool)
+        with self.mutex:
+            ascending = not bool(reverse)
+            self.table.sort_values(column, axis=0, ascending=ascending, inplace=True, ignore_index=False)
 
     @property
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
+
 
 
 
