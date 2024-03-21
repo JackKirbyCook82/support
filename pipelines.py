@@ -15,7 +15,7 @@ from abc import ABC, ABCMeta, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Routine", "CycleRoutine", "Producer", "CycleProducer", "Processor", "Consumer"]
+__all__ = ["Routine", "Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -116,43 +116,21 @@ class Stage(ABC, metaclass=StageMeta):
     def title(self): return self.__title
 
 
-class Cycle(ABC):
-    def __bool__(self): return self.state
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__state = True
-
-    @property
-    def state(self): return self.__state
-    @state.setter
-    def state(self, state): self.__state = state
-
-
 class Routine(Stage, ABC, title="Performed"):
-    @staticmethod
-    def prepare(*args, **kwargs): return {}
     def process(self, *args, **kwargs):
         assert not inspect.isgeneratorfunction(self.execute)
-        parameters = self.prepare(*args, **kwargs)
-        kwargs = kwargs | parameters
         start = time.time()
         self.execute(*args, **kwargs)
         __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
 
 
-class CycleRoutine(Cycle, Routine, ABC):
+class Producer(Stage, ABC, title="Produced"):
+    def __add__(self, stage):
+        assert isinstance(stage, (Processor, Consumer))
+        return Pipeline(self, stage)
+
     def process(self, *args, **kwargs):
-        assert not inspect.isgeneratorfunction(self.execute)
-        parameters = self.prepare(*args, **kwargs)
-        kwargs = kwargs | parameters
-        while bool(self):
-            start = time.time()
-            self.execute(*args, **kwargs)
-            __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
-
-
-class Generator(Stage, ABC, title="Generated"):
-    def generator(self, *args, **kwargs):
+        assert inspect.isgeneratorfunction(self.execute)
         generator = self.execute(*args, **kwargs)
         assert isinstance(generator, types.GeneratorType)
         start = time.time()
@@ -162,38 +140,18 @@ class Generator(Stage, ABC, title="Generated"):
             start = time.time()
 
 
-class Producer(Generator, ABC, title="Produced"):
-    def __add__(self, stage):
-        assert isinstance(stage, (Processor, Consumer))
-        return Pipeline(self, stage)
-
-    @staticmethod
-    def prepare(*args, **kwargs): return {}
-    def process(self, *args, **kwargs):
-        assert inspect.isgeneratorfunction(self.execute)
-        parameters = self.prepare(*args, **kwargs)
-        kwargs = kwargs | parameters
-        generator = self.generator(*args, **kwargs)
-        yield from generator
-
-
-class CycleProducer(Cycle, Producer, ABC):
-    def process(self, *args, **kwargs):
-        assert inspect.isgeneratorfunction(self.execute)
-        parameters = self.prepare(*args, **kwargs)
-        kwargs = kwargs | parameters
-        while bool(self):
-            generator = self.generator(*args, **kwargs)
-            yield from generator
-
-
-class Processor(Generator, ABC, title="Processed"):
+class Processor(Stage, ABC, title="Processed"):
     def process(self, stage, *args, **kwargs):
         assert isinstance(stage, types.GeneratorType)
         assert inspect.isgeneratorfunction(self.execute)
         for query in iter(stage):
-            generator = self.generator(query, *args, **kwargs)
-            yield from generator
+            generator = self.execute(query, *args, **kwargs)
+            assert isinstance(generator, types.GeneratorType)
+            start = time.time()
+            for content in iter(generator):
+                __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
+                yield content
+                start = time.time()
 
 
 class Consumer(Stage, ABC, title="Consumed"):

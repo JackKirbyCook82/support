@@ -6,7 +6,8 @@ Created on Sun 14 2023
 
 """
 
-import os.path
+import os
+import logging
 import numpy as np
 import xarray as xr
 import pandas as pd
@@ -22,6 +23,7 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["DataframeFile"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
+__logger__ = logging.getLogger(__name__)
 
 
 class FileMeta(ABCMeta):
@@ -45,14 +47,23 @@ class File(ABC, metaclass=FileMeta):
         self.__type = filetype
         self.__name = filename
 
+    def directory(self, folder=None):
+        folder = os.path.join(self.repository, folder) if folder is not None else self.repository
+        return os.listdir(folder)
+
     def load(self, *args, file, **kwargs):
+        file = os.path.join(self.repository, file)
         with self.mutex[str(file)]:
             content = load(*args, file=file, type=self.type, **kwargs)
             return content
 
     def save(self, content, *args, file, mode, **kwargs):
+        file = os.path.join(self.repository, file)
         with self.mutex[str(file)]:
+            if not os.path.exists(file):
+                os.makedirs(file)
             save(content, *args, file=file, mode=mode, **kwargs)
+            __logger__.info("Saved: {}[{}]".format(repr(self), str(file)))
 
     @property
     def repository(self): return self.__repository
@@ -66,14 +77,14 @@ class File(ABC, metaclass=FileMeta):
 
 class DataframeFile(File, type=pd.DataFrame):
     def __init_subclass__(cls, *args, **kwargs):
-        header = {key: value for key, value in getattr(cls, "header", {}).items()}
-        cls.header = header | kwargs.get("header", {})
+        variables = {key: value for key, value in getattr(cls, "variables", {}).items()}
+        cls.variables = variables | kwargs.get("variables", {})
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__dataheader = list(type(self).header.keys())
-        self.__datatypes = {key: value for key, value in type(self).header.items() if not any([value is str, value is np.datetime64])}
-        self.__datetypes = [key for key, value in type(self).header.items() if value is np.datetime64]
+        self.__dataheader = list(type(self).variables.keys())
+        self.__datatypes = {key: value for key, value in type(self).variables.items() if not any([value is str, value is np.datetime64])}
+        self.__datetypes = [key for key, value in type(self).variables.items() if value is np.datetime64]
 
     def load(self, *args, **kwargs):
         parameters = dict(header=self.dataheader, datetypes=self.datetypes, datatypes=self.datatypes)

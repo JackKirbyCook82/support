@@ -6,47 +6,155 @@ Created on Weds Jul 12 2023
 
 """
 
-import os
 import logging
+import os.path
 import numpy as np
 import pandas as pd
 import xarray as xr
-from itertools import chain
 from functools import reduce
+from itertools import product
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
+from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher
-from support.pipelines import Producer, CycleProducer, Processor, Consumer
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Reader", "CycleReader", "Writer", "Saver", "Loader", "Calculator", "Downloader", "CycleDownloader", "Filter", "Filtering"]
+__all__ = ["Scheduler", "Calculator", "Downloader", "Saver", "Loader", "Parser", "Filter", "Filtering"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-class Files(object):
-    def __init__(self, *args, file, **kwargs):
-        super().__init__(*args, **kwargs)
+class Process(ABC):
+    def __init_subclass__(cls, *args, **kwargs): pass
+    def __init__(self, *args, **kwargs): pass
+
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
+
+
+class Scheduler(Process, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        variables = getattr(cls, "__variables__", []) + kwargs.get("variables", [])
+        cls.__variables__ = variables
+
+    def __init__(self, *args, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        variables = self.__class__.__variables__
+        variables = [(variable, kwargs.get(variable, None)) for variable in variables]
+        self.__variables = ODict(variables)
+
+    def schedule(self, *args, **kwargs):
+        variables = [variable for variable, values in self.variables.items() if variable is None]
+        assert all([variable in kwargs.keys() for variable in variables])
+        variables = self.variables | {variable: kwargs[variable] for variable in variables}
+        variables = [[(variable, value) for value in values] for variable, values in variables.items()]
+        generator = (ODict(items) for items in product(*list(variables.values())))
+        yield from generator
+
+    @property
+    def variables(self): return self.__variables
+
+
+class Calculator(Process, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        calculations = {key: value for key, value in getattr(cls, "__calculations__", {}).items()}
+        calculations.update(kwargs.get("calculations", {}))
+        variable = {type(key) for key in calculations.keys()}
+        assert all([callable(calculation) for calculation in calculations.values()])
+        assert 0 <= len(variable) <= 1
+        variable = list(variable)[0] if bool(variable) else None
+        cls.__calculations__ = calculations
+        cls.__variable__ = variable
+
+    def __init__(self, *args, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        calculations = self.__class__.__calculations__
+        variable = self.__class__.__variable__
+        assert variable is not None
+        parameters = {field: kwargs[field] for field in variable.fields() if field in kwargs.keys()}
+        for field, value in parameters.items():
+            calculations = {variable: calculation for variable, calculation in calculations.items() if getattr(variable, field, None) == value}
+        calculations = {variable: calculation(*args, **kwargs) for variable, calculation in calculations.items()}
+        self.__calculations = calculations
+
+    @property
+    def calculations(self): return self.__calculations
+
+
+class Downloader(Process, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        pages = {key: value for key, value in getattr(cls, "__pages__", {}).items()}
+        pages.update(kwargs.get("pages", {}))
+        cls.__pages__ = pages
+
+    def __init__(self, *args, feed, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        pages = self.__class__.__pages__
+        pages = {key: page(*args, feed=feed, **kwargs) for key, page in pages.items()}
+        self.__pages = pages
+
+    @property
+    def pages(self): return self.__pages
+
+
+class Saver(Process, ABC, title="Saved"):
+    def __init__(self, *args, file, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
         self.__file = file
 
-    def directory(self, folder=None): return os.path.join(self.repository, folder) if folder is not None else self.repository
-    def contents(self, folder=None): return os.listdir(self.directory(folder))
+    def write(self, *args, folder, files={}, mode, **kwargs):
+        assert isinstance(folder, (str, type(None))) and isinstance(files, dict)
+        for file, content in files.items():
+            file = os.path.join(folder, file)
+            self.save(content, file=file, mode=mode)
 
-    @property
-    def load(self): return self.file.load
-    @property
-    def save(self): return self.file.save
-
-    @property
-    def repository(self): return self.file.repository
     @property
     def file(self): return self.__file
 
 
-class Parsers(object):
+class Loader(Process, ABC, title="Loaded"):
+    def __init__(self, *args, file, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        self.__file = file
+
+    def read(self, *args, folder, file, **kwargs):
+        assert isinstance(folder, str) and isinstance(file, str)
+        file = os.path.join(folder, file)
+        content = self.load(file=file)
+        return content
+
+    def reader(self, *args, folders=[], files=[], **kwargs):
+        assert isinstance(folders, list) and isinstance(files, list)
+        for folder in folders:
+            contents = {os.path.splitext(file)[0]: self.read(*args, folder=folder, file=file, **kwargs) for file in files}
+            yield folder, contents
+
+    @property
+    def file(self): return self.__file
+
+
+class Criteria(ntuple("Criteria", "variable threshold"), ABC):
+    def __call__(self, content): return self.execute(content) if bool(self) else content
+    def __bool__(self): return self.threshold is not None
+    def __hash__(self): return hash(self.variable)
+
+    @abstractmethod
+    def execute(self, content): pass
+
+class Floor(Criteria):
+    def execute(self, content): return content[self.variable] >= self.threshold
+
+class Ceiling(Criteria):
+    def execute(self, content): return content[self.variable] <= self.threshold
+
+
+class Parser(Process, ABC):
     @staticmethod
     def unflatten(dataframe, *args, index, columns, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
@@ -97,110 +205,13 @@ class Parsers(object):
         return dataframe
 
 
-class Calculations(object):
-    def __init_subclass__(cls, *args, **kwargs):
-        calculations = {key: value for key, value in getattr(cls, "__calculations__", {}).items()}
-        calculations.update(kwargs.get("calculations", {}))
-        variable = {type(key) for key in calculations.keys()}
-        assert all([callable(calculation) for calculation in calculations.values()])
-        assert 0 <= len(variable) <= 1
-        variable = list(variable)[0] if bool(variable) else None
-        cls.__calculations__ = calculations
-        cls.__variable__ = variable
-
-    def __init__(self, *args, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        calculations = self.__class__.__calculations__
-        variable = self.__class__.__variable__
-        assert variable is not None
-        parameters = {field: kwargs[field] for field in variable.fields() if field in kwargs.keys()}
-        for field, value in parameters.items():
-            calculations = {variable: calculation for variable, calculation in calculations.items() if getattr(variable, field, None) == value}
-        calculations = {variable: calculation(*args, **kwargs) for variable, calculation in calculations.items()}
-        self.__calculations = calculations
-
-    @property
-    def calculations(self): return self.__calculations
-
-
-class Websites(object):
-    def __init_subclass__(cls, *args, **kwargs):
-        pages = {key: value for key, value in getattr(cls, "__pages__", {}).items()}
-        pages.update(kwargs.get("pages", {}))
-        cls.__pages__ = pages
-
-    def __init__(self, *args, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        pages = self.__class__.__pages__
-        pages = {key: page(*args, **kwargs) for key, page in pages.items()}
-        self.__pages = pages
-
-    @property
-    def pages(self): return self.__pages
-
-
-class Saver(Parsers, Files, Consumer, ABC, title="Saved"):
-    def write(self, *args, folder, files={}, mode, **kwargs):
-        assert isinstance(folder, (str, type(None))) and isinstance(files, dict)
-        directory = os.path.join(self.repository, folder) if bool(folder) else self.repository
-        if not os.path.exists(directory):
-            os.makedirs(directory)
-        for file, content in files.items():
-            filepath = os.path.join(directory, file)
-            self.save(content, file=filepath, mode=mode)
-            __logger__.info("Saved: {}[{}]".format(repr(self), str(filepath)))
-
-
-class Loader(Parsers, Files, Producer, ABC, title="Loaded"):
-    def read(self, *args, folder, file, **kwargs):
-        assert isinstance(folder, str) and isinstance(file, str)
-        directory = os.path.join(self.repository, folder)
-        filepath = os.path.join(directory, file)
-        content = self.load(file=filepath)
-        return content
-
-    def reader(self, *args, folders=[], files=[], **kwargs):
-        assert isinstance(folders, list) and isinstance(files, list)
-        for folder in folders:
-            contents = {os.path.splitext(file)[0]: self.read(*args, folder=folder, file=file, **kwargs) for file in files}
-            yield folder, contents
-
-
-class Writer(Parsers, Consumer, ABC, title="Wrote"):
-    @abstractmethod
-    def write(self, content, *args, **kwargs): pass
-
-class Reader(Parsers, Producer, ABC, title="Read"):
-    @abstractmethod
-    def read(self, *args, **kwargs): pass
-
-class CycleReader(Parsers, CycleProducer, ABC, title="Read"):
-    @abstractmethod
-    def read(self, *args, **kwargs): pass
-
-
-class Criteria(ntuple("Criteria", "variable threshold"), ABC):
-    def __call__(self, content): return self.execute(content) if bool(self) else content
-    def __bool__(self): return self.threshold is not None
-    def __hash__(self): return hash(self.variable)
-
-    @abstractmethod
-    def execute(self, content): pass
-
-class Floor(Criteria):
-    def execute(self, content): return content[self.variable] >= self.threshold
-
-class Ceiling(Criteria):
-    def execute(self, content): return content[self.variable] <= self.threshold
-
-
 class Filtering(object):
     FLOOR = Floor
     CEILING = Ceiling
 
-class Filter(Parsers, Processor, ABC, title="Filtered"):
-    def __init__(self, *args, filtering={}, **kwargs):
-        super().__init__(*args, **kwargs)
+class Filter(Process, ABC):
+    def __init__(self, *args, filtering={}, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
         assert isinstance(filtering, dict)
         assert all([issubclass(criteria, Criteria) for criteria in filtering.keys()])
         self.__filtering = filtering
@@ -239,10 +250,6 @@ class Filter(Parsers, Processor, ABC, title="Filtered"):
     @property
     def filtering(self): return self.__filtering
 
-
-class Calculator(Parsers, Calculations, Processor, ABC, title="Calculated"): pass
-class Downloader(Parsers, Websites, Producer, ABC, title="Downloaded"): pass
-class CycleDownloader(Parsers, Websites, CycleProducer, ABC, title="Downloaded"): pass
 
 
 
