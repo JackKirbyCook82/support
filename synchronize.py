@@ -91,5 +91,3 @@ class SideThread(Interface, threading.Thread):
 
 
 
-
-
