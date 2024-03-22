@@ -12,16 +12,14 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from functools import reduce
-from itertools import product
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
-from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Scheduler", "Calculator", "Downloader", "Saver", "Loader", "Parser", "Filter", "Filtering"]
+__all__ = ["Calculator", "Downloader", "Saver", "Loader", "Parser", "Filter", "Filtering"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -35,28 +33,27 @@ class Process(ABC):
     def execute(self, *args, **kwargs): pass
 
 
-class Scheduler(Process, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        variables = getattr(cls, "__variables__", []) + kwargs.get("variables", [])
-        cls.__variables__ = variables
+# class Scheduler(Process, ABC):
+#     def __init_subclass__(cls, *args, **kwargs):
+#         super().__init_subclass__(*args, **kwargs)
+#         variables = getattr(cls, "__variables__", []) + kwargs.get("variables", [])
+#         cls.__variables__ = variables
 
-    def __init__(self, *args, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        variables = self.__class__.__variables__
-        variables = [(variable, kwargs.get(variable, None)) for variable in variables]
-        self.__variables = ODict(variables)
+#     def __init__(self, *args, name=None, **kwargs):
+#         super().__init__(*args, name=name, **kwargs)
+#         variables = self.__class__.__variables__
+#         self.__variables = variables
 
-    def schedule(self, *args, **kwargs):
-        variables = [variable for variable, values in self.variables.items() if variable is None]
-        assert all([variable in kwargs.keys() for variable in variables])
-        variables = self.variables | {variable: kwargs[variable] for variable in variables}
-        variables = [[(variable, value) for value in values] for variable, values in variables.items()]
-        generator = (ODict(items) for items in product(*list(variables.values())))
-        yield from generator
+#    def schedule(self, *args, **kwargs):
+#        variables = [variable for variable, values in self.variables.items() if variable is None]
+#        assert all([variable in kwargs.keys() for variable in variables])
+#        variables = self.variables | {variable: kwargs[variable] for variable in variables}
+#        variables = [[(variable, value) for value in values] for variable, values in variables.items()]
+#        generator = (ODict(items) for items in product(*list(variables.values())))
+#        yield from generator
 
-    @property
-    def variables(self): return self.__variables
+#     @property
+#     def variables(self): return self.__variables
 
 
 class Calculator(Process, ABC):
@@ -108,11 +105,9 @@ class Saver(Process, ABC, title="Saved"):
         super().__init__(*args, name=name, **kwargs)
         self.__file = file
 
-    def write(self, *args, folder, files={}, mode, **kwargs):
-        assert isinstance(folder, (str, type(None))) and isinstance(files, dict)
-        for file, content in files.items():
-            file = os.path.join(folder, file)
-            self.save(content, file=file, mode=mode)
+    def write(self, content, *args, folder, file, mode, **kwargs):
+        file = os.path.join(folder, file) if folder is not None else file
+        self.save(content, file=file, mode=mode)
 
     @property
     def file(self): return self.__file
@@ -124,16 +119,9 @@ class Loader(Process, ABC, title="Loaded"):
         self.__file = file
 
     def read(self, *args, folder, file, **kwargs):
-        assert isinstance(folder, str) and isinstance(file, str)
-        file = os.path.join(folder, file)
+        file = os.path.join(folder, file) if folder is not None else file
         content = self.load(file=file)
         return content
-
-    def reader(self, *args, folders=[], files=[], **kwargs):
-        assert isinstance(folders, list) and isinstance(files, list)
-        for folder in folders:
-            contents = {os.path.splitext(file)[0]: self.read(*args, folder=folder, file=file, **kwargs) for file in files}
-            yield folder, contents
 
     @property
     def file(self): return self.__file

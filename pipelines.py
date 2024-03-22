@@ -10,7 +10,6 @@ import time
 import types
 import logging
 import inspect
-from functools import reduce
 from abc import ABC, ABCMeta, abstractmethod
 
 __version__ = "1.0.0"
@@ -21,67 +20,67 @@ __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-class PipelineMeta(ABCMeta):
-    def __call__(cls, feed, stage):
-        assert isinstance(feed, (OpenPipeline, Producer))
-        assert isinstance(stage, (Processor, Consumer))
-        producer = feed.producer if isinstance(feed, OpenPipeline) else feed
-        processors = feed.processors if isinstance(feed, OpenPipeline) else []
-        processors = processors + ([stage] if isinstance(stage, Processor) else [])
-        consumer = stage if isinstance(stage, Consumer) else None
-        if consumer is not None:
-            instance = super(PipelineMeta, ClosedPipeline).__call__(producer, processors, consumer)
-        else:
-            instance = super(PipelineMeta, OpenPipeline).__call__(producer, processors)
-        return instance
+# class PipelineMeta(ABCMeta):
+#     def __call__(cls, feed, stage):
+#         assert isinstance(feed, (OpenPipeline, Producer))
+#         assert isinstance(stage, (Processor, Consumer))
+#         producer = feed.producer if isinstance(feed, OpenPipeline) else feed
+#         processors = feed.processors if isinstance(feed, OpenPipeline) else []
+#         processors = processors + ([stage] if isinstance(stage, Processor) else [])
+#         consumer = stage if isinstance(stage, Consumer) else None
+#         if consumer is not None:
+#             instance = super(PipelineMeta, ClosedPipeline).__call__(producer, processors, consumer)
+#         else:
+#             instance = super(PipelineMeta, OpenPipeline).__call__(producer, processors)
+#         return instance
 
 
-class Pipeline(ABC, metaclass=PipelineMeta):
-    def __repr__(self): return "|".join([repr(stage) for stage in self.stages])
-    def __init__(self, producer): self.__producer = producer
-    def __call__(self, *args, **kwargs):
-        return self.execute(*args, **kwargs)
-
-    @property
-    def producer(self): return self.__producer
-
-
-class OpenPipeline(Pipeline):
-    def __init__(self, producer, processors):
-        assert isinstance(producer, Producer)
-        assert isinstance(processors, list)
-        assert all([isinstance(processor, Processor) for processor in processors])
-        super().__init__(producer)
-        self.__processors = processors
-
-    def __add__(self, stage):
-        assert isinstance(stage, (Processor, Consumer))
-        return Pipeline(self, stage)
-
-    def execute(self, *args, **kwargs):
-        producer = self.producer(*args, **kwargs)
-        assert isinstance(producer, types.GeneratorType)
-        generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), self.processors, producer)
-        yield from iter(generator)
-
-    @property
-    def processors(self): return self.__processors
+# class Pipeline(ABC, metaclass=PipelineMeta):
+#     def __repr__(self): return "|".join([repr(stage) for stage in self.stages])
+#     def __init__(self, producer): self.__producer = producer
+#     def __call__(self, *args, **kwargs):
+#         return self.execute(*args, **kwargs)
+#
+#     @property
+#     def producer(self): return self.__producer
 
 
-class ClosedPipeline(OpenPipeline):
-    def __init__(self, producer, processors, consumer):
-        assert isinstance(consumer, Consumer)
-        super().__init__(producer, processors)
-        self.__consumer = consumer
+# class OpenPipeline(Pipeline):
+#     def __init__(self, producer, processors):
+#         assert isinstance(producer, Producer)
+#         assert isinstance(processors, list)
+#         assert all([isinstance(processor, Processor) for processor in processors])
+#         super().__init__(producer)
+#         self.__processors = processors
+#
+#     def __add__(self, stage):
+#         assert isinstance(stage, (Processor, Consumer))
+#         return Pipeline(self, stage)
+#
+#     def execute(self, *args, **kwargs):
+#         producer = self.producer(*args, **kwargs)
+#         assert isinstance(producer, types.GeneratorType)
+#         generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), self.processors, producer)
+#         yield from iter(generator)
+#
+#     @property
+#     def processors(self): return self.__processors
 
-    def execute(self, *args, **kwargs):
-        producer = self.producer(*args, **kwargs)
-        assert isinstance(producer, types.GeneratorType)
-        generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), self.processors, producer)
-        return self.consumer(generator, *args, **kwargs)
 
-    @property
-    def consumer(self): return self.__consumer
+# class ClosedPipeline(OpenPipeline):
+#     def __init__(self, producer, processors, consumer):
+#         assert isinstance(consumer, Consumer)
+#         super().__init__(producer, processors)
+#         self.__consumer = consumer
+#
+#     def execute(self, *args, **kwargs):
+#         producer = self.producer(*args, **kwargs)
+#         assert isinstance(producer, types.GeneratorType)
+#         generator = reduce(lambda inner, outer: outer(inner, *args, **kwargs), self.processors, producer)
+#         return self.consumer(generator, *args, **kwargs)
+#
+#     @property
+#     def consumer(self): return self.__consumer
 
 
 class StageMeta(ABCMeta):
@@ -125,9 +124,9 @@ class Routine(Stage, ABC, title="Performed"):
 
 
 class Producer(Stage, ABC, title="Produced"):
-    def __add__(self, stage):
-        assert isinstance(stage, (Processor, Consumer))
-        return Pipeline(self, stage)
+#     def __add__(self, stage):
+#         assert isinstance(stage, (Processor, Consumer))
+#         return Pipeline(self, stage)
 
     def process(self, *args, **kwargs):
         assert inspect.isgeneratorfunction(self.execute)
