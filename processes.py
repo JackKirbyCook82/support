@@ -12,14 +12,16 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from functools import reduce
+from itertools import product
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
+from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Calculator", "Downloader", "Saver", "Loader", "Parser", "Filter", "Filtering"]
+__all__ = ["Scheduler", "Directory", "Calculator", "Downloader", "Saver", "Loader", "Parser", "Filter", "Filtering"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -33,27 +35,33 @@ class Process(ABC):
     def execute(self, *args, **kwargs): pass
 
 
-# class Scheduler(Process, ABC):
-#     def __init_subclass__(cls, *args, **kwargs):
-#         super().__init_subclass__(*args, **kwargs)
-#         variables = getattr(cls, "__variables__", []) + kwargs.get("variables", [])
-#         cls.__variables__ = variables
+class Scheduler(Process, ABC):
+    def __init__(self, *args, fields=[], **kwargs):
+        assert isinstance(fields, list)
+        self.__fields = fields
 
-#     def __init__(self, *args, name=None, **kwargs):
-#         super().__init__(*args, name=name, **kwargs)
-#         variables = self.__class__.__variables__
-#         self.__variables = variables
+    def schedule(self, *args, **kwargs):
+        assert all([field in kwargs.keys() for field in self.fields])
+        contents = ODict([(field, kwargs[field]) for field in self.fields])
+        contents = [[(key, value) for value in values] for key, values in contents.items()]
+        for content in product(*contents):
+            yield ODict(content)
 
-#    def schedule(self, *args, **kwargs):
-#        variables = [variable for variable, values in self.variables.items() if variable is None]
-#        assert all([variable in kwargs.keys() for variable in variables])
-#        variables = self.variables | {variable: kwargs[variable] for variable in variables}
-#        variables = [[(variable, value) for value in values] for variable, values in variables.items()]
-#        generator = (ODict(items) for items in product(*list(variables.values())))
-#        yield from generator
+    @property
+    def fields(self): return self.__fields
 
-#     @property
-#     def variables(self): return self.__variables
+
+class Breaker(object): pass
+class Periodic(Process, ABC):
+    def __init__(self, *args, breaker, frequency=60, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__frequency = frequency
+        self.__breaker = breaker
+
+    @property
+    def frequency(self): return self.__frequency
+    @property
+    def breaker(self): return self.__breaker
 
 
 class Calculator(Process, ABC):
@@ -100,7 +108,18 @@ class Downloader(Process, ABC):
     def pages(self): return self.__pages
 
 
-class Saver(Process, ABC, title="Saved"):
+class Directory(Process, ABC):
+    def __init__(self, *args, file, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        self.__file = file
+
+    @property
+    def directory(self): return self.file.directory
+    @property
+    def file(self): return self.__file
+
+
+class Saver(Process, ABC):
     def __init__(self, *args, file, name=None, **kwargs):
         super().__init__(*args, name=name, **kwargs)
         self.__file = file
@@ -113,7 +132,7 @@ class Saver(Process, ABC, title="Saved"):
     def file(self): return self.__file
 
 
-class Loader(Process, ABC, title="Loaded"):
+class Loader(Process, ABC):
     def __init__(self, *args, file, name=None, **kwargs):
         super().__init__(*args, name=name, **kwargs)
         self.__file = file
