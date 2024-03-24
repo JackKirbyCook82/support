@@ -40,7 +40,7 @@ class Reader(Process, ABC):
     @property
     def source(self): return self.__source
     def read(self, *args, **kwargs):
-        pass
+        return self.source.read(*args, **kwargs)
 
 
 class Writer(Process, ABC):
@@ -51,7 +51,7 @@ class Writer(Process, ABC):
     @property
     def destination(self): return self.__destination
     def write(self, content, *args, **kwargs):
-        pass
+        self.destination.write(content, *args, **kwargs)
 
 
 class Calculator(Process, ABC):
