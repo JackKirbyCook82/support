@@ -23,31 +23,36 @@ class TableMeta(ABCMeta):
         cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
 
     def __call__(cls, *args, **kwargs):
-        filename = kwargs.get("name", cls.__name__)
-        filetype = cls.__type__
-        assert filetype is not None
-        instance = super(TableMeta, cls).__call__(filename, filetype, *args, **kwargs)
+        tablename = kwargs.get("name", cls.__name__)
+        tabletype = cls.__type__
+        assert tabletype is not None
+        instance = tabletype()
+        instance = super(TableMeta, cls).__call__(tablename, tabletype, *args, table=instance, **kwargs)
         return instance
 
 
 class Table(ABC, metaclass=TableMeta):
     def __bool__(self): return not self.empty if self.table is not None else False
+    def __repr__(self): return self.name
     def __len__(self): return self.size
 
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, table, tablename, tabletype, *args, timeout=None, **kwargs):
+    def __init__(self, tablename, tabletype, *args, timeout=None, **kwargs):
         lockname = str(tablename).replace("Table", "Lock")
         self.__mutex = Lock(name=lockname, timeout=timeout)
+        self.__table = kwargs["table"]
         self.__type = tabletype
         self.__name = tablename
-        self.__table = table
+
+    def read(self, *args, **kwargs): return self.table
+    def write(self, content, *args, **kwargs): self.concat(content, *args, **kwargs)
 
     @abstractmethod
-    def write(self, content, *args, **kwargs): pass
+    def remove(self, content, *args, **kwargs): pass
+    @abstractmethod
+    def concat(self, content, *args, **kwargs): pass
     @abstractmethod
     def update(self, content, *args, **kwargs): pass
-    @abstractmethod
-    def read(self, *args, **kwargs): pass
 
     @property
     @abstractmethod
@@ -67,20 +72,12 @@ class Table(ABC, metaclass=TableMeta):
 
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
-    def __init__(self, *args, **kwargs):
-        table = pd.DataFrame()
-        super().__init__(table, *args, **kwargs)
-
-    def read(self, *args, **kwargs):
-        with self.mutex:
-            return self.table
-
     def remove(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
             self.table = self.table.drop(dataframe.index, inplace=False)
 
-    def write(self, dataframe, *args, **kwargs):
+    def concat(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
             dataframes = [self.table, dataframe]

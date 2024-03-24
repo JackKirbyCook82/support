@@ -29,7 +29,7 @@ class QueueMeta(ABCMeta):
         instance = queuetype()
         for content in contents:
             instance.put(content)
-        wrapper = super(QueueMeta, cls).__call__(queuename, queuetype, *args, **kwargs)
+        wrapper = super(QueueMeta, cls).__call__(queuename, queuetype, *args, queue=instance, **kwargs)
         return wrapper
 
 
@@ -39,10 +39,14 @@ class Queue(ABC, metaclass=QueueMeta):
     def __len__(self): return self.size
 
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, name, instance, *args, timeout=None, **kwargs):
+    def __init__(self, queuename, queuetype, *args, timeout=None, **kwargs):
+        self.__queue = kwargs["queue"]
         self.__timeout = timeout
-        self.__queue = instance
-        self.__name = name
+        self.__type = queuetype
+        self.__name = queuename
+
+    def read(self, *args, **kwargs): return self.get(*args, **kwargs)
+    def write(self, content, *args, **kwargs): self.put(content, *args, **kwargs)
 
     @abstractmethod
     def get(self, *args, **kwargs): pass
@@ -55,9 +59,9 @@ class Queue(ABC, metaclass=QueueMeta):
     def size(self): return super().qsize()
 
     @property
-    def timeout(self): return self.__timeout
-    @property
     def queue(self): return self.__queue
+    @property
+    def timeout(self): return self.__timeout
     @property
     def type(self): return self.__type
     @property

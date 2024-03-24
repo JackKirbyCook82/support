@@ -39,6 +39,9 @@ class FileMeta(ABCMeta):
 
 
 class File(ABC, metaclass=FileMeta):
+    def __bool__(self): return not self.empty if self.table is not None else False
+    def __repr__(self): return self.name
+
     def __init_subclass__(cls, *args, **kwargs): pass
     def __init__(self, filename, filetype, *args, repository, timeout=None, **kwargs):
         lockname = str(filename).replace("File", "Lock")
@@ -46,6 +49,9 @@ class File(ABC, metaclass=FileMeta):
         self.__repository = repository
         self.__type = filetype
         self.__name = filename
+
+    def read(self, *args, **kwargs): return self.load(*args, **kwargs)
+    def write(self, content, *args, **kwargs): self.save(content, *args, **kwargs)
 
     def directory(self, folder=None):
         folder = os.path.join(self.repository, folder) if folder is not None else self.repository
@@ -64,6 +70,11 @@ class File(ABC, metaclass=FileMeta):
                 os.makedirs(file)
             save(content, *args, file=file, mode=mode, **kwargs)
             __logger__.info("Saved: {}[{}]".format(repr(self), str(file)))
+
+    @property
+    def empty(self): return not bool(os.listdir(self.repository))
+    @property
+    def size(self): return len(os.listdir(self.repository))
 
     @property
     def repository(self): return self.__repository

@@ -7,21 +7,18 @@ Created on Weds Jul 12 2023
 """
 
 import logging
-import os.path
 import numpy as np
 import pandas as pd
 import xarray as xr
 from functools import reduce
-from itertools import product
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
-from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Scheduler", "Directory", "Calculator", "Downloader", "Saver", "Loader", "Parser", "Filter", "Filtering"]
+__all__ = ["Reader", "Writer", "Calculator", "Downloader", "Parser", "Filter", "Filtering"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -35,33 +32,26 @@ class Process(ABC):
     def execute(self, *args, **kwargs): pass
 
 
-class Scheduler(Process, ABC):
-    def __init__(self, *args, fields=[], **kwargs):
-        assert isinstance(fields, list)
-        self.__fields = fields
-
-    def schedule(self, *args, **kwargs):
-        assert all([field in kwargs.keys() for field in self.fields])
-        contents = ODict([(field, kwargs[field]) for field in self.fields])
-        contents = [[(key, value) for value in values] for key, values in contents.items()]
-        for content in product(*contents):
-            yield ODict(content)
+class Reader(Process, ABC):
+    def __init__(self, *args, source, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        self.__source = source
 
     @property
-    def fields(self): return self.__fields
+    def source(self): return self.__source
+    def read(self, *args, **kwargs):
+        pass
 
 
-class Breaker(object): pass
-class Periodic(Process, ABC):
-    def __init__(self, *args, breaker, frequency=60, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__frequency = frequency
-        self.__breaker = breaker
+class Writer(Process, ABC):
+    def __init__(self, *args, destination, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        self.__destination = destination
 
     @property
-    def frequency(self): return self.__frequency
-    @property
-    def breaker(self): return self.__breaker
+    def destination(self): return self.__destination
+    def write(self, content, *args, **kwargs):
+        pass
 
 
 class Calculator(Process, ABC):
@@ -106,44 +96,6 @@ class Downloader(Process, ABC):
 
     @property
     def pages(self): return self.__pages
-
-
-class Directory(Process, ABC):
-    def __init__(self, *args, file, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        self.__file = file
-
-    @property
-    def directory(self): return self.file.directory
-    @property
-    def file(self): return self.__file
-
-
-class Saver(Process, ABC):
-    def __init__(self, *args, file, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        self.__file = file
-
-    def write(self, content, *args, folder, file, mode, **kwargs):
-        file = os.path.join(folder, file) if folder is not None else file
-        self.save(content, file=file, mode=mode)
-
-    @property
-    def file(self): return self.__file
-
-
-class Loader(Process, ABC):
-    def __init__(self, *args, file, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        self.__file = file
-
-    def read(self, *args, folder, file, **kwargs):
-        file = os.path.join(folder, file) if folder is not None else file
-        content = self.load(file=file)
-        return content
-
-    @property
-    def file(self): return self.__file
 
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
