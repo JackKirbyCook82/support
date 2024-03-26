@@ -23,7 +23,21 @@ __logger__ = logging.getLogger(__name__)
 
 
 class Breaker(object):
-    pass
+    def __repr__(self): return str(self.name)
+    def __bool__(self): return bool(self.status)
+    def __init__(self, *args, **kwargs):
+        self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__status = True
+
+    def flip(self): self.status = False
+    def reset(self): self.status = True
+
+    @property
+    def name(self): return self.__name
+    @property
+    def status(self): return self.__status
+    @status.setter
+    def status(self, status): self.__status = status
 
 
 class Stage(ABC, metaclass=Meta):
@@ -64,15 +78,15 @@ class Generator(Stage, ABC, title="Generated"):
         strings = [super().__repr__(), repr(self.stage) if not terminal else None]
         return "|".join(list(filter(strings)))
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
         self.__stage = None
 
-    def __add__(self, stage):
-        assert isinstance(stage, (Processor, Consumer))
-        terminal = bool(self.stage is None)
-        self.stage = stage if terminal else (self.stage + stage)
-        return self
+#    def __add__(self, stage):
+#        assert isinstance(stage, (Processor, Consumer))
+#        terminal = bool(self.stage is None)
+#        self.stage = stage if terminal else (self.stage + stage)
+#        return self
 
     def __call__(self, *args, **kwargs):
         terminal = bool(self.stage is None)
@@ -111,6 +125,7 @@ class Producer(Generator, ABC, title="Produced"):
 
 class CycleProducer(Producer, ABC):
     def __init__(self, *args, breaker, wait=None, name=None, **kwargs):
+        assert isinstance(breaker, Breaker)
         super().__init__(*args, name=name, **kwargs)
         self.__breaker = breaker
         self.__wait = wait

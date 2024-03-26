@@ -20,13 +20,13 @@ class QueueMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
 
-    def __call__(cls, *args, capacity, contents=[], **kwargs):
+    def __call__(cls, *args, capacity=None, contents=[], **kwargs):
         queuename = kwargs.get("name", cls.__name__)
         queuetype = cls.__type__
         assert queuetype is not None
         assert isinstance(contents, list)
         assert (len(contents) <= capacity) if bool(capacity) else True
-        instance = queuetype()
+        instance = queuetype(maxsize=capacity if capacity is not None else 0)
         for content in contents:
             instance.put(content)
         wrapper = super(QueueMeta, cls).__call__(queuename, queuetype, *args, queue=instance, **kwargs)

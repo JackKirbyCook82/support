@@ -25,9 +25,6 @@ __logger__ = logging.getLogger(__name__)
 
 
 class Process(ABC):
-    def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, **kwargs): pass
-
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
