@@ -20,7 +20,7 @@ class QueueMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
 
-    def __call__(cls, contents, *args, capacity, **kwargs):
+    def __call__(cls, *args, capacity, contents=[], **kwargs):
         queuename = kwargs.get("name", cls.__name__)
         queuetype = cls.__type__
         assert queuetype is not None

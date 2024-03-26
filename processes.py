@@ -32,28 +32,6 @@ class Process(ABC):
     def execute(self, *args, **kwargs): pass
 
 
-class Reader(Process, ABC):
-    def __init__(self, *args, source, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        self.__source = source
-
-    @property
-    def source(self): return self.__source
-    def read(self, *args, **kwargs):
-        return self.source.read(*args, **kwargs)
-
-
-class Writer(Process, ABC):
-    def __init__(self, *args, destination, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        self.__destination = destination
-
-    @property
-    def destination(self): return self.__destination
-    def write(self, content, *args, **kwargs):
-        self.destination.write(content, *args, **kwargs)
-
-
 class Calculator(Process, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         super().__init_subclass__(*args, **kwargs)
@@ -208,6 +186,30 @@ class Filter(Process, ABC):
 
     @property
     def filtering(self): return self.__filtering
+
+
+class Reader(Process, ABC):
+    def __init__(self, *args, source, name=None, **kwargs):
+        assert hasattr(source, "read") and callable(source.read)
+        super().__init__(*args, name=name, **kwargs)
+        self.__source = source
+
+    @property
+    def source(self): return self.__source
+    def read(self, *args, **kwargs):
+        return self.source.read(*args, **kwargs)
+
+
+class Writer(Process, ABC):
+    def __init__(self, *args, destination, name=None, **kwargs):
+        assert hasattr(destination, "write") and callable(destination.write)
+        super().__init__(*args, name=name, **kwargs)
+        self.__destination = destination
+
+    @property
+    def destination(self): return self.__destination
+    def write(self, content, *args, **kwargs):
+        self.destination.write(content, *args, **kwargs)
 
 
 

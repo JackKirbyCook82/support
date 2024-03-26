@@ -50,20 +50,19 @@ class File(ABC, metaclass=FileMeta):
         self.__type = filetype
         self.__name = filename
 
-    def read(self, *args, **kwargs): return self.load(*args, **kwargs)
-    def write(self, content, *args, **kwargs): self.save(content, *args, **kwargs)
-
-    def directory(self, folder=None):
-        folder = os.path.join(self.repository, folder) if folder is not None else self.repository
-        return os.listdir(folder)
+    def read(self, *args, file, **kwargs): return self.load(*args, file=file, **kwargs)
+    def write(self, content, *args, file, **kwargs): self.save(content, *args, file=file, **kwargs)
 
     def load(self, *args, file, **kwargs):
         file = os.path.join(self.repository, file)
+        if not os.path.exists(file):
+            return None
         with self.mutex[str(file)]:
             content = load(*args, file=file, type=self.type, **kwargs)
             return content
 
     def save(self, content, *args, file, mode, **kwargs):
+        assert content is not None
         file = os.path.join(self.repository, file)
         with self.mutex[str(file)]:
             if not os.path.exists(file):
@@ -71,6 +70,8 @@ class File(ABC, metaclass=FileMeta):
             save(content, *args, file=file, mode=mode, **kwargs)
             __logger__.info("Saved: {}[{}]".format(repr(self), str(file)))
 
+    @property
+    def directory(self): return os.listdir(self.repository)
     @property
     def empty(self): return not bool(os.listdir(self.repository))
     @property

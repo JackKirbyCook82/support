@@ -16,10 +16,14 @@ from support.meta import Meta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Routine", "Producer", "Processor", "Consumer"]
+__all__ = ["Routine", "CycleProducer", "Producer", "Processor", "Consumer", "Breaker"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
+
+
+class Breaker(object):
+    pass
 
 
 class Stage(ABC, metaclass=Meta):
@@ -83,9 +87,9 @@ class Generator(Stage, ABC, title="Generated"):
             self.stage(generator, *args, **kwargs)
             return
 
-    def generator(self, query, *args, **kwargs):
+    def generator(self, *args, **kwargs):
         assert inspect.isgeneratorfunction(self.execute)
-        generator = self.execute(query, *args, **kwargs)
+        generator = self.execute(*args, **kwargs)
         start = time.time()
         for content in iter(generator):
             __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
@@ -103,6 +107,29 @@ class Producer(Generator, ABC, title="Produced"):
         assert inspect.isgeneratorfunction(self.generator)
         generator = self.generator(*args, **kwargs)
         yield from generator
+
+
+class CycleProducer(Producer, ABC):
+    def __init__(self, *args, breaker, wait=None, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        self.__breaker = breaker
+        self.__wait = wait
+
+    @staticmethod
+    def prepare(*args, **kwargs): return {}
+    def process(self, *args, **kwargs):
+        parameters = self.prepare(*args, **kwargs)
+        kwargs = kwargs | parameters
+        while bool(self.breaker):
+            assert inspect.isgeneratorfunction(self.generator)
+            generator = self.generator(*args, **kwargs)
+            yield from generator
+            time.sleep(self.wait) if self.wait is not None else True
+
+    @property
+    def breaker(self): return self.__breaker
+    @property
+    def wait(self): return self.__wait
 
 
 class Processor(Generator, ABC, title="Processed"):
@@ -126,6 +153,7 @@ class Consumer(Stage, ABC, title="Consumed"):
             assert not inspect.isgeneratorfunction(self.execute)
             self.execute(query, *args, **kwargs)
             __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
+
 
 
 

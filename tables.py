@@ -44,8 +44,10 @@ class Table(ABC, metaclass=TableMeta):
         self.__type = tabletype
         self.__name = tablename
 
-    def read(self, *args, **kwargs): return self.table
-    def write(self, content, *args, **kwargs): self.concat(content, *args, **kwargs)
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
+    @abstractmethod
+    def write(self, content, *args, **kwargs): pass
 
     @abstractmethod
     def remove(self, content, *args, **kwargs): pass
