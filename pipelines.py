@@ -76,17 +76,16 @@ class Generator(Stage, ABC, title="Generated"):
     def __repr__(self):
         terminal = bool(self.stage is None)
         strings = [super().__repr__(), repr(self.stage) if not terminal else None]
-        return "|".join(list(filter(strings)))
+        return "|".join(list(filter(None, strings)))
 
     def __init__(self, *args, name=None, **kwargs):
         super().__init__(*args, name=name, **kwargs)
         self.__stage = None
 
-#    def __add__(self, stage):
-#        assert isinstance(stage, (Processor, Consumer))
-#        terminal = bool(self.stage is None)
-#        self.stage = stage if terminal else (self.stage + stage)
-#        return self
+    def __add__(self, stage):
+        assert isinstance(stage, (Processor, Consumer)) and stage is not self
+        self.stage = stage if self.terminal else (self.stage + stage)
+        return self
 
     def __call__(self, *args, **kwargs):
         terminal = bool(self.stage is None)
@@ -109,6 +108,15 @@ class Generator(Stage, ABC, title="Generated"):
             __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
             yield content
             start = time.time()
+
+    @property
+    def terminal(self): return self.stage is None
+    @property
+    def termination(self): return self if self.terminal else self.stage.termination
+    @property
+    def open(self): return isinstance(self.termination, (Producer, Processor))
+    @property
+    def close(self): return isinstance(self.termination, Consumer)
 
     @property
     def stage(self): return self.__stage

@@ -88,6 +88,52 @@ class Ceiling(Criteria):
     def execute(self, content): return content[self.variable] <= self.threshold
 
 
+class Filtering(object):
+    FLOOR = Floor
+    CEILING = Ceiling
+
+class Filter(Process, ABC):
+    def __init__(self, *args, filtering={}, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        assert isinstance(filtering, dict)
+        assert all([issubclass(criteria, Criteria) for criteria in filtering.keys()])
+        self.__filtering = filtering
+
+    @typedispatcher
+    def size(self, contents, *args, **kwargs): raise TypeError(type(contents).__name__)
+    @typedispatcher
+    def mask(self, contents, *args, **kwargs): raise TypeError(type(contents).__name__)
+    @typedispatcher
+    def filter(self, contents, *args, **kwargs): raise TypeError(type(contents).__name__)
+
+    @size.register(xr.DataArray)
+    def size_dataarray(self, dataarray): return np.count_nonzero(~np.isnan(dataarray.values))
+    @size.register(pd.Series)
+    def size_dataframe(self, dataframe): return len(dataframe.dropna(how="all", inplace=False).index)
+
+    @mask.register(xr.Dataset)
+    def mask_dataset(self, contents, *args, **kwargs):
+        criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in contents.data_vars.keys()]
+        criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
+        mask = [criteria(contents) for criteria in criterion]
+        return reduce(lambda x, y: x & y, mask) if bool(mask) else None
+
+    @mask.register(pd.DataFrame)
+    def mask_dataframe(self, contents, *args, **kwargs):
+        criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in contents.columns]
+        criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
+        mask = [criteria(contents) for criteria in criterion]
+        return reduce(lambda x, y: x & y, mask) if bool(mask) else None
+
+    @filter.register(xr.Dataset)
+    def filter_dataset(self, dataset, *args, mask, **kwargs): return dataset.where(mask, drop=True) if bool(mask is not None) else dataset
+    @filter.register(pd.DataFrame)
+    def filter_dataframe(self, dataframe, *args, mask, **kwargs): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
+
+    @property
+    def filtering(self): return self.__filtering
+
+
 class Parser(Process, ABC):
     @staticmethod
     def unflatten(dataframe, *args, index, columns, **kwargs):
@@ -137,52 +183,6 @@ class Parser(Process, ABC):
         dataframe = dataframe.dropna(subset=columns, how="all", inplace=False)
         dataframe = dataframe.reset_index(drop=True, inplace=False)
         return dataframe
-
-
-class Filtering(object):
-    FLOOR = Floor
-    CEILING = Ceiling
-
-class Filter(Process, ABC):
-    def __init__(self, *args, filtering={}, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        assert isinstance(filtering, dict)
-        assert all([issubclass(criteria, Criteria) for criteria in filtering.keys()])
-        self.__filtering = filtering
-
-    @typedispatcher
-    def size(self, contents, *args, **kwargs): raise TypeError(type(contents).__name__)
-    @typedispatcher
-    def mask(self, contents, *args, **kwargs): raise TypeError(type(contents).__name__)
-    @typedispatcher
-    def filter(self, contents, *args, **kwargs): raise TypeError(type(contents).__name__)
-
-    @size.register(xr.DataArray)
-    def size_dataarray(self, dataarray): return np.count_nonzero(~np.isnan(dataarray.values))
-    @size.register(pd.Series)
-    def size_dataframe(self, dataframe): return len(dataframe.dropna(how="all", inplace=False).index)
-
-    @mask.register(xr.Dataset)
-    def mask_dataset(self, contents, *args, **kwargs):
-        criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in contents.data_vars.keys()]
-        criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
-        mask = [criteria(contents) for criteria in criterion]
-        return reduce(lambda x, y: x & y, mask) if bool(mask) else None
-
-    @mask.register(pd.DataFrame)
-    def mask_dataframe(self, contents, *args, **kwargs):
-        criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in contents.columns]
-        criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
-        mask = [criteria(contents) for criteria in criterion]
-        return reduce(lambda x, y: x & y, mask) if bool(mask) else None
-
-    @filter.register(xr.Dataset)
-    def filter_dataset(self, dataset, *args, mask, **kwargs): return dataset.where(mask, drop=True) if bool(mask is not None) else dataset
-    @filter.register(pd.DataFrame)
-    def filter_dataframe(self, dataframe, *args, mask, **kwargs): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
-
-    @property
-    def filtering(self): return self.__filtering
 
 
 class Reader(Process, ABC):
