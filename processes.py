@@ -18,15 +18,14 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Reader", "Writer", "Calculator", "Downloader", "Parser", "Filter", "Filtering"]
+__all__ = ["Calculator", "Downloader", "Reader", "Writer", "Loader", "Saver", "Parser", "Filter", "Filtering"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
 class Process(ABC):
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
+    pass
 
 
 class Calculator(Process, ABC):
@@ -74,12 +73,13 @@ class Downloader(Process, ABC):
 
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
-    def __call__(self, content): return self.execute(content) if bool(self) else content
+    def __call__(self, content): return self.execute(content) if bool(self) else None
     def __bool__(self): return self.threshold is not None
     def __hash__(self): return hash(self.variable)
 
     @abstractmethod
     def execute(self, content): pass
+    def notnull(self, content): return content[self.variable].notna()
 
 class Floor(Criteria):
     def execute(self, content): return content[self.variable] >= self.threshold
@@ -93,8 +93,8 @@ class Filtering(object):
     CEILING = Ceiling
 
 class Filter(Process, ABC):
-    def __init__(self, *args, filtering={}, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
+    def __init__(self, *args, filtering={},  **kwargs):
+        super().__init__(*args, **kwargs)
         assert isinstance(filtering, dict)
         assert all([issubclass(criteria, Criteria) for criteria in filtering.keys()])
         self.__filtering = filtering
@@ -115,14 +115,14 @@ class Filter(Process, ABC):
     def mask_dataset(self, contents, *args, **kwargs):
         criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in contents.data_vars.keys()]
         criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
-        mask = [criteria(contents) for criteria in criterion]
+        mask = list(filter(None, [criteria(contents) for criteria in criterion]))
         return reduce(lambda x, y: x & y, mask) if bool(mask) else None
 
     @mask.register(pd.DataFrame)
     def mask_dataframe(self, contents, *args, **kwargs):
         criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in contents.columns]
         criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
-        mask = [criteria(contents) for criteria in criterion]
+        mask = list(filter(None, [criteria(contents) for criteria in criterion]))
         return reduce(lambda x, y: x & y, mask) if bool(mask) else None
 
     @filter.register(xr.Dataset)
@@ -186,28 +186,49 @@ class Parser(Process, ABC):
 
 
 class Reader(Process, ABC):
-    def __init__(self, *args, source, name=None, **kwargs):
-        assert hasattr(source, "read") and callable(source.read)
-        super().__init__(*args, name=name, **kwargs)
+    def __init__(self, *args, source, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__source = source
 
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
     @property
     def source(self): return self.__source
-    def read(self, *args, **kwargs):
-        return self.source.read(*args, **kwargs)
 
 
 class Writer(Process, ABC):
-    def __init__(self, *args, destination, name=None, **kwargs):
-        assert hasattr(destination, "write") and callable(destination.write)
-        super().__init__(*args, name=name, **kwargs)
+    def __init__(self, *args, destination, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__destination = destination
 
+    @abstractmethod
+    def write(self, content, *args, **kwargs): pass
     @property
     def destination(self): return self.__destination
-    def write(self, content, *args, **kwargs):
-        self.destination.write(content, *args, **kwargs)
 
+
+class Loader(Reader, ABC):
+    def read(self, *args, folder=None, **kwargs):
+        files = [self.source] if not isinstance(self.source, list) else self.source
+        contents = {file.name: file.load(*args, folder=folder, **kwargs) for file in files}
+        contents = {name: content for name, content in contents.items() if content is not None}
+        return contents
+
+    def reader(self, *args, **kwargs):
+        for folder in self.source.directory:
+            contents = {file.name: file.load(*args, folder=folder, **kwargs) for file in self.source}
+            contents = {name: content for name, content in contents.items() if content is not None}
+            yield folder, contents
+
+
+class Saver(Writer, ABC):
+    def write(self, contents, *args, folder=None, **kwargs):
+        assert isinstance(contents, dict)
+        files = [self.destination] if not isinstance(self.destination, list) else self.destination
+        files = [file for file in files if file.name in contents.keys()]
+        for file in files:
+            content = contents[file.name]
+            file.save(content, *args, folder=folder, **kwargs)
 
 
 

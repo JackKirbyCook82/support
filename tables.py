@@ -20,34 +20,24 @@ __license__ = "MIT License"
 
 class TableMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
-        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
+        cls.Table = kwargs.get("type", getattr(cls, "Table", None))
 
     def __call__(cls, *args, **kwargs):
-        tablename = kwargs.get("name", cls.__name__)
-        tabletype = cls.__type__
-        assert tabletype is not None
-        instance = tabletype()
-        instance = super(TableMeta, cls).__call__(tablename, tabletype, *args, table=instance, **kwargs)
+        assert cls.Table is not None
+        instance = cls.Table()
+        instance = super(TableMeta, cls).__call__(instance, *args, table=instance, **kwargs)
         return instance
 
 
 class Table(ABC, metaclass=TableMeta):
-    def __bool__(self): return not self.empty if self.table is not None else False
-    def __repr__(self): return self.name
-    def __len__(self): return self.size
-
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, tablename, tabletype, *args, timeout=None, **kwargs):
-        lockname = str(tablename).replace("Table", "Lock")
-        self.__mutex = Lock(name=lockname, timeout=timeout)
-        self.__table = kwargs["table"]
-        self.__type = tabletype
-        self.__name = tablename
 
-    @abstractmethod
-    def read(self, *args, **kwargs): pass
-    @abstractmethod
-    def write(self, content, *args, **kwargs): pass
+    def __repr__(self): return self.__class__.__name__
+    def __bool__(self): return not self.empty if self.table is not None else False
+    def __len__(self): return self.size
+    def __init__(self, instance, *args, timeout=None, **kwargs):
+        self.__mutex = Lock(timeout=timeout)
+        self.__table = instance
 
     @abstractmethod
     def remove(self, content, *args, **kwargs): pass
@@ -67,10 +57,6 @@ class Table(ABC, metaclass=TableMeta):
     def table(self): return self.__table
     @property
     def mutex(self): return self.__mutex
-    @property
-    def type(self): return self.__type
-    @property
-    def name(self): return self.__name
 
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):

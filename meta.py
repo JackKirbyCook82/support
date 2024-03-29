@@ -16,7 +16,7 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Meta", "VariantMeta", "DelayerMeta", "SingletonMeta", "RegistryMeta"]
+__all__ = ["VariantMeta", "DelayerMeta", "SingletonMeta", "RegistryMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -34,22 +34,13 @@ mrostr = lambda x: ", ".join(list(map(lambda i: i.__name__, x.__mro__)))
 astype = lambda base, meta: meta(base.__name__, (base,), {})
 
 
-class Meta(ABCMeta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        try:
-            cls = super(Meta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
-        except TypeError:
-            cls = super(Meta, mcs).__new__(mcs, name, bases, attrs)
-        return cls
-
-
 class VariantKeyError(Exception):
     def __str__(self): return f"{self.__class__.__name__}[{self.args[0].__name__ if isclass(self.args[0]) else type(self.args[0]).__name__}]"
 
 class VariantValueError(Exception):
     def __str__(self): return f"{self.__class__.__name__}[{mrostr(self.args[0])}]"
 
-class VariantMeta(Meta):
+class VariantMeta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         if not any([ismeta(base, VariantMeta) for base in bases]):
             attrs = {**attrs, "__variant__": False, "registry": dict()}
@@ -77,7 +68,7 @@ class VariantMeta(Meta):
             raise VariantValueError(cls)
 
 
-class DelayerMeta(Meta):
+class DelayerMeta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         assert not any([attr in attrs.keys() for attr in ("delay", "timer", "wait")])
         cls = super(DelayerMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
@@ -115,7 +106,7 @@ class DelayerMeta(Meta):
     def timer(cls, timer): cls.__timer__ = timer
 
 
-class SingletonMeta(Meta):
+class SingletonMeta(ABCMeta):
     instances = {}
 
     def __call__(cls, *args, **kwargs):
@@ -124,7 +115,7 @@ class SingletonMeta(Meta):
         return SingletonMeta.instances[cls]
 
 
-class RegistryMeta(Meta):
+class RegistryMeta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         if not any([ismeta(base, RegistryMeta) for base in bases]):
             attrs = {**attrs, "registry": {}}

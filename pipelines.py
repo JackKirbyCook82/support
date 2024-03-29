@@ -9,14 +9,11 @@ Created on Weds Jul 12 2023
 import time
 import types
 import logging
-import inspect
 from abc import ABC, abstractmethod
-
-from support.meta import Meta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Routine", "CycleProducer", "Producer", "Processor", "Consumer", "Breaker"]
+__all__ = ["Stage", "Routine", "CycleProducer", "Producer", "Processor", "Consumer", "Breaker"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -40,7 +37,7 @@ class Breaker(object):
     def status(self, status): self.__status = status
 
 
-class Stage(ABC, metaclass=Meta):
+class Stage(ABC):
     def __init_subclass__(cls, *args, **kwargs):
         cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
 
@@ -48,6 +45,9 @@ class Stage(ABC, metaclass=Meta):
     def __init__(self, *args, **kwargs):
         self.__title = kwargs.get("title", self.__class__.__title__)
         self.__name = kwargs.get("name", self.__class__.__name__)
+
+    def logger(self, elapsed):
+        __logger__.info(f"{self.title}: {repr(self)}[{elapsed:.2f}s]")
 
     @abstractmethod
     def process(self, *args, **kwargs): pass
@@ -62,24 +62,17 @@ class Stage(ABC, metaclass=Meta):
 
 class Routine(Stage, ABC, title="Performed"):
     def __call__(self, *args, **kwargs):
-        assert not inspect.isgeneratorfunction(self.process)
         self.process(*args, **kwargs)
 
     def process(self, *args, **kwargs):
-        assert not inspect.isgeneratorfunction(self.execute)
         start = time.time()
         self.execute(*args, **kwargs)
-        __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
+        self.logger(time.time() - start)
 
 
 class Generator(Stage, ABC, title="Generated"):
-    def __repr__(self):
-        terminal = bool(self.stage is None)
-        strings = [super().__repr__(), repr(self.stage) if not terminal else None]
-        return "|".join(list(filter(None, strings)))
-
-    def __init__(self, *args, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__stage = None
 
     def __add__(self, stage):
@@ -88,10 +81,8 @@ class Generator(Stage, ABC, title="Generated"):
         return self
 
     def __call__(self, *args, **kwargs):
-        terminal = bool(self.stage is None)
-        assert inspect.isgeneratorfunction(self.process)
         generator = self.process(*args, **kwargs)
-        if terminal:
+        if self.terminal:
             yield from generator
         elif isinstance(self.stage, Generator):
             generator = self.stage(generator, *args, **kwargs)
@@ -101,16 +92,15 @@ class Generator(Stage, ABC, title="Generated"):
             return
 
     def generator(self, *args, **kwargs):
-        assert inspect.isgeneratorfunction(self.execute)
         generator = self.execute(*args, **kwargs)
         start = time.time()
         for content in iter(generator):
-            __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
+            self.logger(time.time() - start)
             yield content
             start = time.time()
 
     @property
-    def terminal(self): return self.stage is None
+    def terminal(self): return bool(self.stage is None)
     @property
     def termination(self): return self if self.terminal else self.stage.termination
     @property
@@ -126,15 +116,14 @@ class Generator(Stage, ABC, title="Generated"):
 
 class Producer(Generator, ABC, title="Produced"):
     def process(self, *args, **kwargs):
-        assert inspect.isgeneratorfunction(self.generator)
         generator = self.generator(*args, **kwargs)
         yield from generator
 
 
 class CycleProducer(Producer, ABC):
-    def __init__(self, *args, breaker, wait=None, name=None, **kwargs):
+    def __init__(self, *args, breaker, wait=None, **kwargs):
         assert isinstance(breaker, Breaker)
-        super().__init__(*args, name=name, **kwargs)
+        super().__init__(*args, **kwargs)
         self.__breaker = breaker
         self.__wait = wait
 
@@ -144,7 +133,6 @@ class CycleProducer(Producer, ABC):
         parameters = self.prepare(*args, **kwargs)
         kwargs = kwargs | parameters
         while bool(self.breaker):
-            assert inspect.isgeneratorfunction(self.generator)
             generator = self.generator(*args, **kwargs)
             yield from generator
             time.sleep(self.wait) if self.wait is not None else True
@@ -159,23 +147,20 @@ class Processor(Generator, ABC, title="Processed"):
     def process(self, stage, *args, **kwargs):
         assert isinstance(stage, types.GeneratorType)
         for query in iter(stage):
-            assert inspect.isgeneratorfunction(self.generator)
             generator = self.generator(query, *args, **kwargs)
             yield from generator
 
 
 class Consumer(Stage, ABC, title="Consumed"):
     def __call__(self, *args, **kwargs):
-        assert not inspect.isgeneratorfunction(self.process)
         self.process(*args, **kwargs)
 
     def process(self, stage, *args, **kwargs):
         assert isinstance(stage, types.GeneratorType)
         for query in iter(stage):
             start = time.time()
-            assert not inspect.isgeneratorfunction(self.execute)
             self.execute(query, *args, **kwargs)
-            __logger__.info(f"{self.title}: {repr(self)}[{time.time() - start:.2f}s]")
+            self.logger(time.time() - start)
 
 
 

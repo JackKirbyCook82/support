@@ -18,35 +18,28 @@ __license__ = "MIT License"
 
 class QueueMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
-        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
+        cls.Queue = kwargs.get("type", getattr(cls, "Queue", None))
 
     def __call__(cls, *args, capacity=None, contents=[], **kwargs):
-        queuename = kwargs.get("name", cls.__name__)
-        queuetype = cls.__type__
-        assert queuetype is not None
+        assert cls.Queue is not None
         assert isinstance(contents, list)
         assert (len(contents) <= capacity) if bool(capacity) else True
-        instance = queuetype(maxsize=capacity if capacity is not None else 0)
+        instance = cls.Queue(maxsize=capacity if capacity is not None else 0)
         for content in contents:
             instance.put(content)
-        wrapper = super(QueueMeta, cls).__call__(queuename, queuetype, *args, queue=instance, **kwargs)
+        wrapper = super(QueueMeta, cls).__call__(instance, *args, queue=instance, **kwargs)
         return wrapper
 
 
 class Queue(ABC, metaclass=QueueMeta):
-    def __bool__(self): return not self.empty
-    def __repr__(self): return self.name
-    def __len__(self): return self.size
-
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, queuename, queuetype, *args, timeout=None, **kwargs):
-        self.__queue = kwargs["queue"]
-        self.__timeout = timeout
-        self.__type = queuetype
-        self.__name = queuename
 
-    def read(self, *args, **kwargs): return self.get(*args, **kwargs)
-    def write(self, content, *args, **kwargs): self.put(content, *args, **kwargs)
+    def __repr__(self): return self.__class__.__name__
+    def __bool__(self): return not self.empty
+    def __len__(self): return self.size
+    def __init__(self, instance, *args, timeout=None, **kwargs):
+        self.__queue = instance
+        self.__timeout = timeout
 
     @abstractmethod
     def get(self, *args, **kwargs): pass
@@ -62,10 +55,6 @@ class Queue(ABC, metaclass=QueueMeta):
     def queue(self): return self.__queue
     @property
     def timeout(self): return self.__timeout
-    @property
-    def type(self): return self.__type
-    @property
-    def name(self): return self.__name
 
 
 class StandardQueue(Queue):
@@ -80,7 +69,6 @@ class StandardQueue(Queue):
 
 class PriorityQueue(Queue):
     def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
         ascending = kwargs.get("ascending", getattr(cls, "__ascending__", True))
         assert isinstance(ascending, bool)
         cls.__ascending__ = ascending

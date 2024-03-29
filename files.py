@@ -12,7 +12,7 @@ import numpy as np
 import xarray as xr
 import pandas as pd
 import dask.dataframe as dk
-from abc import ABC, ABCMeta
+from abc import ABC, abstractmethod
 from functools import update_wrapper
 from collections import OrderedDict as ODict
 
@@ -26,48 +26,41 @@ __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-class FileMeta(ABCMeta):
-    def __init__(cls, *args, **kwargs):
-        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
+class File(ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        header = {key: value for key, value in getattr(cls, "__header__", {}).items()}
+        update = {key: value for key, value in kwargs.get("header", {}).items()}
+        cls.__filename__ = kwargs.get("filename", getattr(cls, "__filename__", None))
+        cls.__header__ = header | update
 
-    def __call__(cls, *args, **kwargs):
-        filename = kwargs.get("name", cls.__name__)
-        filetype = cls.__type__
-        assert filetype is not None
-        instance = super(FileMeta, cls).__call__(filename, filetype, *args, **kwargs)
-        return instance
-
-
-class File(ABC, metaclass=FileMeta):
+    def __repr__(self): return self.__class__.__name__
     def __bool__(self): return not self.empty if self.table is not None else False
-    def __repr__(self): return self.name
-
-    def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, filename, filetype, *args, repository, timeout=None, **kwargs):
-        lockname = str(filename).replace("File", "Lock")
-        self.__mutex = Locks(name=lockname, timeout=timeout)
+    def __repr__(self): return type(self).__name__
+    def __init__(self, *args, repository, timeout=None, **kwargs):
+        header = {key: value for key, value in self.__class__.__header__.items()}
+        filename = str(self.__class__.__filename__)
+        self.__mutex = Locks(timeout=timeout)
         self.__repository = repository
-        self.__type = filetype
-        self.__name = filename
+        self.__filename = filename
+        self.__header = header
 
-    def read(self, *args, file, **kwargs): return self.load(*args, file=file, **kwargs)
-    def write(self, content, *args, file, **kwargs): self.save(content, *args, file=file, **kwargs)
-
-    def load(self, *args, file, **kwargs):
-        file = os.path.join(self.repository, file)
+    def load(self, *args, folder=None, **kwargs):
+        folder = os.path.join(self.repository, folder) if folder is not None else self.repository
+        file = os.path.join(folder, self.filename)
         if not os.path.exists(file):
             return None
         with self.mutex[str(file)]:
-            content = load(*args, file=file, type=self.type, **kwargs)
+            content = load(*args, file=file, type=self.type, **self.parameters, **kwargs)
             return content
 
-    def save(self, content, *args, file, mode, **kwargs):
+    def save(self, content, *args, folder=None, mode, **kwargs):
         assert content is not None
-        file = os.path.join(self.repository, file)
+        folder = os.path.join(self.repository, folder) if folder is not None else self.repository
+        if not os.path.exists(folder):
+            os.makedirs(folder)
+        file = os.path.join(folder, self.filename)
         with self.mutex[str(file)]:
-            if not os.path.exists(file):
-                os.makedirs(file)
-            save(content, *args, file=file, mode=mode, **kwargs)
+            save(content, *args, file=file, mode=mode, **self.parameters, **kwargs)
             __logger__.info("Saved: {}[{}]".format(repr(self), str(file)))
 
     @property
@@ -76,42 +69,32 @@ class File(ABC, metaclass=FileMeta):
     def empty(self): return not bool(os.listdir(self.repository))
     @property
     def size(self): return len(os.listdir(self.repository))
+    @property
+    def name(self): return os.path.splitext(self.filename)[0]
+
+    @property
+    @abstractmethod
+    def parameters(self): pass
 
     @property
     def repository(self): return self.__repository
     @property
+    def filename(self): return self.__filename
+    @property
+    def header(self): return self.__header
+    @property
     def mutex(self): return self.__mutex
+
+
+class DataframeFile(File):
     @property
-    def type(self): return self.__type
+    def parameters(self): return dict(columns=self.columns, types=self.types, dates=self.dates)
     @property
-    def name(self): return self.__name
-
-
-class DataframeFile(File, type=pd.DataFrame):
-    def __init_subclass__(cls, *args, **kwargs):
-        variables = {key: value for key, value in getattr(cls, "variables", {}).items()}
-        cls.variables = variables | kwargs.get("variables", {})
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__dataheader = list(type(self).variables.keys())
-        self.__datatypes = {key: value for key, value in type(self).variables.items() if not any([value is str, value is np.datetime64])}
-        self.__datetypes = [key for key, value in type(self).variables.items() if value is np.datetime64]
-
-    def load(self, *args, **kwargs):
-        parameters = dict(header=self.dataheader, datetypes=self.datetypes, datatypes=self.datatypes)
-        return super().load(*args, **parameters, **kwargs)
-
-    def save(self, dataframe, *args, **kwargs):
-        parameters = dict(header=self.dataheader)
-        super().save(dataframe, *args, **parameters, **kwargs)
-
+    def types(self): return {key: value for key, value in self.header.items() if not any([value is str, value is np.datetime64])}
     @property
-    def dataheader(self): return self.__dataheader
+    def dates(self): return [key for key, value in self.header.items() if value is np.datetime64]
     @property
-    def datatypes(self): return self.__datatypes
-    @property
-    def datetypes(self): return self.__datetypes
+    def columns(self): return list(self.header.keys())
 
 
 def dispatcher(mainfunction):
@@ -165,25 +148,25 @@ def save(content, *args, file, **kwargs):
     raise ValueError(filetype, fileext)
 
 @save.register(xr.Dataset, "nc")
-def save_netcdf(content, *args, file, mode, header, **kwargs):
-    columns = [column for column in header if column in content.columns]
+def save_netcdf(content, *args, file, mode, columns, **kwargs):
+    columns = [column for column in columns if column in content.columns]
     xr.Dataset.to_netcdf(content[columns], file, mode=mode, compute=True)
 
 @save.register(pd.DataFrame, "csv")
 @save.register(dk.DataFrame, "csv")
-def save_csv(content, *args, file, mode, header, **kwargs):
+def save_csv(content, *args, file, mode, columns, **kwargs):
     parms = dict(index=False, header=not os.path.isfile(file) or mode == "w")
     if isinstance(content, dk.DataFrame):
         update = dict(compute=True, single_file=True, header_first_partition_only=True)
         parms.update(update)
-    columns = [column for column in header if column in content.columns]
+    columns = [column for column in columns if column in content.columns]
     content[columns].to_csv(file, mode=mode, **parms)
 
 @save.register(pd.DataFrame, "hdf")
 @save.register(dk.DataFrame, "hdf")
-def save_hdf5(self, content, *args, file, mode, header, **kwargs):
+def save_hdf5(self, content, *args, file, mode, columns, **kwargs):
     parms = dict(format="fixed", append=False)
-    columns = [column for column in header if column in content.columns]
+    columns = [column for column in columns if column in content.columns]
     content[columns].to_hdf(file, None, mode=mode, **parms)
 
 
@@ -198,23 +181,23 @@ def load_netcdf(*args, file, partitions=None, **kwargs):
     return xr.open_dataset(file, chunks=partitions)
 
 @load.register(dk.DataFrame, "csv")
-def load_csv_delayed(*args, file, size, header, types={}, dates=[], **kwargs):
+def load_csv_delayed(*args, file, size, columns, types={}, dates=[], **kwargs):
     parms = dict(index_col=None, header=0, dtype=types, parse_dates=dates)
     content = dk.read_csv(file, blocksize=size, **parms)
-    columns = [column for column in header if column in content.columns]
+    columns = [column for column in columns if column in content.columns]
     return content[columns]
 
 @load.register(pd.DataFrame, "csv")
-def load_csv_immediate(*args, file, header, types={}, dates=[], **kwargs):
+def load_csv_immediate(*args, file, columns, types={}, dates=[], **kwargs):
     parms = dict(index_col=None, header=0, dtype=types, parse_dates=dates)
     content = pd.read_csv(file,  iterator=False, **parms)
-    columns = [column for column in header if column in content.columns]
+    columns = [column for column in columns if column in content.columns]
     return content[columns]
 
 @load.register(pd.DataFrame, "hdf")
-def load_hdf5(*args, file, group=None, header, types={}, dates=[], **kwargs):
+def load_hdf5(*args, file, group=None, columns, types={}, dates=[], **kwargs):
     content = pd.read_csv(file, key=group, iterator=False)
-    columns = [column for column in header if column in content.columns]
+    columns = [column for column in columns if column in content.columns]
     return content[columns]
 
 
