@@ -208,27 +208,18 @@ class Writer(Process, ABC):
 
 
 class Loader(Reader, ABC):
-    def read(self, *args, folder=None, **kwargs):
-        files = [self.source] if not isinstance(self.source, list) else self.source
-        contents = {file.name: file.load(*args, folder=folder, **kwargs) for file in files}
-        contents = {name: content for name, content in contents.items() if content is not None}
-        return contents
+    def read(self, *args, folder, mode="r", **kwargs):
+        return self.source.load(*args, folder=folder, mode=mode, **kwargs)
 
     def reader(self, *args, **kwargs):
         for folder in self.source.directory:
-            contents = {file.name: file.load(*args, folder=folder, **kwargs) for file in self.source}
-            contents = {name: content for name, content in contents.items() if content is not None}
-            yield folder, contents
+            yield folder, self.read(*args, **kwargs)
 
 
 class Saver(Writer, ABC):
-    def write(self, contents, *args, folder=None, **kwargs):
+    def write(self, contents, *args, folder, mode, **kwargs):
         assert isinstance(contents, dict)
-        files = [self.destination] if not isinstance(self.destination, list) else self.destination
-        files = [file for file in files if file.name in contents.keys()]
-        for file in files:
-            content = contents[file.name]
-            file.save(content, *args, folder=folder, **kwargs)
+        self.destination.save(contents, *args, folder=folder, mode=mode, **kwargs)
 
 
 

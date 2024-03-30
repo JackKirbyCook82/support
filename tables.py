@@ -6,10 +6,9 @@ Created on Weds Jul 12 2023
 
 """
 
+import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
-
-from support.locks import Lock
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -35,8 +34,8 @@ class Table(ABC, metaclass=TableMeta):
     def __repr__(self): return self.__class__.__name__
     def __bool__(self): return not self.empty if self.table is not None else False
     def __len__(self): return self.size
-    def __init__(self, instance, *args, timeout=None, **kwargs):
-        self.__mutex = Lock(timeout=timeout)
+    def __init__(self, instance, *args, **kwargs):
+        self.__mutex = multiprocessing.RLock()
         self.__table = instance
 
     @abstractmethod

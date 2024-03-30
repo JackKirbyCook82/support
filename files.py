@@ -8,60 +8,102 @@ Created on Sun 14 2023
 
 import os
 import logging
+import multiprocessing
 import numpy as np
 import xarray as xr
 import pandas as pd
 import dask.dataframe as dk
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta
 from functools import update_wrapper
+from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
-
-from support.locks import Locks
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DataframeFile"]
+__all__ = ["File", "Archive"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-class File(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        header = {key: value for key, value in getattr(cls, "__header__", {}).items()}
-        update = {key: value for key, value in kwargs.get("header", {}).items()}
-        cls.__filename__ = kwargs.get("filename", getattr(cls, "__filename__", None))
-        cls.__header__ = header | update
+class File(ntuple("File", "filename fileheader filetype")):
+    def __str__(self): return os.path.splitext(self.filename)[0]
+
+    def load(self, *args, folder, mode, **kwargs):
+        file = os.path.join(folder, self.filename)
+        return load(*args, file=file, mode=mode, **self.parameters, **kwargs)
+
+    def save(self, content, *args, folder, mode, **kwargs):
+        file = os.path.join(folder, self.filename)
+        save(content, *args, file=file, mode=mode, **self.parameters, **kwargs)
+        __logger__.info("Saved: {}".format(str(file)))
+
+    @property
+    def parameters(self): return dict(types=self.types, dates=self.dates, columns=self.columns, type=self.filetype)
+    @property
+    def types(self): return {key: value for key, value in self.fileheader.items() if not any([value is str, value is np.datetime64])}
+    @property
+    def dates(self): return [key for key, value in self.fileheader.items() if value is np.datetime64]
+    @property
+    def columns(self): return list(self.fileheader.keys())
+    @property
+    def extension(self): return os.path.splitext(self.filename)[1]
+    @property
+    def name(self): return os.path.splitext(self.filename)[0]
+
+
+class ArchiveMeta(ABCMeta):
+    locks = {}
+
+    def __init__(cls, *args, **kwargs):
+        existing = {name: file for name, file in getattr(cls, "__files__", {}).items()}
+        update = {str(file): file for file in kwargs.get("files", {})}
+        cls.__files__ = existing | update
+
+    def __call__(cls, *args, repository, **kwargs):
+        lock = ArchiveMeta.locks.get(str(repository),  multiprocessing.RLock())
+        ArchiveMeta.locks[str(repository)] = lock
+        instance = super(ArchiveMeta, cls).__call__(*args, repository=repository, files=cls.__files__, lock=lock, **kwargs)
+        return instance
+
+
+class Archive(ABC, metaclass=ArchiveMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
 
     def __repr__(self): return self.__class__.__name__
     def __bool__(self): return not self.empty if self.table is not None else False
-    def __repr__(self): return type(self).__name__
-    def __init__(self, *args, repository, timeout=None, **kwargs):
-        header = {key: value for key, value in self.__class__.__header__.items()}
-        filename = str(self.__class__.__filename__)
-        self.__mutex = Locks(timeout=timeout)
+    def __init__(self, *args, repository, files, lock, **kwargs):
         self.__repository = repository
-        self.__filename = filename
-        self.__header = header
+        self.__files = files
+        self.__mutex = lock
 
-    def load(self, *args, folder=None, **kwargs):
+    def __eq__(self, other): return self.repository == other.repository
+    def __ne__(self, other): return not self.__eq__(other)
+    def __add__(self, other):
+        assert isinstance(other, Archive) and self == other
+        name = repr(self).strip("Archive") + repr(other).strip("Archive") + "Archive"
+        files = list((self.files | other.files).values())
+        ArchiveType = type(name, (Archive,), {}, files=files)
+        return ArchiveType(self.repositor)
+
+    def load(self, *args, folder, mode="r", **kwargs):
         folder = os.path.join(self.repository, folder) if folder is not None else self.repository
-        file = os.path.join(folder, self.filename)
-        if not os.path.exists(file):
-            return None
-        with self.mutex[str(file)]:
-            content = load(*args, file=file, type=self.type, **self.parameters, **kwargs)
-            return content
+        if not os.path.exists(folder):
+            return {}
+        with self.mutex:
+            contents = {name: file.load(*args, folder=folder, mode=mode, **kwargs) for name, file in self.files.items()}
+            contents = {name: content for name, content in contents.items() if content is not None}
+            return contents
 
-    def save(self, content, *args, folder=None, mode, **kwargs):
-        assert content is not None
+    def save(self, contents, *args, folder, mode, **kwargs):
         folder = os.path.join(self.repository, folder) if folder is not None else self.repository
         if not os.path.exists(folder):
             os.makedirs(folder)
-        file = os.path.join(folder, self.filename)
-        with self.mutex[str(file)]:
-            save(content, *args, file=file, mode=mode, **self.parameters, **kwargs)
-            __logger__.info("Saved: {}[{}]".format(repr(self), str(file)))
+        with self.mutex:
+            contents = {name: content for name, content in contents.items() if content is not None}
+            contents = {name: content for name, content in contents.items() if name in self.files.keys()}
+            for name, content in contents.items():
+                self.files[name].save(content, *args, folder=folder, mode=mode, **kwargs)
 
     @property
     def directory(self): return os.listdir(self.repository)
@@ -69,32 +111,13 @@ class File(ABC):
     def empty(self): return not bool(os.listdir(self.repository))
     @property
     def size(self): return len(os.listdir(self.repository))
-    @property
-    def name(self): return os.path.splitext(self.filename)[0]
-
-    @property
-    @abstractmethod
-    def parameters(self): pass
 
     @property
     def repository(self): return self.__repository
     @property
-    def filename(self): return self.__filename
-    @property
-    def header(self): return self.__header
+    def files(self): return self.__files
     @property
     def mutex(self): return self.__mutex
-
-
-class DataframeFile(File):
-    @property
-    def parameters(self): return dict(columns=self.columns, types=self.types, dates=self.dates)
-    @property
-    def types(self): return {key: value for key, value in self.header.items() if not any([value is str, value is np.datetime64])}
-    @property
-    def dates(self): return [key for key, value in self.header.items() if value is np.datetime64]
-    @property
-    def columns(self): return list(self.header.keys())
 
 
 def dispatcher(mainfunction):
