@@ -115,14 +115,14 @@ class Filter(Process, ABC):
     def mask_dataset(self, contents, *args, **kwargs):
         criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in contents.data_vars.keys()]
         criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
-        mask = list(filter(None, [criteria(contents) for criteria in criterion]))
+        mask = list(filter(lambda x: x is not None, [criteria(contents) for criteria in criterion]))
         return reduce(lambda x, y: x & y, mask) if bool(mask) else None
 
     @mask.register(pd.DataFrame)
     def mask_dataframe(self, contents, *args, **kwargs):
         criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in contents.columns]
         criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
-        mask = list(filter(None, [criteria(contents) for criteria in criterion]))
+        mask = list(filter(lambda x: x is not None, [criteria(contents) for criteria in criterion]))
         return reduce(lambda x, y: x & y, mask) if bool(mask) else None
 
     @filter.register(xr.Dataset)
@@ -211,9 +211,10 @@ class Loader(Reader, ABC):
     def read(self, *args, folder, mode="r", **kwargs):
         return self.source.load(*args, folder=folder, mode=mode, **kwargs)
 
-    def reader(self, *args, **kwargs):
+    def reader(self, *args, mode="r", **kwargs):
         for folder in self.source.directory:
-            yield folder, self.read(*args, **kwargs)
+            contents = self.source.load(*args, folder=folder, mode=mode, **kwargs)
+            yield folder, contents
 
 
 class Saver(Writer, ABC):

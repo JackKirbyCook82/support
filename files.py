@@ -31,7 +31,7 @@ class File(ntuple("File", "filename fileheader filetype")):
 
     def load(self, *args, folder, mode, **kwargs):
         file = os.path.join(folder, self.filename)
-        return load(*args, file=file, mode=mode, **self.parameters, **kwargs)
+        return load(*args, file=file, mode=mode, **self.parameters, **kwargs) if os.path.exists(file) else None
 
     def save(self, content, *args, folder, mode, **kwargs):
         file = os.path.join(folder, self.filename)
@@ -84,7 +84,7 @@ class Archive(ABC, metaclass=ArchiveMeta):
         name = repr(self).strip("Archive") + repr(other).strip("Archive") + "Archive"
         files = list((self.files | other.files).values())
         ArchiveType = type(name, (Archive,), {}, files=files)
-        return ArchiveType(self.repositor)
+        return ArchiveType(repository=self.repository)
 
     def load(self, *args, folder, mode="r", **kwargs):
         folder = os.path.join(self.repository, folder) if folder is not None else self.repository
