@@ -11,21 +11,28 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from functools import reduce
+from itertools import product
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
+from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Calculator", "Downloader", "Reader", "Writer", "Loader", "Saver", "Parser", "Filter", "Filtering"]
+__all__ = ["Calculator", "Downloader", "Reader", "Writer", "Loader", "Saver", "Filter", "Filtering"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
 class Process(ABC):
-    pass
+    @typedispatcher
+    def size(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
+    @size.register(xr.DataArray)
+    def size_dataarray(self, dataarray, *args, **kwargs): return np.count_nonzero(~np.isnan(dataarray.values))
+    @size.register(pd.Series)
+    def size_dataframe(self, dataframe, *args, **kwargs): return len(dataframe.dropna(how="all", inplace=False).index)
 
 
 class Calculator(Process, ABC):
@@ -73,13 +80,11 @@ class Downloader(Process, ABC):
 
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
-    def __call__(self, content): return self.execute(content) if bool(self) else None
-    def __bool__(self): return self.threshold is not None
-    def __hash__(self): return hash(self.variable)
+    def __repr__(self): return f"{type(self).__name__}[{str(self.variable)}, {str(self.threshold)}]"
+    def __call__(self, content): return self.execute(content)
 
     @abstractmethod
     def execute(self, content): pass
-    def notnull(self, content): return content[self.variable].notna()
 
 class Floor(Criteria):
     def execute(self, content): return content[self.variable] >= self.threshold
@@ -87,102 +92,95 @@ class Floor(Criteria):
 class Ceiling(Criteria):
     def execute(self, content): return content[self.variable] <= self.threshold
 
+class Null(Criteria):
+    @typedispatcher
+    def execute(self, content): raise TypeError(type(content).__name__)
+    @execute.register(pd.DataFrame)
+    def dataframe(self, content): return content[self.variable].notna()
+    @execute.register(xr.Dataset)
+    def dataset(self, content): return content[self.variable].notnull()
+
 
 class Filtering(object):
     FLOOR = Floor
     CEILING = Ceiling
+    NULL = Null
 
 class Filter(Process, ABC):
     def __init__(self, *args, filtering={},  **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(filtering, dict)
         assert all([issubclass(criteria, Criteria) for criteria in filtering.keys()])
+        assert all([isinstance(parameter, (list, dict)) for parameter in filtering.values()])
+        filtering = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in filtering.items()}
+        filtering = [criteria(variable, threshold) for criteria, parameters in filtering.items() for variable, threshold in parameters.items()]
         self.__filtering = filtering
 
     @typedispatcher
-    def size(self, contents, *args, **kwargs): raise TypeError(type(contents).__name__)
-    @typedispatcher
-    def mask(self, contents, *args, **kwargs): raise TypeError(type(contents).__name__)
-    @typedispatcher
-    def filter(self, contents, *args, **kwargs): raise TypeError(type(contents).__name__)
-
-    @size.register(xr.DataArray)
-    def size_dataarray(self, dataarray): return np.count_nonzero(~np.isnan(dataarray.values))
-    @size.register(pd.Series)
-    def size_dataframe(self, dataframe): return len(dataframe.dropna(how="all", inplace=False).index)
-
-    @mask.register(xr.Dataset)
-    def mask_dataset(self, contents, *args, **kwargs):
-        criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in contents.data_vars.keys()]
-        criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
-        mask = list(filter(lambda x: x is not None, [criteria(contents) for criteria in criterion]))
-        return reduce(lambda x, y: x & y, mask) if bool(mask) else None
-
-    @mask.register(pd.DataFrame)
-    def mask_dataframe(self, contents, *args, **kwargs):
-        criterion = [(variable, criteria) for criteria, variables in self.filtering.items() for variable in variables if variable in contents.columns]
-        criterion = [criteria(variable, kwargs.get(variable, None)) for (variable, criteria) in criterion]
-        mask = list(filter(lambda x: x is not None, [criteria(contents) for criteria in criterion]))
-        return reduce(lambda x, y: x & y, mask) if bool(mask) else None
+    def filter(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
 
     @filter.register(xr.Dataset)
-    def filter_dataset(self, dataset, *args, mask, **kwargs): return dataset.where(mask, drop=True) if bool(mask is not None) else dataset
+    def dataset(self, dataset, *args, selections={}, **kwargs):
+        if not bool(selections):
+            mask = [criteria(dataset) for criteria in self.filtering]
+            mask = reduce(lambda x, y: x & y, mask) if bool(mask) else None
+            dataset = dataset.where(mask, drop=True) if bool(mask is not None) else dataset
+        else:
+            dataset = dataset.sel({key: value for key, value in selections.items()}).expand_dims(list(selections.keys()))
+            mask = [criteria(dataset) for criteria in self.filtering]
+            mask = reduce(lambda x, y: x & y, mask) if bool(mask) else None
+            dataset = dataset.where(mask, drop=True) if bool(mask is not None) else dataset
+            index = dataset.coords
+
+#            broadcasting = {key: list(dataset.coords[key].values) for key in selections.keys()}
+#            generator = chain(*[[(key, value) for key, value in values] for key, values in broadcasting.items()])
+#            index = dataset.coords.to_dataset().drop_vars(list(broadcasting.keys()))
+
+#            print(dataset.sel(index))
+#            print(broadcasting)
+#            print(dataset)
+#            print(index)
+
+        return dataset
+
     @filter.register(pd.DataFrame)
-    def filter_dataframe(self, dataframe, *args, mask, **kwargs): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
+    def dataframe(self, dataframe, *args, selections={}, **kwargs):
+        if not bool(selections):
+            mask = [criteria(dataframe) for criteria in self.filtering]
+            mask = reduce(lambda x, y: x & y, mask) if bool(mask) else None
+            dataframe = dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
+        else:
+            broadcasting = {key: list(set(dataframe.index.get_level_values(key))) for key in selections.keys()}
+            generator = product(*[[(key, value) for value in values] for key, values in broadcasting.items()])
+
+            dataframe = dataframe.iloc[reduce(lambda x, y: x & y, [dataframe.index.get_level_values(key) == value for key, value in selections.items()])]
+
+            mask = [criteria(dataframe) for criteria in self.filtering]
+            mask = reduce(lambda x, y: x & y, mask) if bool(mask) else None
+
+            dataframe = dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
+            index = dataframe.index.to_frame().reset_index(drop=True, inplace=False).drop(list(broadcasting.keys()), axis=1, inplace=False)
+            columns = [ODict(list(contents)) for contents in generator]
+
+            print(index)
+            print(columns)
+
+        return dataframe
+
+#            columns = [pd.DataFrame(columns, index=index) for columns in generator]
+#            index = reduce(lambda indx, key: indx.droplevel(key), list(broadcasting.keys()), dataframe.index)
+#            index = dataframe.index.to_frame().reset_index(drop=True, inplace=False).drop(list(broadcasting.keys()), axis=1, inplace=False)
+#            index = reduce(lambda indx, key: indx.reset_index(drop=True, inplace=False).drop(key), list(selections.keys()), dataframe.index.to_frame())
+#            print(index)
+#            indexes = [pd.Series([value]*len(index), name=key, index=index) for (key, value) in generator]
+#            index = reduce(lambda indx, other: index.append(other), indexes) if bool(indexes) else index
+#            index = dataframe.index.to_frame().reset_index(drop=True, inplace=False).drop(list(broadcasting.keys()), axis=1, inplace=False)
+#            print(dataframe.loc[index])
+#            print(broadcasting)
+#            print(dataframe)
 
     @property
     def filtering(self): return self.__filtering
-
-
-class Parser(Process, ABC):
-    @staticmethod
-    def unflatten(dataframe, *args, index, columns, **kwargs):
-        assert isinstance(dataframe, pd.DataFrame)
-        index = [content for content in index if content in dataframe.columns]
-        dataframe = dataframe.set_index(index, drop=True, inplace=False)
-        columns = [value for value in columns if value in dataframe.columns]
-        dataframe = dataframe[columns]
-        dataset = xr.Dataset.from_dataframe(dataframe)
-        return dataset
-
-    @staticmethod
-    def flatten(dataset, *args, header, **kwargs):
-        assert isinstance(dataset, xr.Dataset)
-        dataframe = dataset.to_dataframe()
-        dataframe = dataframe.reset_index(drop=False, inplace=False)
-        header = [content for content in header if content in dataframe.columns]
-        dataframe = dataframe[header]
-        return dataframe
-
-    @staticmethod
-    def pivot(dataframe, *args, columns=[], values=[], delimiter=None, **kwargs):
-        assert isinstance(dataframe, pd.DataFrame)
-        columns = [column for column in columns if column in dataframe.columns]
-        values = [value for value in values if value in dataframe.columns]
-        index = [column for column in dataframe.columns if column not in columns + values]
-        dataframe = dataframe.pivot(index=index, columns=columns, values=values)
-        if delimiter is not None:
-            dataframe.columns = dataframe.columns.map(str(delimiter).join).str.strip(delimiter)
-        dataframe = dataframe.reset_index(drop=False, inplace=False)
-        return dataframe
-
-    @staticmethod
-    def melt(dataframe, *args, name, variable, columns=[], **kwargs):
-        assert isinstance(dataframe, pd.DataFrame)
-        index = [column for column in dataframe.columns if column not in columns]
-        dataframe = dataframe.melt(var_name=name, id_vars=index, value_name=variable, value_vars=columns)
-        dataframe = dataframe.dropna(how="all", inplace=False)
-        return dataframe
-
-    @staticmethod
-    def clean(dataframe, *args, index=[], columns, **kwargs):
-        assert isinstance(dataframe, pd.DataFrame)
-        index = [index for index in index if index in dataframe.columns]
-        dataframe = dataframe.drop_duplicates(subset=index, keep="last", inplace=False)
-        columns = [column for column in columns if column in dataframe.columns]
-        dataframe = dataframe.dropna(subset=columns, how="all", inplace=False)
-        dataframe = dataframe.reset_index(drop=True, inplace=False)
-        return dataframe
 
 
 class Reader(Process, ABC):
@@ -214,13 +212,22 @@ class Loader(Reader, ABC):
     def reader(self, *args, mode="r", **kwargs):
         for folder in self.source.directory:
             contents = self.source.load(*args, folder=folder, mode=mode, **kwargs)
+            assert isinstance(contents, dict)
+            if not bool(contents):
+                continue
             yield folder, contents
+
+    @property
+    def loading(self): return self.__loading
 
 
 class Saver(Writer, ABC):
     def write(self, contents, *args, folder, mode, **kwargs):
         assert isinstance(contents, dict)
-        self.destination.save(contents, *args, folder=folder, mode=mode, **kwargs)
+        if not bool(contents):
+            return
+        self.destination.save(contents, *args, folder=folder, names=self.saving, mode=mode, **kwargs)
 
-
+    @property
+    def saving(self): return self.__saving
 

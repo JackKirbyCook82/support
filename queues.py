@@ -18,13 +18,13 @@ __license__ = "MIT License"
 
 class QueueMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
-        cls.Queue = kwargs.get("type", getattr(cls, "Queue", None))
+        cls.QueueType = kwargs.get("type", getattr(cls, "QueueType", None))
 
     def __call__(cls, *args, capacity=None, contents=[], **kwargs):
         assert cls.Queue is not None
         assert isinstance(contents, list)
         assert (len(contents) <= capacity) if bool(capacity) else True
-        instance = cls.Queue(maxsize=capacity if capacity is not None else 0)
+        instance = cls.QueueType(maxsize=capacity if capacity is not None else 0)
         for content in contents:
             instance.put(content)
         wrapper = super(QueueMeta, cls).__call__(instance, *args, queue=instance, **kwargs)

@@ -19,11 +19,11 @@ __license__ = "MIT License"
 
 class TableMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
-        cls.Table = kwargs.get("type", getattr(cls, "Table", None))
+        cls.TableType = kwargs.get("type", getattr(cls, "TableType", None))
 
     def __call__(cls, *args, **kwargs):
         assert cls.Table is not None
-        instance = cls.Table()
+        instance = cls.TableType()
         instance = super(TableMeta, cls).__call__(instance, *args, table=instance, **kwargs)
         return instance
 
