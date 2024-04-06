@@ -28,11 +28,11 @@ __logger__ = logging.getLogger(__name__)
 
 class Process(ABC):
     @typedispatcher
-    def size(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
+    def size(self, content): raise TypeError(type(content).__name__)
     @size.register(xr.DataArray)
-    def size_dataarray(self, dataarray, *args, **kwargs): return np.count_nonzero(~np.isnan(dataarray.values))
+    def size_dataarray(self, dataarray): return np.count_nonzero(~np.isnan(dataarray.values))
     @size.register(pd.Series)
-    def size_dataframe(self, dataframe, *args, **kwargs): return len(dataframe.dropna(how="all", inplace=False).index)
+    def size_dataframe(self, dataframe): return len(dataframe.dropna(how="all", inplace=False).index)
 
 
 class Calculator(Process, ABC):
@@ -116,68 +116,58 @@ class Filter(Process, ABC):
         filtering = [criteria(variable, threshold) for criteria, parameters in filtering.items() for variable, threshold in parameters.items()]
         self.__filtering = filtering
 
+    def filter(self, content, *args, select={}, **kwargs):
+        if not bool(select):
+            criterion = self.criterion(content, self.filtering)
+            mask = self.mask(criterion)
+            content = self.where(content, mask)
+        else:
+            axes = self.axes(content, select)
+            selected = self.select(content, select)
+            criterion = self.criterion(selected, self.filtering)
+            mask = self.mask(criterion)
+            selected = self.where(selected, mask)
+            index = self.index(selected, axes)
+            content = content.loc[index]
+        return content
+
     @typedispatcher
-    def filter(self, content, *args, **kwargs): raise TypeError(type(content).__name__)
+    def where(self, content, mask=None): raise TypeError(type(content).__name__)
+    @where.register(xr.Dataset)
+    def where_dataset(self, dataset, mask=None): return dataset.where(mask, drop=True) if bool(mask is not None) else dataset
+    @where.register(pd.DataFrame)
+    def where_dataframe(self, dataframe, mask=None): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
 
-    @filter.register(xr.Dataset)
-    def dataset(self, dataset, *args, selections={}, **kwargs):
-        if not bool(selections):
-            mask = [criteria(dataset) for criteria in self.filtering]
-            mask = reduce(lambda x, y: x & y, mask) if bool(mask) else None
-            dataset = dataset.where(mask, drop=True) if bool(mask is not None) else dataset
-        else:
-            dataset = dataset.sel({key: value for key, value in selections.items()}).expand_dims(list(selections.keys()))
-            mask = [criteria(dataset) for criteria in self.filtering]
-            mask = reduce(lambda x, y: x & y, mask) if bool(mask) else None
-            dataset = dataset.where(mask, drop=True) if bool(mask is not None) else dataset
-            index = dataset.coords
+    @typedispatcher
+    def select(self, content, select={}): raise TypeError(type(content).__name__)
+    @select.register(xr.Dataset)
+    def select_dataset(self, dataset, select={}): return dataset.sel({key: value for key, value in select.items()}).expand_dims(list(select.keys()))
+    @select.register(pd.DataFrame)
+    def select_dataframe(self, dataframe, select={}): return dataframe.iloc[reduce(lambda x, y: x & y, [dataframe.index.get_level_values(key) == value for key, value in select.items()])]
 
-#            broadcasting = {key: list(dataset.coords[key].values) for key in selections.keys()}
-#            generator = chain(*[[(key, value) for key, value in values] for key, values in broadcasting.items()])
-#            index = dataset.coords.to_dataset().drop_vars(list(broadcasting.keys()))
+    @typedispatcher
+    def axes(self, content, select={}): raise TypeError(type(content).__name__)
+    @axes.register(xr.Dataset)
+    def axes_dataset(self, dataset, select={}): return ODict([(key, list(dataset.coords[key].values)) for key in select.keys()])
+    @axes.register(pd.DataFrame)
+    def axes_dataframe(self, dataframe, select={}): return ODict([(key, list(set(dataframe.index.get_level_values(key)))) for key in select.keys()])
 
-#            print(dataset.sel(index))
-#            print(broadcasting)
-#            print(dataset)
-#            print(index)
+    @typedispatcher
+    def index(self, content, axes={}): raise TypeError(type(content).__name__)
+    @index.register(xr.Dataset)
+    def index_dataset(self, dataset, axes={}): return ODict([(key, list(dataarray.values)) for key, dataarray in dataset.coords.items() if key not in axes.keys()]) | axes
+    @index.register(pd.DataFrame)
+    def index_dataframe(self, dataframe, axes={}):
+        index = dataframe.index.to_frame().reset_index(drop=True, inplace=False).drop(list(axes.keys()), axis=1, inplace=False)
+        axes = product(*[[(key, value) for value in values] for key, values in axes.items()])
+        axes = [pd.DataFrame.from_records({key: [value] * len(index) for (key, value) in list(axis)}) for axis in iter(axes)]
+        index = pd.concat([pd.concat([index, axis], axis=1) for axis in axes], axis=0)
+        return pd.MultiIndex.from_frame(index[dataframe.index.names])
 
-        return dataset
-
-    @filter.register(pd.DataFrame)
-    def dataframe(self, dataframe, *args, selections={}, **kwargs):
-        if not bool(selections):
-            mask = [criteria(dataframe) for criteria in self.filtering]
-            mask = reduce(lambda x, y: x & y, mask) if bool(mask) else None
-            dataframe = dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
-        else:
-            broadcasting = {key: list(set(dataframe.index.get_level_values(key))) for key in selections.keys()}
-            generator = product(*[[(key, value) for value in values] for key, values in broadcasting.items()])
-
-            dataframe = dataframe.iloc[reduce(lambda x, y: x & y, [dataframe.index.get_level_values(key) == value for key, value in selections.items()])]
-
-            mask = [criteria(dataframe) for criteria in self.filtering]
-            mask = reduce(lambda x, y: x & y, mask) if bool(mask) else None
-
-            dataframe = dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
-            index = dataframe.index.to_frame().reset_index(drop=True, inplace=False).drop(list(broadcasting.keys()), axis=1, inplace=False)
-            columns = [ODict(list(contents)) for contents in generator]
-
-            print(index)
-            print(columns)
-
-        return dataframe
-
-#            columns = [pd.DataFrame(columns, index=index) for columns in generator]
-#            index = reduce(lambda indx, key: indx.droplevel(key), list(broadcasting.keys()), dataframe.index)
-#            index = dataframe.index.to_frame().reset_index(drop=True, inplace=False).drop(list(broadcasting.keys()), axis=1, inplace=False)
-#            index = reduce(lambda indx, key: indx.reset_index(drop=True, inplace=False).drop(key), list(selections.keys()), dataframe.index.to_frame())
-#            print(index)
-#            indexes = [pd.Series([value]*len(index), name=key, index=index) for (key, value) in generator]
-#            index = reduce(lambda indx, other: index.append(other), indexes) if bool(indexes) else index
-#            index = dataframe.index.to_frame().reset_index(drop=True, inplace=False).drop(list(broadcasting.keys()), axis=1, inplace=False)
-#            print(dataframe.loc[index])
-#            print(broadcasting)
-#            print(dataframe)
+    @staticmethod
+    def criterion(content, filtering): return [criteria(content) for criteria in filtering]
+    @staticmethod
+    def mask(criterion): return reduce(lambda x, y: x & y, criterion) if bool(criterion) else None
 
     @property
     def filtering(self): return self.__filtering
@@ -206,28 +196,36 @@ class Writer(Process, ABC):
 
 
 class Loader(Reader, ABC):
-    def read(self, *args, folder, mode="r", **kwargs):
-        return self.source.load(*args, folder=folder, mode=mode, **kwargs)
+    def __init__(self, *args, mode="r", **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__mode = mode
 
-    def reader(self, *args, mode="r", **kwargs):
+    def read(self, *args, folder, **kwargs):
+        return self.source.load(*args, folder=folder, mode=self.mode, **kwargs)
+
+    def reader(self, *args, **kwargs):
         for folder in self.source.directory:
-            contents = self.source.load(*args, folder=folder, mode=mode, **kwargs)
+            contents = self.source.load(*args, folder=folder, mode=self.mode, **kwargs)
             assert isinstance(contents, dict)
             if not bool(contents):
                 continue
             yield folder, contents
 
     @property
-    def loading(self): return self.__loading
+    def mode(self): return self.__mode
 
 
 class Saver(Writer, ABC):
-    def write(self, contents, *args, folder, mode, **kwargs):
+    def __init__(self, *args, mode, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__mode = mode
+
+    def write(self, contents, *args, folder, **kwargs):
         assert isinstance(contents, dict)
         if not bool(contents):
             return
-        self.destination.save(contents, *args, folder=folder, names=self.saving, mode=mode, **kwargs)
+        self.destination.save(contents, *args, folder=folder, mode=self.mode, **kwargs)
 
     @property
-    def saving(self): return self.__saving
+    def mode(self): return self.__mode
 

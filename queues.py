@@ -21,7 +21,7 @@ class QueueMeta(ABCMeta):
         cls.QueueType = kwargs.get("type", getattr(cls, "QueueType", None))
 
     def __call__(cls, *args, capacity=None, contents=[], **kwargs):
-        assert cls.Queue is not None
+        assert cls.QueueType is not None
         assert isinstance(contents, list)
         assert (len(contents) <= capacity) if bool(capacity) else True
         instance = cls.QueueType(maxsize=capacity if capacity is not None else 0)

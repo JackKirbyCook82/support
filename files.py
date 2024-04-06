@@ -51,30 +51,30 @@ class File(ABC):
         self.__typing = typing
         self.__name = name
 
-    def load(self, *args, folder, mode, **kwargs):
+    def load(self, *args, folder, **kwargs):
         file = os.path.join(folder, self.filename)
         method = FileMethod(self.typing, self.timing)
         if not os.path.exists(file):
             return
-        content = self.loader(*args, file=file, mode=mode, method=method, **kwargs)
+        content = self.loader(*args, file=file, method=method, **kwargs)
         content = self.parser(content, *args, **kwargs)
         if self.empty(content):
             return
         return content
 
-    def save(self, content, *args, folder, mode, **kwargs):
+    def save(self, content, *args, folder, **kwargs):
         if self.empty(content):
             return
         file = os.path.join(folder, self.filename)
         method = FileMethod(self.typing, self.timing)
-        self.formatter(content, *args, **kwargs)
-        self.saver(content, *args, file=file, mode=mode, method=method, **kwargs)
+        content = self.formatter(content, *args, **kwargs)
+        self.saver(content, *args, file=file, method=method, **kwargs)
         __logger__.info("Saved: {}".format(str(file)))
 
     @abstractmethod
-    def loader(self, *args, file, mode, **kwargs): pass
+    def loader(self, *args, file, **kwargs): pass
     @abstractmethod
-    def saver(self, content, *args, file, mode, **kwargs): pass
+    def saver(self, content, *args, file, **kwargs): pass
     @abstractmethod
     def parser(self, content, *args, **kwargs): pass
     @abstractmethod
@@ -138,12 +138,15 @@ class DataframeFile(File, type=pd.DataFrame):
     def saver_lazy_hdf(self, content, *args, file, mode, **kwargs): pass
 
     def parser(self, content, *args, **kwargs):
-        content = content.set_index(self.index, drop=True, inplace=False)
-        return content[self.columns]
+        index = [column for column in self.index if column in content.columns]
+        content = content.set_index(index, drop=True, inplace=False)
+        columns = [column for column in self.columns if column in content.columns]
+        return content[columns]
 
     def formatter(self, content, *args, **kwargs):
         content = content.reset_index(drop=False, inplace=False)
-        return content[self.index + self.columns]
+        columns = [column for column in self.index + self.columns if column in content.columns]
+        return content[columns]
 
     @typedispatcher
     def empty(self, content): raise TypeError(type(content).__name__)
@@ -218,16 +221,16 @@ class Archive(ABC, metaclass=ArchiveMeta):
         self.__saving = saving
         self.__mutex = lock
 
-    def load(self, *args, folder, mode="r", **kwargs):
+    def load(self, *args, folder, **kwargs):
         folder = os.path.join(self.repository, folder) if folder is not None else self.repository
         if not os.path.exists(folder):
             return {}
         with self.mutex:
-            contents = {name: file.load(*args, folder=folder, mode=mode, **kwargs) for name, file in self.loading.items()}
+            contents = {name: file.load(*args, folder=folder, **kwargs) for name, file in self.loading.items()}
             contents = {name: content for name, content in contents.items() if content is not None}
             return contents
 
-    def save(self, contents, *args, folder, mode, **kwargs):
+    def save(self, contents, *args, folder, **kwargs):
         folder = os.path.join(self.repository, folder) if folder is not None else self.repository
         if not os.path.exists(folder):
             os.makedirs(folder)
@@ -235,7 +238,7 @@ class Archive(ABC, metaclass=ArchiveMeta):
             contents = {name: (file, contents.get(name, None)) for name, file in self.saving.items()}
             contents = {name: (file, content) for name, (file, content) in contents.items() if content is not None}
             for name, (file, content) in contents.items():
-                file.save(content, *args, folder=folder, mode=mode, **kwargs)
+                file.save(content, *args, folder=folder, **kwargs)
 
     @property
     def directory(self): return os.listdir(self.repository)

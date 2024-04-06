@@ -22,7 +22,7 @@ class TableMeta(ABCMeta):
         cls.TableType = kwargs.get("type", getattr(cls, "TableType", None))
 
     def __call__(cls, *args, **kwargs):
-        assert cls.Table is not None
+        assert cls.TableType is not None
         instance = cls.TableType()
         instance = super(TableMeta, cls).__call__(instance, *args, table=instance, **kwargs)
         return instance
@@ -53,9 +53,11 @@ class Table(ABC, metaclass=TableMeta):
     def size(self): pass
 
     @property
-    def table(self): return self.__table
-    @property
     def mutex(self): return self.__mutex
+    @property
+    def table(self): return self.__table
+    @table.setter
+    def table(self, table): self.__table = table
 
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
