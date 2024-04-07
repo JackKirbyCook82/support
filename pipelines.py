@@ -20,13 +20,13 @@ __logger__ = logging.getLogger(__name__)
 
 
 class Breaker(object):
-    def __repr__(self): return str(self.name)
+    def __repr__(self): return f"{str(self.name)}[{str(bool(self))}]"
     def __bool__(self): return bool(self.status)
     def __init__(self, *args, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__status = True
 
-    def flip(self): self.status = False
+    def stop(self): self.status = False
     def reset(self): self.status = True
 
     @property

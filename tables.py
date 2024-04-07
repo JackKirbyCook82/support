@@ -7,12 +7,14 @@ Created on Weds Jul 12 2023
 """
 
 import multiprocessing
+import numpy as np
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
+from collections import namedtuple as ntuple
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DataframeTable"]
+__all__ = ["DataframeTable", "DataframeOptions"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -31,11 +33,14 @@ class TableMeta(ABCMeta):
 class Table(ABC, metaclass=TableMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
-    def __repr__(self): return self.__class__.__name__
+    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __bool__(self): return not self.empty if self.table is not None else False
+    def __str__(self): return self.string
     def __len__(self): return self.size
-    def __init__(self, instance, *args, **kwargs):
+    def __init__(self, instance, *args, options, **kwargs):
+        self.__name = kwargs.get("name", self.__class__.__name__)
         self.__mutex = multiprocessing.RLock()
+        self.__options = options
         self.__table = instance
 
     @abstractmethod
@@ -51,14 +56,24 @@ class Table(ABC, metaclass=TableMeta):
     @property
     @abstractmethod
     def size(self): pass
+    @property
+    @abstractmethod
+    def string(self): pass
 
     @property
+    def name(self): return self.__name
+    @property
     def mutex(self): return self.__mutex
+    @property
+    def options(self): return self.__options
     @property
     def table(self): return self.__table
     @table.setter
     def table(self, table): self.__table = table
 
+
+class DataframeOptions(ntuple("Options", "rows columns width format")):
+    def __new__(cls, *args, **kwargs): return super().__new__(cls, *[kwargs[field] for field in cls._fields])
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
     def remove(self, dataframe, *args, **kwargs):
@@ -88,6 +103,10 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
+    @property
+    def string(self):
+        parameters = dict(max_rows=self.options.rows, max_cols=self.options.columns, line_width=self.options.width, float_format=self.options.format)
+        return self.table.to_string(**parameters, show_dimensions=True)
 
 
 

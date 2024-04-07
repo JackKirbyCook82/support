@@ -45,11 +45,12 @@ class File(ABC):
     def __init_subclass__(cls, *args, **kwargs):
         cls.DataType = kwargs.get("type", getattr(cls, "DataType", None))
 
-    def __repr__(self): return f"{self.__class__.__name__}[{str(self.typing.name).lower()}, {str(self.timing.name).lower()}]"
-    def __init__(self, *args, name, typing, timing, **kwargs):
+    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
+    def __init__(self, *args, variable, typing, timing, **kwargs):
+        self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__variable = variable
         self.__timing = timing
         self.__typing = typing
-        self.__name = name
 
     def load(self, *args, folder, **kwargs):
         file = os.path.join(folder, self.filename)
@@ -83,7 +84,9 @@ class File(ABC):
     def empty(self, content, *args, **kwargs): pass
 
     @property
-    def filename(self): return ".".join([self.name, str(self.typing.name).lower()])
+    def filename(self): return ".".join([self.variable, str(self.typing.name).lower()])
+    @property
+    def variable(self): return self.__variable
     @property
     def timing(self): return self.__timing
     @property
@@ -93,13 +96,13 @@ class File(ABC):
 
 
 class DataframeFile(File, type=pd.DataFrame):
-    def __init_subclass__(cls, *args, name, index, columns, **kwargs):
+    def __init_subclass__(cls, *args, variable, index, columns, **kwargs):
         assert isinstance(index, dict) and isinstance(columns, dict)
-        cls.__parameters__ = FileDataframe(name, index, columns)
+        cls.__parameters__ = FileDataframe(variable, index, columns)
 
     def __init__(self, *args, **kwargs):
-        name, index, columns = self.__class__.__parameters__
-        super().__init__(*args, name=name, **kwargs)
+        variable, index, columns = self.__class__.__parameters__
+        super().__init__(*args, variable=variable, **kwargs)
         self.__types = {key: value for key, value in (index | columns).items() if not any([value is str, value is np.datetime64])}
         self.__dates = [key for key, value in (index | columns).items() if value is np.datetime64]
         self.__columns = list(columns.keys())
@@ -209,13 +212,14 @@ class ArchiveMeta(ABCMeta):
 
 
 class Archive(ABC, metaclass=ArchiveMeta):
-    def __repr__(self): return f"{self.__class__.__name__}[{', '.join([name for name in self.files.keys()])}]"
+    def __repr__(self): return f"{self.name}[{', '.join([name for name in self.files.keys()])}]"
     def __init__(self, *args, repository, loading=[], saving=[], lock, **kwargs):
         assert isinstance(loading, (File, list)) and isinstance(saving, (File, list))
-        loading = {file.name: file for file in ([loading] if isinstance(loading, File) else loading)}
-        saving = {file.name: file for file in ([saving] if isinstance(saving, File) else saving)}
+        loading = {str(file.variable): file for file in ([loading] if isinstance(loading, File) else loading)}
+        saving = {str(file.variable): file for file in ([saving] if isinstance(saving, File) else saving)}
         if not os.path.exists(repository):
             os.makedirs(repository)
+        self.__name = kwargs.get("name", self.__class__.__name__)
         self.__repository = repository
         self.__loading = loading
         self.__saving = saving
