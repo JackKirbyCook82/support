@@ -10,18 +10,17 @@ import os
 import logging
 import multiprocessing
 import numpy as np
-import xarray as xr
 import pandas as pd
 import dask.dataframe as dk
 from enum import IntEnum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
-from support.dispatchers import typedispatcher, kwargsdispatcher
+from support.dispatchers import kwargsdispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Archive", "DataframeFile", "DatasetFile", "FileTyping", "FileTiming"]
+__all__ = ["Archive", "Files", "FileTyping", "FileTiming"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -77,11 +76,11 @@ class File(ABC):
     @abstractmethod
     def saver(self, content, *args, file, **kwargs): pass
     @abstractmethod
+    def empty(self, content, *args, **kwargs): pass
+    @abstractmethod
     def parser(self, content, *args, **kwargs): pass
     @abstractmethod
     def formatter(self, content, *args, **kwargs): pass
-    @abstractmethod
-    def empty(self, content, *args, **kwargs): pass
 
     @property
     def filename(self): return ".".join([self.variable, str(self.typing.name).lower()])
@@ -109,9 +108,9 @@ class DataframeFile(File, type=pd.DataFrame):
         self.__index = list(index.keys())
 
     @kwargsdispatcher("method")
-    def loader(self, *args, file, mode, **kwargs): raise ValueError()
+    def loader(self, *args, file, mode, method, **kwargs): raise ValueError(str(method.name).lower())
     @kwargsdispatcher("method")
-    def saver(self, content, args, file, mode, **kwargs): raise ValueError()
+    def saver(self, content, args, file, mode, method, **kwargs): raise ValueError(str(method.name).lower())
 
     @loader.register.value(csv_eager)
     def loader_eager_csv(self, *args, file, mode, **kwargs):
@@ -140,6 +139,7 @@ class DataframeFile(File, type=pd.DataFrame):
     @saver.register.value(hdf_lazy)
     def saver_lazy_hdf(self, content, *args, file, mode, **kwargs): pass
 
+    def empty(self, content): return bool(content.empty) if content is not None else True
     def parser(self, content, *args, **kwargs):
         index = [column for column in self.index if column in content.columns]
         content = content.set_index(index, drop=True, inplace=False)
@@ -151,15 +151,6 @@ class DataframeFile(File, type=pd.DataFrame):
         columns = [column for column in self.index + self.columns if column in content.columns]
         return content[columns]
 
-    @typedispatcher
-    def empty(self, content): raise TypeError(type(content).__name__)
-    @empty.register(pd.DataFrame)
-    def dataframe(self, content): return bool(content.empty)
-    @empty.register(pd.Series)
-    def dataframe(self, content): return bool(content.empty)
-    @empty.register(type(None))
-    def null(self, content): return content is None
-
     @property
     def columns(self): return self.__columns
     @property
@@ -168,37 +159,6 @@ class DataframeFile(File, type=pd.DataFrame):
     def types(self): return self.__types
     @property
     def dates(self): return self.__dates
-
-
-class DatasetFile(File, type=xr.Dataset):
-    def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, **kwargs): pass
-
-    @kwargsdispatcher("method")
-    def loader(self, *args, file, mode, **kwargs): raise ValueError()
-    @kwargsdispatcher("method")
-    def saver(self, content, args, file, mode, **kwargs): raise ValueError()
-
-    @loader.register.value(nc_eager)
-    def loader_eager_nc(self, *args, file, mode, **kwargs): pass
-    @loader.register.value(nc_lazy)
-    def loader_lazy_nc(self, *args, file, mode, **kwargs): pass
-    @saver.register.value(nc_eager)
-    def saver_eager_nc(self, content, *args, file, mode, **kwargs): pass
-    @saver.register.value(nc_lazy)
-    def saver_lazy_nc(self, content, *args, file, mode, **kwargs): pass
-
-    def parser(self, content, *args, **kwargs): pass
-    def formatter(self, content, *args, **kwargs): pass
-
-    @typedispatcher
-    def empty(self, content): raise TypeError(type(content).__name__)
-    @empty.register(xr.Dataset)
-    def dataframe(self, content): return all([self.empty(dataarray) for dataarray in content.data_vars.values()])
-    @empty.register(xr.DataArray)
-    def dataframe(self, content): return bool(np.count_nonzero(~np.isnan(content.values)))
-    @empty.register(type(None))
-    def null(self, content): return content is None
 
 
 class ArchiveMeta(ABCMeta):
@@ -213,33 +173,33 @@ class ArchiveMeta(ABCMeta):
 
 class Archive(ABC, metaclass=ArchiveMeta):
     def __repr__(self): return f"{self.name}[{', '.join([name for name in self.files.keys()])}]"
-    def __init__(self, *args, repository, loading=[], saving=[], lock, **kwargs):
-        assert isinstance(loading, (File, list)) and isinstance(saving, (File, list))
-        loading = {str(file.variable): file for file in ([loading] if isinstance(loading, File) else loading)}
-        saving = {str(file.variable): file for file in ([saving] if isinstance(saving, File) else saving)}
+    def __init__(self, *args, repository, files=[], lock, **kwargs):
+        assert isinstance(files, list)
+        files = {str(file.variable): file for file in files}
         if not os.path.exists(repository):
             os.makedirs(repository)
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__repository = repository
-        self.__loading = loading
-        self.__saving = saving
+        self.__files = files
         self.__mutex = lock
 
     def load(self, *args, folder, **kwargs):
         folder = os.path.join(self.repository, folder) if folder is not None else self.repository
+        files = {name: file for name, file in self.files() if name in kwargs.get("files", self.files.keys())}
         if not os.path.exists(folder):
             return {}
         with self.mutex:
-            contents = {name: file.load(*args, folder=folder, **kwargs) for name, file in self.loading.items()}
+            contents = {name: file.load(*args, folder=folder, **kwargs) for name, file in files.items()}
             contents = {name: content for name, content in contents.items() if content is not None}
             return contents
 
     def save(self, contents, *args, folder, **kwargs):
         folder = os.path.join(self.repository, folder) if folder is not None else self.repository
+        files = {name: file for name, file in self.files() if name in kwargs.get("files", self.files.keys())}
         if not os.path.exists(folder):
             os.makedirs(folder)
         with self.mutex:
-            contents = {name: (file, contents.get(name, None)) for name, file in self.saving.items()}
+            contents = {name: (file, contents.get(name, None)) for name, file in files.items()}
             contents = {name: (file, content) for name, (file, content) in contents.items() if content is not None}
             for name, (file, content) in contents.items():
                 file.save(content, *args, folder=folder, **kwargs)
@@ -250,15 +210,13 @@ class Archive(ABC, metaclass=ArchiveMeta):
     def empty(self): return not bool(os.listdir(self.repository))
     @property
     def size(self): return len(os.listdir(self.repository))
-    @property
-    def files(self): return self.loading | self.saving
 
     @property
     def repository(self): return self.__repository
     @property
-    def loading(self): return self.__loading
-    @property
-    def saving(self): return self.__saving
+    def files(self): return self.__files
     @property
     def mutex(self): return self.__mutex
+    @property
+    def name(self): return self.__name
 

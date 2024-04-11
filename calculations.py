@@ -119,7 +119,7 @@ class Equation(Stage):
     def execute(self, order):
         executes = [stage.execute(order) for stage in self.domain]
         wrapper = lambda *arrays: self.function(*[execute(*arrays) for execute in executes])
-        wrapper.__name__ = str(self.name)
+        wrapper.__name__ = f"{str(self.name).lower()}|equation"
         return wrapper
 
     @property
@@ -166,7 +166,7 @@ class Source(Stage):
 
     def execute(self, order):
         wrapper = lambda *arrays: arrays[order.index(self)]
-        wrapper.__name__ = str(self.name)
+        wrapper.__name__ = f"{str(self.name).lower()}|source"
         return wrapper
 
     @property

@@ -13,7 +13,7 @@ from collections import namedtuple as ntuple
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DataframeTable", "DataframeOptions"]
+__all__ = ["Tabulation", "Tables", "Options"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -43,13 +43,13 @@ class Table(ABC, metaclass=TableMeta):
         self.__options = options
         self.__table = instance
 
-    def __setitem__(self, locator, content): self.place(locator, content)
-    def __getitem__(self, locator): return self.locate(locator)
+    def __setitem__(self, locator, content): self.put(locator, content)
+    def __getitem__(self, locator): return self.get(locator)
 
     @abstractmethod
-    def locate(self, locator, *args, **kwargs): pass
+    def put(self, locator, content, *args, **kwargs): pass
     @abstractmethod
-    def place(self, locator, content, *args, **kwargs): pass
+    def get(self, locator, *args, **kwargs): pass
     @abstractmethod
     def remove(self, content, *args, **kwargs): pass
     @abstractmethod
@@ -83,8 +83,8 @@ class DataframeOptions(ntuple("Options", "rows columns width format")):
     def __new__(cls, *args, **kwargs): return super().__new__(cls, *[kwargs[field] for field in cls._fields])
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
-    def place(self, locator, content, *args, **kwargs): self.table.loc[locator] = content
-    def locate(self, locator, **kwargs): return self.table.loc[locator]
+    def put(self, locator, content, *args, **kwargs): self.table.loc[locator] = content
+    def get(self, locator, **kwargs): return self.table.loc[locator]
 
     def remove(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
@@ -109,14 +109,28 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
             self.table.sort_values(column, axis=0, ascending=not bool(reverse), inplace=True, ignore_index=False)
 
     @property
+    def parameters(self): return dict(max_rows=self.options.rows, max_cols=self.options.columns, line_width=self.options.width, float_format=self.options.format)
+    @property
+    def string(self): return self.table.to_string(**self.parameters, show_dimensions=True)
+    @property
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
-    @property
-    def string(self):
-        parameters = dict(max_rows=self.options.rows, max_cols=self.options.columns, line_width=self.options.width, float_format=self.options.format)
-        return self.table.to_string(**parameters, show_dimensions=True)
 
+
+class Tabulation(ABC):
+    def __repr__(self): return f"{self.name}[{', '.join([name for name in self.files.keys()])}]"
+    def __getitem__(self, variable): return self.tables[variable]
+    def __init__(self, *args, tables=[], **kwargs):
+        assert isinstance(tables, list)
+        tables = {str(table.variable): table for table in tables}
+        self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__tables = tables
+
+    @property
+    def tables(self): return self.__tables
+    @property
+    def name(self): return self.__name
 
 
 

@@ -11,7 +11,7 @@ from abc import ABC, ABCMeta, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["LIFOQueue", "FIFOQueue", "LIPOQueue", "HIPOQueue"]
+__all__ = ["Queues"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
