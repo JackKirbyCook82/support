@@ -34,9 +34,10 @@ class QueueMeta(ABCMeta):
 class Queue(ABC, metaclass=QueueMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
-    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __bool__(self): return not self.empty
     def __len__(self): return self.size
+
+    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __init__(self, instance, *args, timeout=None, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__queue = instance

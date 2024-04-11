@@ -7,7 +7,6 @@ Created on Weds Jul 12 2023
 """
 
 import multiprocessing
-import numpy as np
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
@@ -33,16 +32,24 @@ class TableMeta(ABCMeta):
 class Table(ABC, metaclass=TableMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
-    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __bool__(self): return not self.empty if self.table is not None else False
-    def __str__(self): return self.string
     def __len__(self): return self.size
+
+    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
+    def __str__(self): return self.string
     def __init__(self, instance, *args, options, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__mutex = multiprocessing.RLock()
         self.__options = options
         self.__table = instance
 
+    def __setitem__(self, locator, content): self.place(locator, content)
+    def __getitem__(self, locator): return self.locate(locator)
+
+    @abstractmethod
+    def locate(self, locator, *args, **kwargs): pass
+    @abstractmethod
+    def place(self, locator, content, *args, **kwargs): pass
     @abstractmethod
     def remove(self, content, *args, **kwargs): pass
     @abstractmethod
@@ -76,6 +83,9 @@ class DataframeOptions(ntuple("Options", "rows columns width format")):
     def __new__(cls, *args, **kwargs): return super().__new__(cls, *[kwargs[field] for field in cls._fields])
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
+    def place(self, locator, content, *args, **kwargs): self.table.loc[locator] = content
+    def locate(self, locator, **kwargs): return self.table.loc[locator]
+
     def remove(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
@@ -93,11 +103,10 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
             self.table.update(dataframe)
 
     def sort(self, column, *args, reverse=False, **kwargs):
+        assert isinstance(column, str) and isinstance(reverse, bool)
         assert column in self.table.columns
-        assert isinstance(reverse, bool)
         with self.mutex:
-            ascending = not bool(reverse)
-            self.table.sort_values(column, axis=0, ascending=ascending, inplace=True, ignore_index=False)
+            self.table.sort_values(column, axis=0, ascending=not bool(reverse), inplace=True, ignore_index=False)
 
     @property
     def empty(self): return bool(self.table.empty)
