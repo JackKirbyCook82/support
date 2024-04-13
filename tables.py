@@ -119,18 +119,25 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
 
 
 class Tabulation(ABC):
-    def __repr__(self): return f"{self.name}[{', '.join([name for name in self.files.keys()])}]"
+    def __repr__(self): return f"{self.name}[{', '.join([variable for variable in self.files.keys()])}]"
     def __getitem__(self, variable): return self.tables[variable]
     def __init__(self, *args, tables=[], **kwargs):
         assert isinstance(tables, list)
-        tables = {str(table.variable): table for table in tables}
+        assert all([isinstance(instance, Table) for instance in tables])
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__tables = tables
+        self.__tables = {str(instance.variable): instance for instance in tables}
 
     @property
     def tables(self): return self.__tables
     @property
     def name(self): return self.__name
+
+
+class Tables:
+    Dataframe = DataframeTable
+
+class Options:
+    Dataframe = DataframeOptions
 
 
 

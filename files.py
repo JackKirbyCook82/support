@@ -30,7 +30,6 @@ FileTyping = IntEnum("FileTyping", ["NC", "HDF", "CSV"], start=1)
 FileTiming = IntEnum("FileTiming", ["EAGER", "LAZY"], start=1)
 FileMethod = ntuple("FileMethod", "filetyping filetiming")
 FileDataframe = ntuple("FileDataframe", "name index columns")
-FileDataset = ntuple("FileDataset", "")
 
 csv_eager = FileMethod(FileTyping.CSV, FileTiming.EAGER)
 csv_lazy = FileMethod(FileTyping.CSV, FileTiming.LAZY)
@@ -51,8 +50,8 @@ class File(ABC):
         self.__timing = timing
         self.__typing = typing
 
-    def load(self, *args, folder, **kwargs):
-        file = os.path.join(folder, self.filename)
+    def load(self, *args, folder=None, **kwargs):
+        file = os.path.join(folder, self.filename) if folder is not None else self.filename
         method = FileMethod(self.typing, self.timing)
         if not os.path.exists(file):
             return
@@ -62,10 +61,10 @@ class File(ABC):
             return
         return content
 
-    def save(self, content, *args, folder, **kwargs):
+    def save(self, content, *args, folder=None, **kwargs):
         if self.empty(content):
             return
-        file = os.path.join(folder, self.filename)
+        file = os.path.join(folder, self.filename) if folder is not None else self.filename
         method = FileMethod(self.typing, self.timing)
         content = self.formatter(content, *args, **kwargs)
         self.saver(content, *args, file=file, method=method, **kwargs)
@@ -172,36 +171,34 @@ class ArchiveMeta(ABCMeta):
 
 
 class Archive(ABC, metaclass=ArchiveMeta):
-    def __repr__(self): return f"{self.name}[{', '.join([name for name in self.files.keys()])}]"
+    def __repr__(self): return f"{self.name}[{', '.join([variable for variable in self.files.keys()])}]"
     def __init__(self, *args, repository, files=[], lock, **kwargs):
         assert isinstance(files, list)
-        files = {str(file.variable): file for file in files}
+        assert all([isinstance(file, File) for file in files])
         if not os.path.exists(repository):
             os.makedirs(repository)
         self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__files = {str(file.variable): file for file in files}
         self.__repository = repository
-        self.__files = files
         self.__mutex = lock
 
-    def load(self, *args, folder, **kwargs):
+    def load(self, *args, folder=None, **kwargs):
         folder = os.path.join(self.repository, folder) if folder is not None else self.repository
-        files = {name: file for name, file in self.files() if name in kwargs.get("files", self.files.keys())}
         if not os.path.exists(folder):
             return {}
         with self.mutex:
-            contents = {name: file.load(*args, folder=folder, **kwargs) for name, file in files.items()}
-            contents = {name: content for name, content in contents.items() if content is not None}
+            contents = {variable: file.load(*args, folder=folder, **kwargs) for variable, file in self.files.items()}
+            contents = {variable: content for variable, content in contents.items() if content is not None}
             return contents
 
-    def save(self, contents, *args, folder, **kwargs):
+    def save(self, contents, *args, folder=None, **kwargs):
         folder = os.path.join(self.repository, folder) if folder is not None else self.repository
-        files = {name: file for name, file in self.files() if name in kwargs.get("files", self.files.keys())}
         if not os.path.exists(folder):
             os.makedirs(folder)
         with self.mutex:
-            contents = {name: (file, contents.get(name, None)) for name, file in files.items()}
-            contents = {name: (file, content) for name, (file, content) in contents.items() if content is not None}
-            for name, (file, content) in contents.items():
+            contents = {variable: (file, contents.get(variable, None)) for variable, file in self.files.items()}
+            contents = {variable: (file, content) for variable, (file, content) in contents.items() if content is not None}
+            for variable, (file, content) in contents.items():
                 file.save(content, *args, folder=folder, **kwargs)
 
     @property
@@ -219,4 +216,10 @@ class Archive(ABC, metaclass=ArchiveMeta):
     def mutex(self): return self.__mutex
     @property
     def name(self): return self.__name
+
+
+class Files:
+    Dataframe = DataframeFile
+
+
 

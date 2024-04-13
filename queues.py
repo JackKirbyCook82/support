@@ -11,7 +11,7 @@ from abc import ABC, ABCMeta, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Queues"]
+__all__ = ["Stack", "Queues"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -40,8 +40,8 @@ class Queue(ABC, metaclass=QueueMeta):
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __init__(self, instance, *args, timeout=None, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__queue = instance
         self.__timeout = timeout
+        self.__queue = instance
 
     @abstractmethod
     def get(self, *args, **kwargs): pass
@@ -107,5 +107,28 @@ class FIFOQueue(StandardQueue, type=queue.Queue): pass
 class LIFOQueue(StandardQueue, type=queue.LifoQueue): pass
 class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=True): pass
 class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=False): pass
+
+
+class Stack(ABC):
+    def __repr__(self): return f"{self.name}[{', '.join([variable for variable in self.queues.keys()])}]"
+    def __getitem__(self, variable): return self.queues[variable]
+    def __init__(self, *args, queues=[], **kwargs):
+        assert isinstance(queues, list)
+        assert all([isinstance(instance, Queue) for instance in Queue])
+        self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__queues = {str(instance.variable): instance for instance in queues}
+
+    @property
+    def tables(self): return self.__tables
+    @property
+    def name(self): return self.__name
+
+
+class Queues:
+    FIFO = FIFOQueue
+    LIFO = LIFOQueue
+    HIPO = HIPOQueue
+    LIPO = LIPOQueue
+
 
 

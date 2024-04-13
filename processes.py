@@ -36,10 +36,9 @@ class Process(ABC):
 
 
 class Calculator(Process, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
+    def __init_subclass__(cls, *args, calculations={}, **kwargs):
         super().__init_subclass__(*args, **kwargs)
-        calculations = {key: value for key, value in getattr(cls, "__calculations__", {}).items()}
-        calculations.update(kwargs.get("calculations", {}))
+        calculations = {key: value for key, value in calculations.items()}
         variable = {type(key) for key in calculations.keys()}
         assert all([callable(calculation) for calculation in calculations.values()])
         assert 0 <= len(variable) <= 1
@@ -63,11 +62,9 @@ class Calculator(Process, ABC):
 
 
 class Downloader(Process, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
+    def __init_subclass__(cls, *args, pages={}, **kwargs):
         super().__init_subclass__(*args, **kwargs)
-        pages = {key: value for key, value in getattr(cls, "__pages__", {}).items()}
-        pages.update(kwargs.get("pages", {}))
-        cls.__pages__ = pages
+        cls.__pages__ = {key: value for key, value in pages.items()}
 
     def __init__(self, *args, feed, name=None, **kwargs):
         super().__init__(*args, name=name, **kwargs)
@@ -190,42 +187,63 @@ class Writer(Process, ABC):
         self.__destination = destination
 
     @abstractmethod
-    def write(self, content, *args, **kwargs): pass
+    def write(self, query, *args, **kwargs): pass
     @property
     def destination(self): return self.__destination
 
 
-class Loader(Reader, ABC):
+class Loader(Reader):
+    def __init_subclass__(cls, *args, query=lambda folder: dict(), **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        assert callable(query)
+        cls.__query__ = query
+
     def __init__(self, *args, mode="r", **kwargs):
         super().__init__(*args, **kwargs)
+        self.__query = self.__class__.__query__
         self.__mode = mode
 
-    def read(self, *args, folder, **kwargs):
-        return self.source.load(*args, folder=folder, mode=self.mode, **kwargs)
-
-    def reader(self, *args, **kwargs):
+    def execute(self, *args, **kwargs):
         for folder in self.source.directory:
-            contents = self.source.load(*args, folder=folder, mode=self.mode, **kwargs)
-            assert isinstance(contents, dict)
+            query = self.query(folder)
+            contents = self.read(*args, folder=folder, **kwargs)
+            assert isinstance(query, dict) and isinstance(contents, dict)
             if not bool(contents):
                 continue
-            yield folder, contents
+            yield query | contents
 
+    def read(self, *args, folder=None, **kwargs):
+        return self.source.load(*args, folder=folder, mode=self.mode, **kwargs)
+
+    @property
+    def query(self): return self.__query
     @property
     def mode(self): return self.__mode
 
 
-class Saver(Writer, ABC):
+class Saver(Writer):
+    def __init_subclass__(cls, *args, folder=lambda query: None, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        assert callable(folder)
+        cls.__folder__ = folder
+
     def __init__(self, *args, mode, **kwargs):
         super().__init__(*args, **kwargs)
+        self.__folder = self.__class__.__folder__
         self.__mode = mode
 
-    def write(self, contents, *args, folder, **kwargs):
-        assert isinstance(contents, dict)
-        if not bool(contents):
-            return
-        self.destination.save(contents, *args, folder=folder, mode=self.mode, **kwargs)
+    def execute(self, query, *args, **kwargs):
+        assert isinstance(query, dict)
+        folder = self.folder(query)
+        self.write(query, *args, folder=folder, **kwargs)
+
+    def write(self, query, *args, folder=None, **kwargs):
+        self.destination.save(query, *args, folder=folder, mode=self.mode, **kwargs)
 
     @property
+    def folder(self): return self.__folder
+    @property
     def mode(self): return self.__mode
+
+
 
