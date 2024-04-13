@@ -29,7 +29,6 @@ __logger__ = logging.getLogger(__name__)
 FileTyping = IntEnum("FileTyping", ["NC", "HDF", "CSV"], start=1)
 FileTiming = IntEnum("FileTiming", ["EAGER", "LAZY"], start=1)
 FileMethod = ntuple("FileMethod", "filetyping filetiming")
-FileDataframe = ntuple("FileDataframe", "name index columns")
 
 csv_eager = FileMethod(FileTyping.CSV, FileTiming.EAGER)
 csv_lazy = FileMethod(FileTyping.CSV, FileTiming.LAZY)
@@ -39,9 +38,21 @@ nc_eager = FileMethod(FileTyping.NC, FileTiming.EAGER)
 nc_lazy = FileMethod(FileTyping.NC, FileTiming.LAZY)
 
 
-class File(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.DataType = kwargs.get("type", getattr(cls, "DataType", None))
+class FileMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        cls.Variable = kwargs.get("variable", getattr(cls, "Variable", None))
+        cls.Type = kwargs.get("type", getattr(cls, "Type", None))
+
+    def __call__(cls, *args, **kwargs):
+        assert cls.Variable is not None
+        assert cls.Type is not None
+        parameters = dict(variable=cls.Variable)
+        instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
+        return instance
+
+
+class File(ABC, metaclass=FileMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __init__(self, *args, variable, typing, timing, **kwargs):
@@ -94,13 +105,14 @@ class File(ABC):
 
 
 class DataframeFile(File, type=pd.DataFrame):
-    def __init_subclass__(cls, *args, variable, index, columns, **kwargs):
+    def __init_subclass__(cls, *args, index, columns, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
         assert isinstance(index, dict) and isinstance(columns, dict)
-        cls.__parameters__ = FileDataframe(variable, index, columns)
+        cls.__axes__ = (index, columns)
 
     def __init__(self, *args, **kwargs):
-        variable, index, columns = self.__class__.__parameters__
-        super().__init__(*args, variable=variable, **kwargs)
+        index, columns = self.__class__.__axes__
+        super().__init__(*args, **kwargs)
         self.__types = {key: value for key, value in (index | columns).items() if not any([value is str, value is np.datetime64])}
         self.__dates = [key for key, value in (index | columns).items() if value is np.datetime64]
         self.__columns = list(columns.keys())
@@ -172,13 +184,15 @@ class ArchiveMeta(ABCMeta):
 
 class Archive(ABC, metaclass=ArchiveMeta):
     def __repr__(self): return f"{self.name}[{', '.join([variable for variable in self.files.keys()])}]"
-    def __init__(self, *args, repository, files=[], lock, **kwargs):
-        assert isinstance(files, list)
-        assert all([isinstance(file, File) for file in files])
+    def __init__(self, *args, repository, load=[], save=[], lock, **kwargs):
+        assert isinstance(load, list) and isinstance(save, list)
+        assert all([isinstance(file, File) for file in load])
+        assert all([isinstance(file, File) for file in save])
         if not os.path.exists(repository):
             os.makedirs(repository)
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__files = {str(file.variable): file for file in files}
+        self.__loading = {str(file.variable): file for file in load}
+        self.__saving = {str(file.variable): file for file in save}
         self.__repository = repository
         self.__mutex = lock
 
@@ -187,7 +201,7 @@ class Archive(ABC, metaclass=ArchiveMeta):
         if not os.path.exists(folder):
             return {}
         with self.mutex:
-            contents = {variable: file.load(*args, folder=folder, **kwargs) for variable, file in self.files.items()}
+            contents = {variable: file.load(*args, folder=folder, **kwargs) for variable, file in self.loading.items()}
             contents = {variable: content for variable, content in contents.items() if content is not None}
             return contents
 
@@ -196,7 +210,7 @@ class Archive(ABC, metaclass=ArchiveMeta):
         if not os.path.exists(folder):
             os.makedirs(folder)
         with self.mutex:
-            contents = {variable: (file, contents.get(variable, None)) for variable, file in self.files.items()}
+            contents = {variable: (file, contents.get(variable, None)) for variable, file in self.saving.items()}
             contents = {variable: (file, content) for variable, (file, content) in contents.items() if content is not None}
             for variable, (file, content) in contents.items():
                 file.save(content, *args, folder=folder, **kwargs)
@@ -211,7 +225,9 @@ class Archive(ABC, metaclass=ArchiveMeta):
     @property
     def repository(self): return self.__repository
     @property
-    def files(self): return self.__files
+    def loading(self): return self.__loading
+    @property
+    def saving(self): return self.__saving
     @property
     def mutex(self): return self.__mutex
     @property

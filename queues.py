@@ -18,16 +18,19 @@ __license__ = "MIT License"
 
 class QueueMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
-        cls.QueueType = kwargs.get("type", getattr(cls, "QueueType", None))
+        cls.Variable = kwargs.get("variable", getattr(cls, "Variable", None))
+        cls.Type = kwargs.get("type", getattr(cls, "Type", None))
 
     def __call__(cls, *args, capacity=None, contents=[], **kwargs):
-        assert cls.QueueType is not None
+        assert cls.Variable is not None
+        assert cls.Type is not None
         assert isinstance(contents, list)
         assert (len(contents) <= capacity) if bool(capacity) else True
-        instance = cls.QueueType(maxsize=capacity if capacity is not None else 0)
+        parameters = dict(variable=cls.Variable)
+        instance = cls.Type(maxsize=capacity if capacity is not None else 0)
         for content in contents:
             instance.put(content)
-        wrapper = super(QueueMeta, cls).__call__(instance, *args, queue=instance, **kwargs)
+        wrapper = super(QueueMeta, cls).__call__(instance, *args, **parameters, **kwargs)
         return wrapper
 
 
@@ -38,8 +41,9 @@ class Queue(ABC, metaclass=QueueMeta):
     def __len__(self): return self.size
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, instance, *args, timeout=None, **kwargs):
+    def __init__(self, instance, *args, variable, timeout=None, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__variable = variable
         self.__timeout = timeout
         self.__queue = instance
 
@@ -54,9 +58,11 @@ class Queue(ABC, metaclass=QueueMeta):
     def size(self): return super().qsize()
 
     @property
-    def queue(self): return self.__queue
+    def variable(self): return self.__variable
     @property
     def timeout(self): return self.__timeout
+    @property
+    def queue(self): return self.__queue
 
 
 class StandardQueue(Queue):

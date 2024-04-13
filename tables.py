@@ -20,13 +20,18 @@ __license__ = "MIT License"
 
 class TableMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
-        cls.TableType = kwargs.get("type", getattr(cls, "TableType", None))
+        cls.Variable = kwargs.get("variable", getattr(cls, "Variable", None))
+        cls.Options = kwargs.get("options", getattr(cls, "Options", None))
+        cls.Type = kwargs.get("type", getattr(cls, "Type", None))
 
     def __call__(cls, *args, **kwargs):
-        assert cls.TableType is not None
-        instance = cls.TableType()
-        instance = super(TableMeta, cls).__call__(instance, *args, table=instance, **kwargs)
-        return instance
+        assert cls.Variable is not None
+        assert cls.Options is not None
+        assert cls.Type is not None
+        parameters = dict(variable=cls.Variable, options=cls.Options)
+        instance = cls.Type()
+        wrapper = super(TableMeta, cls).__call__(instance, *args, **parameters, **kwargs)
+        return wrapper
 
 
 class Table(ABC, metaclass=TableMeta):
@@ -37,9 +42,11 @@ class Table(ABC, metaclass=TableMeta):
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __str__(self): return self.string
-    def __init__(self, instance, *args, options, **kwargs):
+    def __init__(self, instance, *args, variable, options, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__mutex = multiprocessing.RLock()
+        self.__variable = variable
+        self.__options = options
         self.__options = options
         self.__table = instance
 
@@ -68,19 +75,26 @@ class Table(ABC, metaclass=TableMeta):
     def string(self): pass
 
     @property
-    def name(self): return self.__name
-    @property
-    def mutex(self): return self.__mutex
-    @property
-    def options(self): return self.__options
-    @property
     def table(self): return self.__table
     @table.setter
     def table(self, table): self.__table = table
 
+    @property
+    def variable(self): return self.__variable
+    @property
+    def options(self): return self.__options
+    @property
+    def mutex(self): return self.__mutex
+    @property
+    def name(self): return self.__name
 
-class DataframeOptions(ntuple("Options", "rows columns width format")):
+
+class DataframeOptions(ntuple("Options", "rows columns width formats numbers")):
     def __new__(cls, *args, **kwargs): return super().__new__(cls, *[kwargs[field] for field in cls._fields])
+
+    @property
+    def parameters(self): return dict(max_rows=self.rows, max_cols=self.columns, line_width=self.width, float_format=self.numbers, formatters=self.formats)
+
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
     def put(self, locator, content, *args, **kwargs): self.table.loc[locator] = content
@@ -109,9 +123,7 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
             self.table.sort_values(column, axis=0, ascending=not bool(reverse), inplace=True, ignore_index=False)
 
     @property
-    def parameters(self): return dict(max_rows=self.options.rows, max_cols=self.options.columns, line_width=self.options.width, float_format=self.options.format)
-    @property
-    def string(self): return self.table.to_string(**self.parameters, show_dimensions=True)
+    def string(self): return self.table.to_string(**self.options.parameters, show_dimensions=True)
     @property
     def empty(self): return bool(self.table.empty)
     @property
