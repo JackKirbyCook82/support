@@ -12,17 +12,16 @@ import types
 import logging
 import traceback
 import threading
-from abc import ABC, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["MainThread", "SideThread"]
+__all__ = ["MainThread", "SideThread", "CycleThread"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-class Interface(ABC):
+class Thread(object):
     def __repr__(self): return self.name
     def __init__(self, routine, *args, **kwargs):
         assert callable(routine)
@@ -30,7 +29,7 @@ class Interface(ABC):
         self.__routine = routine
         self.__arguments = list()
         self.__parameters = dict()
-        self.__results = None
+        self.__results = []
 
     def setup(self, *args, **kwargs):
         self.arguments.extend(list(args)) if args else False
@@ -47,13 +46,16 @@ class Interface(ABC):
         else:
             __logger__.info(f"Completed: {repr(self)}")
 
-    @abstractmethod
-    def process(self, *args, **kwargs): pass
+    def process(self, *args, **kwargs):
+        routine = self.routine.__call__ if hasattr(self.routine, "__call__") else self.routine
+        results = routine(*args, **kwargs)
+        generator = results if isinstance(results, types.GeneratorType) else iter([results])
+        results = list(filter(None, generator))
+        assert isinstance(results, list)
+        self.results.append(results)
 
     @property
     def results(self): return self.__results
-    @results.setter
-    def results(self, results): self.__results = results
     @property
     def arguments(self): return self.__arguments
     @property
@@ -64,17 +66,14 @@ class Interface(ABC):
     def name(self): return self.__name
 
 
-class MainThread(Interface):
-    def process(self, *args, **kwargs):
-        routine = self.routine.__call__ if hasattr(self.routine, "__call__") else self.routine
-        self.results = routine(*args, **kwargs)
+class MainThread(Thread):
+    pass
 
 
-class SideThread(Interface, threading.Thread):
+class SideThread(Thread, threading.Thread):
     def __init__(self, *args, **kwargs):
-        name = kwargs.get("name", self.__class__.__name__)
-        threading.Thread.__init__(self, name=name, daemon=False)
-        Interface.__init__(self, *args, **kwargs)
+        Thread.__init__(self, *args, **kwargs)
+        threading.Thread.__init__(self, name=self.name, daemon=False)
 
     def start(self, *args, **kwargs):
         __logger__.info(f"Started: {repr(self)}")
@@ -84,11 +83,29 @@ class SideThread(Interface, threading.Thread):
         threading.Thread.join(self)
         __logger__.info(f"Stopped: {repr(self)}")
 
+
+class CycleThread(SideThread):
+    def __init__(self, *args, wait=None, **kwargs):
+        SideThread.__init__(self, *args, **kwargs)
+        self.__status = True
+        self.__wait = wait
+
     def process(self, *args, **kwargs):
-        routine = self.routine.__call__ if hasattr(self.routine, "__call__") else self.routine
-        results = routine(*args, **kwargs)
-        generator = results if isinstance(results, types.GeneratorType) else iter([results])
-        self.results = list(generator)
+        while bool(self.status):
+            super().process(*args, **kwargs)
+            if self.wait is not None:
+                time.sleep(self.wait)
+
+    def cease(self, *args, **kwargs):
+        __logger__.info(f"Ceased: {repr(self)}")
+        self.status = False
+
+    @property
+    def status(self): return self.__status
+    @status.setter
+    def status(self, status): self.__status = status
+    @property
+    def wait(self): return self.__wait
 
 
 

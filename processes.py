@@ -11,16 +11,14 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from functools import reduce
-from itertools import product
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
-from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Calculator", "Downloader", "Reader", "Writer", "Loader", "Saver", "Filter", "Filtering"]
+__all__ = ["Process", "Calculator", "Downloader", "Reader", "Writer", "Loader", "Saver", "Filter", "Criterion"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -32,7 +30,16 @@ class Process(ABC):
     @size.register(xr.DataArray)
     def size_dataarray(self, dataarray): return np.count_nonzero(~np.isnan(dataarray.values))
     @size.register(pd.Series)
-    def size_dataframe(self, dataframe): return len(dataframe.dropna(how="all", inplace=False).index)
+    def size_series(self, series): return len(series.dropna(how="all", inplace=False).index)
+
+    @typedispatcher
+    def empty(self, content): raise TypeError(type(content).__name__)
+    @empty.register(xr.DataArray)
+    def empty_dataarray(self, dataarray): return not bool(np.count_nonzero(~np.isnan(dataarray.values)))
+    @empty.register(pd.Series)
+    def empty_series(self, series): return bool(series.empty)
+    @empty.register(pd.DataFrame)
+    def empty_dataframe(self, dataframe): return bool(dataframe.empty)
 
 
 class Calculator(Process, ABC):
@@ -78,55 +85,51 @@ class Downloader(Process, ABC):
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
     def __repr__(self): return f"{type(self).__name__}[{str(self.variable)}, {str(self.threshold)}]"
-    def __call__(self, content): return self.execute(content)
+    def __call__(self, content, variable):
+        column = self.column(variable)
+        return self.execute(content, column)
+
+    @typedispatcher
+    def column(self, variable): pass
+    @column.register(type(None))
+    def single(self, empty): return self.variable
+    @column.register(str)
+    def double(self, variable): return tuple([self.variable, variable])
+    @column.register(list)
+    def multiple(self, variables): return tuple([self.variable] + list(variables))
 
     @abstractmethod
-    def execute(self, content): pass
+    def execute(self, content, column): pass
 
 class Floor(Criteria):
-    def execute(self, content): return content[self.variable] >= self.threshold
+    def execute(self, content, column): return content[column] >= self.threshold
 
 class Ceiling(Criteria):
-    def execute(self, content): return content[self.variable] <= self.threshold
+    def execute(self, content, column): return content[column] <= self.threshold
 
 class Null(Criteria):
     @typedispatcher
-    def execute(self, content): raise TypeError(type(content).__name__)
+    def execute(self, content, column): raise TypeError(type(content).__name__)
     @execute.register(pd.DataFrame)
-    def dataframe(self, content): return content[self.variable].notna()
+    def dataframe(self, content, column): return content[column].notna()
     @execute.register(xr.Dataset)
-    def dataset(self, content): return content[self.variable].notnull()
+    def dataset(self, content, column): return content[column].notnull()
 
 
-class Filtering(object):
+class Criterion(object):
     FLOOR = Floor
     CEILING = Ceiling
     NULL = Null
 
 class Filter(Process, ABC):
-    def __init__(self, *args, filtering={},  **kwargs):
+    def __init__(self, *args, criterion={},  **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(filtering, dict)
-        assert all([issubclass(criteria, Criteria) for criteria in filtering.keys()])
-        assert all([isinstance(parameter, (list, dict)) for parameter in filtering.values()])
-        filtering = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in filtering.items()}
-        filtering = [criteria(variable, threshold) for criteria, parameters in filtering.items() for variable, threshold in parameters.items()]
-        self.__filtering = filtering
-
-    def filter(self, content, *args, select={}, **kwargs):
-        if not bool(select):
-            criterion = self.criterion(content, self.filtering)
-            mask = self.mask(criterion)
-            content = self.where(content, mask)
-        else:
-            axes = self.axes(content, select)
-            selected = self.select(content, select)
-            criterion = self.criterion(selected, self.filtering)
-            mask = self.mask(criterion)
-            selected = self.where(selected, mask)
-            index = self.index(selected, axes)
-            content = content.loc[index]
-        return content
+        assert isinstance(criterion, dict)
+        assert all([issubclass(criteria, Criteria) for criteria in criterion.keys()])
+        assert all([isinstance(parameter, (list, dict)) for parameter in criterion.values()])
+        criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
+        criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
+        self.__criterion = criterion
 
     @typedispatcher
     def where(self, content, mask=None): raise TypeError(type(content).__name__)
@@ -135,39 +138,13 @@ class Filter(Process, ABC):
     @where.register(pd.DataFrame)
     def where_dataframe(self, dataframe, mask=None): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
 
-    @typedispatcher
-    def select(self, content, select={}): raise TypeError(type(content).__name__)
-    @select.register(xr.Dataset)
-    def select_dataset(self, dataset, select={}): return dataset.sel({key: value for key, value in select.items()}).expand_dims(list(select.keys()))
-    @select.register(pd.DataFrame)
-    def select_dataframe(self, dataframe, select={}): return dataframe.iloc[reduce(lambda x, y: x & y, [dataframe.index.get_level_values(key) == value for key, value in select.items()])]
-
-    @typedispatcher
-    def axes(self, content, select={}): raise TypeError(type(content).__name__)
-    @axes.register(xr.Dataset)
-    def axes_dataset(self, dataset, select={}): return ODict([(key, list(dataset.coords[key].values)) for key in select.keys()])
-    @axes.register(pd.DataFrame)
-    def axes_dataframe(self, dataframe, select={}): return ODict([(key, list(set(dataframe.index.get_level_values(key)))) for key in select.keys()])
-
-    @typedispatcher
-    def index(self, content, axes={}): raise TypeError(type(content).__name__)
-    @index.register(xr.Dataset)
-    def index_dataset(self, dataset, axes={}): return ODict([(key, list(dataarray.values)) for key, dataarray in dataset.coords.items() if key not in axes.keys()]) | axes
-    @index.register(pd.DataFrame)
-    def index_dataframe(self, dataframe, axes={}):
-        index = dataframe.index.to_frame().reset_index(drop=True, inplace=False).drop(list(axes.keys()), axis=1, inplace=False)
-        axes = product(*[[(key, value) for value in values] for key, values in axes.items()])
-        axes = [pd.DataFrame.from_records({key: [value] * len(index) for (key, value) in list(axis)}) for axis in iter(axes)]
-        index = pd.concat([pd.concat([index, axis], axis=1) for axis in axes], axis=0)
-        return pd.MultiIndex.from_frame(index[dataframe.index.names])
-
-    @staticmethod
-    def criterion(content, filtering): return [criteria(content) for criteria in filtering]
-    @staticmethod
-    def mask(criterion): return reduce(lambda x, y: x & y, criterion) if bool(criterion) else None
+    def mask(self, content, variable=None):
+        criterion = [criteria(content, variable=variable) for criteria in self.criterion]
+        mask = reduce(lambda x, y: x & y, criterion) if bool(criterion) else None
+        return mask
 
     @property
-    def filtering(self): return self.__filtering
+    def criterion(self): return self.__criterion
 
 
 class Reader(Process, ABC):
@@ -204,16 +181,19 @@ class Loader(Reader):
         self.__mode = mode
 
     def execute(self, *args, **kwargs):
+        if bool(self.source.empty):
+            return
         for folder in self.source.directory:
             query = self.query(folder)
+            assert isinstance(query, dict)
             contents = self.read(*args, folder=folder, **kwargs)
-            assert isinstance(query, dict) and isinstance(contents, dict)
+            assert isinstance(contents, dict)
             if not bool(contents):
                 continue
             yield query | contents
 
     def read(self, *args, folder=None, **kwargs):
-        return self.source.load(*args, folder=folder, mode=self.mode, **kwargs)
+        return self.source.read(*args, folder=folder, mode=self.mode, **kwargs)
 
     @property
     def query(self): return self.__query
@@ -232,13 +212,15 @@ class Saver(Writer):
         self.__folder = self.__class__.__folder__
         self.__mode = mode
 
-    def execute(self, query, *args, **kwargs):
-        assert isinstance(query, dict)
-        folder = self.folder(query)
-        self.write(query, *args, folder=folder, **kwargs)
+    def execute(self, contents, *args, **kwargs):
+        assert isinstance(contents, dict)
+        if not bool(contents):
+            return
+        folder = self.folder(contents)
+        self.write(contents, *args, folder=folder, **kwargs)
 
     def write(self, query, *args, folder=None, **kwargs):
-        self.destination.save(query, *args, folder=folder, mode=self.mode, **kwargs)
+        self.destination.write(query, *args, folder=folder, mode=self.mode, **kwargs)
 
     @property
     def folder(self): return self.__folder

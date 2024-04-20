@@ -96,9 +96,34 @@ class DataframeOptions(ntuple("Options", "rows columns width formats numbers")):
     def parameters(self): return dict(max_rows=self.rows, max_cols=self.columns, line_width=self.width, float_format=self.numbers, formatters=self.formats)
 
 
+class DataframeLocatorError(Exception):
+    def __str__(self): return f"{self.__class__.__name__}[{type(self.index).__name__}, {type(self.column).__name__}]"
+    def __init__(self, index, column): self.__index, self.__column = index, column
+
+    @property
+    def index(self): return self.__index
+    @property
+    def column(self): return self.__column
+
+
 class DataframeTable(Table, ABC, type=pd.DataFrame):
-    def put(self, locator, content, *args, **kwargs): self.table.loc[locator] = content
-    def get(self, locator, **kwargs): return self.table.loc[locator]
+    def put(self, locator, content, *args, **kwargs):
+        index, column = locator
+        if isinstance(index, (int, slice)) and isinstance(column, (int, slice)):
+            self.table.iloc[index, column] = content
+        elif isinstance(index, (str, list, slice)) and isinstance(column, (str, list)):
+            self.table.loc[index, column] = content
+        else:
+            raise DataframeLocatorError(index, column)
+
+    def get(self, locator, **kwargs):
+        index, column = locator
+        if isinstance(index, (int, slice)) and isinstance(column, (int, slice)):
+            return self.table.iloc[index, column]
+        elif isinstance(index, (str, list, slice)) and isinstance(column, (str, list)):
+            return self.table.loc[index, column]
+        else:
+            raise DataframeLocatorError(index, column)
 
     def remove(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
@@ -121,6 +146,11 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
         assert column in self.table.columns
         with self.mutex:
             self.table.sort_values(column, axis=0, ascending=not bool(reverse), inplace=True, ignore_index=False)
+
+    def truncate(self, rows):
+        assert isinstance(rows, int)
+        with self.mutex:
+            self.table = self.table.head(rows)
 
     @property
     def string(self): return self.table.to_string(**self.options.parameters, show_dimensions=True)

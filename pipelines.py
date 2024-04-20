@@ -13,28 +13,10 @@ from abc import ABC, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Stage", "Routine", "CycleProducer", "Producer", "Processor", "Consumer", "Breaker"]
+__all__ = ["Stage", "Routine", "Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
-
-
-class Breaker(object):
-    def __repr__(self): return f"{str(self.name)}[{str(bool(self))}]"
-    def __bool__(self): return bool(self.status)
-    def __init__(self, *args, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__status = True
-
-    def stop(self): self.status = False
-    def reset(self): self.status = True
-
-    @property
-    def name(self): return self.__name
-    @property
-    def status(self): return self.__status
-    @status.setter
-    def status(self, status): self.__status = status
 
 
 class Stage(ABC):
@@ -118,29 +100,6 @@ class Producer(Generator, ABC, title="Produced"):
     def process(self, *args, **kwargs):
         generator = self.generator(*args, **kwargs)
         yield from generator
-
-
-class CycleProducer(Producer, ABC):
-    def __init__(self, *args, breaker, wait=None, **kwargs):
-        assert isinstance(breaker, Breaker)
-        super().__init__(*args, **kwargs)
-        self.__breaker = breaker
-        self.__wait = wait
-
-    @staticmethod
-    def prepare(*args, **kwargs): return {}
-    def process(self, *args, **kwargs):
-        parameters = self.prepare(*args, **kwargs)
-        kwargs = kwargs | parameters
-        while bool(self.breaker):
-            generator = self.generator(*args, **kwargs)
-            yield from generator
-            time.sleep(self.wait) if self.wait is not None else True
-
-    @property
-    def breaker(self): return self.__breaker
-    @property
-    def wait(self): return self.__wait
 
 
 class Processor(Generator, ABC, title="Processed"):
