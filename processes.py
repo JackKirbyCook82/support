@@ -18,7 +18,7 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Process", "Calculator", "Downloader", "Reader", "Writer", "Loader", "Saver", "Filter", "Criterion"]
+__all__ = ["Process", "Calculator", "Downloader", "Reader", "Writer", "Filter", "Criterion"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -83,6 +83,28 @@ class Downloader(Process, ABC):
     def pages(self): return self.__pages
 
 
+class Reader(Process, ABC):
+    def __init__(self, *args, source, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__source = source
+
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
+    @property
+    def source(self): return self.__source
+
+
+class Writer(Process, ABC):
+    def __init__(self, *args, destination, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__destination = destination
+
+    @abstractmethod
+    def write(self, query, *args, **kwargs): pass
+    @property
+    def destination(self): return self.__destination
+
+
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
     def __repr__(self): return f"{type(self).__name__}[{str(self.variable)}, {str(self.threshold)}]"
     def __call__(self, content, variable):
@@ -145,87 +167,6 @@ class Filter(Process, ABC):
 
     @property
     def criterion(self): return self.__criterion
-
-
-class Reader(Process, ABC):
-    def __init__(self, *args, source, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__source = source
-
-    @abstractmethod
-    def read(self, *args, **kwargs): pass
-    @property
-    def source(self): return self.__source
-
-
-class Writer(Process, ABC):
-    def __init__(self, *args, destination, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__destination = destination
-
-    @abstractmethod
-    def write(self, query, *args, **kwargs): pass
-    @property
-    def destination(self): return self.__destination
-
-
-class Loader(Reader):
-    def __init_subclass__(cls, *args, query=lambda folder: dict(), **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        assert callable(query)
-        cls.__query__ = query
-
-    def __init__(self, *args, mode="r", **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__query = self.__class__.__query__
-        self.__mode = mode
-
-    def execute(self, *args, **kwargs):
-        if bool(self.source.empty):
-            return
-        for folder in self.source.directory:
-            query = self.query(folder)
-            assert isinstance(query, dict)
-            contents = self.read(*args, folder=folder, **kwargs)
-            assert isinstance(contents, dict)
-            if not bool(contents):
-                continue
-            yield query | contents
-
-    def read(self, *args, folder=None, **kwargs):
-        return self.source.read(*args, folder=folder, mode=self.mode, **kwargs)
-
-    @property
-    def query(self): return self.__query
-    @property
-    def mode(self): return self.__mode
-
-
-class Saver(Writer):
-    def __init_subclass__(cls, *args, folder=lambda query: None, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        assert callable(folder)
-        cls.__folder__ = folder
-
-    def __init__(self, *args, mode, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__folder = self.__class__.__folder__
-        self.__mode = mode
-
-    def execute(self, contents, *args, **kwargs):
-        assert isinstance(contents, dict)
-        if not bool(contents):
-            return
-        folder = self.folder(contents)
-        self.write(contents, *args, folder=folder, **kwargs)
-
-    def write(self, query, *args, folder=None, **kwargs):
-        self.destination.write(query, *args, folder=folder, mode=self.mode, **kwargs)
-
-    @property
-    def folder(self): return self.__folder
-    @property
-    def mode(self): return self.__mode
 
 
 

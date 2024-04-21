@@ -9,11 +9,24 @@ Created on Weds Jul 12 2023
 import queue
 from abc import ABC, ABCMeta, abstractmethod
 
+from support.pipelines import Producer, Consumer
+from support.processes import Writer, Reader
+
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Stack", "Queues"]
+__all__ = ["Populate", "Depopulate", "Stack", "Queues"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
+
+
+class Populate(Writer, Consumer):
+    def execute(self, contents, *args, **kwargs): self.write(contents, *args, **kwargs)
+    def write(self, contents, *args, **kwargs): self.destination.put(contents, *args, **kwargs)
+
+
+class Depopulate(Reader, Producer):
+    def execute(self, *args, **kwargs): return self.read(*args, **kwargs)
+    def read(self, *args, **kwargs): return self.source.get(*args, **kwargs)
 
 
 class QueueMeta(ABCMeta):
