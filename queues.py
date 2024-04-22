@@ -9,24 +9,11 @@ Created on Weds Jul 12 2023
 import queue
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.pipelines import Producer, Consumer
-from support.processes import Writer, Reader
-
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Populate", "Depopulate", "Stack", "Queues"]
+__all__ = ["Queues"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-
-
-class Populate(Writer, Consumer):
-    def execute(self, contents, *args, **kwargs): self.write(contents, *args, **kwargs)
-    def write(self, contents, *args, **kwargs): self.destination.put(contents, *args, **kwargs)
-
-
-class Depopulate(Reader, Producer):
-    def execute(self, *args, **kwargs): return self.read(*args, **kwargs)
-    def read(self, *args, **kwargs): return self.source.get(*args, **kwargs)
 
 
 class QueueMeta(ABCMeta):
@@ -39,8 +26,8 @@ class QueueMeta(ABCMeta):
         assert cls.Type is not None
         assert isinstance(contents, list)
         assert (len(contents) <= capacity) if bool(capacity) else True
-        parameters = dict(variable=cls.Variable)
         instance = cls.Type(maxsize=capacity if capacity is not None else 0)
+        parameters = dict(variable=cls.Variable)
         for content in contents:
             instance.put(content)
         wrapper = super(QueueMeta, cls).__call__(instance, *args, **parameters, **kwargs)
@@ -61,9 +48,9 @@ class Queue(ABC, metaclass=QueueMeta):
         self.__queue = instance
 
     @abstractmethod
-    def get(self, *args, **kwargs): pass
-    @abstractmethod
     def put(self, content, *args, **kwargs): pass
+    @abstractmethod
+    def get(self, *args, **kwargs): pass
 
     @property
     def empty(self): return super().empty()
@@ -71,21 +58,23 @@ class Queue(ABC, metaclass=QueueMeta):
     def size(self): return super().qsize()
 
     @property
+    def queue(self): return self.__queue
+    @property
     def variable(self): return self.__variable
     @property
     def timeout(self): return self.__timeout
     @property
-    def queue(self): return self.__queue
+    def name(self): return self.__name
 
 
 class StandardQueue(Queue):
+    def put(self, content, *args, **kwargs):
+        self.queue.put(content, timeout=self.timeout)
+
     def get(self, *args, **kwargs):
         content = self.queue.get(timeout=self.timeout)
         self.queue.task_done()
         return content
-
-    def put(self, content, *args, **kwargs):
-        self.queue.put(content, timeout=self.timeout)
 
 
 class PriorityQueue(Queue):
@@ -103,18 +92,18 @@ class PriorityQueue(Queue):
         for content in contents:
             self.write(content)
 
-    def get(self, *args, **kwargs):
-        couple = self.queue.get(timeout=self.timeout)
-        priority, content = couple
-        self.queue.task_done()
-        return content
-
     def put(self, content, *args, **kwargs):
         priority = self.priority(content)
         assert isinstance(priority, int)
         multiplier = (int(not self.ascending) * 2) - 1
         couple = (multiplier * priority, content)
         self.queue.put(couple, timeout=self.timeout)
+
+    def get(self, *args, **kwargs):
+        couple = self.queue.get(timeout=self.timeout)
+        priority, content = couple
+        self.queue.task_done()
+        return content
 
     @property
     def ascending(self): return self.__ascending
@@ -126,21 +115,6 @@ class FIFOQueue(StandardQueue, type=queue.Queue): pass
 class LIFOQueue(StandardQueue, type=queue.LifoQueue): pass
 class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=True): pass
 class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=False): pass
-
-
-class Stack(ABC):
-    def __repr__(self): return f"{self.name}[{', '.join([variable for variable in self.queues.keys()])}]"
-    def __getitem__(self, variable): return self.queues[variable]
-    def __init__(self, *args, queues=[], **kwargs):
-        assert isinstance(queues, list)
-        assert all([isinstance(instance, Queue) for instance in Queue])
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__queues = {str(instance.variable): instance for instance in queues}
-
-    @property
-    def tables(self): return self.__tables
-    @property
-    def name(self): return self.__name
 
 
 class Queues:

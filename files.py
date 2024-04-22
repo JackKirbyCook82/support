@@ -18,12 +18,13 @@ from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
 from support.pipelines import Producer, Consumer
-from support.processes import Writer, Reader
+from support.processes import Reader, Writer
 from support.dispatchers import kwargsdispatcher
+from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Saver", "Loader", "Archive", "Files", "FileTyping", "FileTiming"]
+__all__ = ["Files", "FileTyping", "FileTiming"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -41,55 +42,76 @@ nc_eager = FileMethod(FileTyping.NC, FileTiming.EAGER)
 nc_lazy = FileMethod(FileTyping.NC, FileTiming.LAZY)
 
 
+class Loader(Reader, Producer):
+    def __contains__(self, variable): return variable in self.source.keys()
+    def __init__(self, *args, source, repository, query, mode="r", **kwargs):
+        assert isinstance(source, (File, list))
+        assert callable(query)
+        source = [source] if isinstance(source, File) else source
+        assert all([isinstance(file, File) for file in source])
+        source = {file.variable: file for file in source}
+        super().__init__(*args, source=source, **kwargs)
+        self.__repository = repository
+        self.__query = query
+        self.__mode = mode
+
+    def execute(self, *args, **kwargs):
+        for folder in self.directory(*args, **kwargs):
+            query = self.query(folder, *args, **kwargs)
+            contents = self.read(*args, folder=folder, **kwargs)
+            yield query | contents
+
+    def read(self, *args, folder, **kwargs):
+        folder = os.path.join(self.repository, folder) if folder is not None else self.repository
+        contents = {variable: file.read(*args, folder=folder, **kwargs) for variable, file in self.source.items()}
+        contents = {variable: content for variable, content in contents.items() if content is not None}
+        return contents
+
+    @property
+    def repository(self): return self.__repository
+    @property
+    def query(self): return self.__query
+    @property
+    def mode(self): return self.__mode
+
+
 class Saver(Writer, Consumer):
-    def __init__(self, *args, folder, mode, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __contains__(self, variable): return variable in self.destination.keys()
+    def __init__(self, *args, destination, repository, folder, mode, **kwargs):
+        assert isinstance(destination, (File, list))
         assert callable(folder)
-        assert mode in ("w", "a")
+        destination = [destination] if isinstance(destination, File) else destination
+        assert all([isinstance(file, File) for file in destination])
+        destination = {file.variable: file for file in destination}
+        super().__init__(*args, destination=destination, **kwargs)
+        self.__repository = repository
         self.__folder = folder
         self.__mode = mode
 
     def execute(self, contents, *args, **kwargs):
         assert isinstance(contents, dict)
-        if not bool(contents):
-            return
-        folder = self.folder(contents)
+        folder = self.folder(contents, *args, **kwargs)
+        contents = {variable: content for variable, content in contents.items() if variable in self}
         self.write(contents, *args, folder=folder, **kwargs)
 
-    def write(self, query, *args, folder=None, **kwargs):
-        self.destination.write(query, *args, folder=folder, mode=self.mode, **kwargs)
+    def write(self, contents, *args, folder, **kwargs):
+        folder = os.path.join(self.repository, folder) if folder is not None else self.repository
+        contents = {variable: content for variable, content in contents.items() if content is not None}
+        for variable, content in contents.items():
+            self.destination[variable](content, *args, folder=folder, **kwargs)
 
+    @property
+    def repository(self): return self.__repository
     @property
     def folder(self): return self.__folder
     @property
     def mode(self): return self.__mode
 
 
-class Loader(Reader, Producer):
-    def __init__(self, *args, query, mode="r", **kwargs):
-        super().__init__(*args, **kwargs)
-        assert callable(query)
-        assert mode == "r"
-        self.__query = query
-        self.__mode = mode
-
-    def execute(self, *args, **kwargs):
-        for folder in self.source.directory:
-            query = self.query(folder)
-            assert isinstance(query, dict)
-            contents = self.read(*args, folder=folder, **kwargs)
-            assert isinstance(contents, dict)
-            if not bool(contents):
-                continue
-            yield query | contents
-
-    def read(self, *args, folder=None, **kwargs):
-        return self.source.read(*args, folder=folder, mode=self.mode, **kwargs)
-
-    @property
-    def query(self): return self.__query
-    @property
-    def mode(self): return self.__mode
+class FileLock(dict, SingletonMeta):
+    def __getitem__(self, file):
+        self[file] = self.get(file, multiprocessing.RLock())
+        return super().__getitem__(file)
 
 
 class FileMeta(ABCMeta):
@@ -100,7 +122,8 @@ class FileMeta(ABCMeta):
     def __call__(cls, *args, **kwargs):
         assert cls.Variable is not None
         assert cls.Type is not None
-        parameters = dict(variable=cls.Variable)
+        mutex = FileLock()
+        parameters = dict(variable=cls.Variable, mutex=mutex)
         instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
@@ -109,46 +132,53 @@ class File(ABC, metaclass=FileMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, *args, variable, typing, timing, **kwargs):
+    def __init__(self, *args, variable, mutex, typing, timing, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__variable = variable
         self.__timing = timing
         self.__typing = typing
+        self.__mutex = mutex
 
-    def read(self, *args, folder=None, **kwargs):
-        file = os.path.join(folder, self.filename) if folder is not None else self.filename
+    def load(self, *args, folder, **kwargs):
         method = FileMethod(self.typing, self.timing)
-        if not os.path.exists(file):
+        filename = ".".join([self.variable, str(self.typing.name).lower()])
+        file = os.path.join(folder, filename)
+        if self.missing(file):
             return
-        content = self.load(*args, file=file, method=method, **kwargs)
-        if self.empty(content):
-            return
+        with self.mutex[file]:
+            content = self.loader(*args, file=file, method=method, **kwargs)
         return content
 
-    def write(self, content, *args, folder=None, **kwargs):
+    def save(self, content, *args, folder, **kwargs):
+        assert content is not None
         if self.empty(content):
             return
-        file = os.path.join(folder, self.filename) if folder is not None else self.filename
         method = FileMethod(self.typing, self.timing)
-        self.save(content, *args, file=file, method=method, **kwargs)
+        filename = ".".join([self.variable, str(self.typing.name).lower()])
+        file = os.path.join(folder, filename)
+        with self.mutex[file]:
+            self.saver(content, *args, file=file, method=method, **kwargs)
         __logger__.info("Saved: {}".format(str(file)))
 
     @staticmethod
     @abstractmethod
     def empty(content): pass
-    @abstractmethod
-    def load(self, *args, file, **kwargs): pass
-    @abstractmethod
-    def save(self, content, *args, file, **kwargs): pass
+    @staticmethod
+    def missing(file): return not os.path.exists(file)
 
-    @property
-    def filename(self): return ".".join([self.variable, str(self.typing.name).lower()])
+    @abstractmethod
+    def loader(self, *args, file, **kwargs): pass
+    @abstractmethod
+    def saver(self, content, *args, file, **kwargs): pass
+
     @property
     def variable(self): return self.__variable
     @property
     def timing(self): return self.__timing
     @property
     def typing(self): return self.__typing
+    @property
+    def mutex(self): return self.__mutex
     @property
     def name(self): return self.__name
 
@@ -169,52 +199,53 @@ class DataframeFile(File, type=pd.DataFrame):
         self.__dates = [key for (key, value) in iter(header) if value is np.datetime64]
         self.__duplicates = duplicates
 
-    def read(self, *args, **kwargs):
-        dataframe = super().read(*args, **kwargs)
+    def load(self, *args, **kwargs):
+        dataframe = super().load(*args, **kwargs)
         if self.duplicates:
             index = list(self.header.index)
             dataframe = dataframe.drop_duplicates(index, keep="first", inplace=False, ignore_index=True)
         return dataframe
 
-    def write(self, dataframe, *args, **kwargs):
+    def save(self, dataframe, *args, **kwargs):
         if self.duplicates:
             index = list(self.header.index)
             dataframe = dataframe.drop_duplicates(index, keep="first", inplace=False, ignore_index=True)
-        super().write(dataframe, *args, **kwargs)
+        super().save(dataframe, *args, **kwargs)
 
-    @kwargsdispatcher("method")
-    def load(self, *args, file, mode, method, **kwargs): raise ValueError(str(method.name).lower())
-    @kwargsdispatcher("method")
-    def save(self, content, args, file, mode, method, **kwargs): raise ValueError(str(method.name).lower())
     @staticmethod
     def empty(content): return bool(content.empty)
 
+    @kwargsdispatcher("method")
+    def loader(self, *args, file, mode, method, **kwargs): raise ValueError(str(method.name).lower())
+    @kwargsdispatcher("method")
+    def saver(self, content, args, file, mode, method, **kwargs): raise ValueError(str(method.name).lower())
+
     @load.register.value(csv_eager)
-    def load_eager_csv(self, *args, file, mode, **kwargs):
+    def loader_eager_csv(self, *args, file, mode, **kwargs):
         return pd.read_csv(file, iterator=False, index_col=None, header=0, dtype=self.types, parse_dates=self.dates)
 
     @load.register.value(csv_lazy)
-    def load_lazy_csv(self, *args, file, mode, size, **kwargs):
+    def loader_lazy_csv(self, *args, file, mode, size, **kwargs):
         return dk.read_csv(file, blocksize=size, index_col=None, header=0, dtype=self.types, parse_dates=self.dates)
 
     @load.register.value(hdf_eager)
-    def load_eager_hdf(self, *args, file, mode, **kwargs): pass
+    def loader_eager_hdf(self, *args, file, mode, **kwargs): pass
     @load.register.value(hdf_lazy)
-    def load_lazy_hdf(self, *args, file, mode, **kwargs): pass
+    def loader_lazy_hdf(self, *args, file, mode, **kwargs): pass
 
     @save.register.value(csv_eager)
-    def save_eager_csv(self, content, *args, file, mode, **kwargs):
+    def saver_eager_csv(self, content, *args, file, mode, **kwargs):
         content.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
     @save.register.value(csv_lazy)
-    def save_lazy_csv(self, content, *args, file, mode, **kwargs):
+    def saver_lazy_csv(self, content, *args, file, mode, **kwargs):
         parameters = dict(compute=True, single_file=True, header_first_partition_only=True)
         content.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
 
     @save.register.value(hdf_eager)
-    def save_eager_hdf(self, content, *args, file, mode, **kwargs): pass
+    def saver_eager_hdf(self, content, *args, file, mode, **kwargs): pass
     @save.register.value(hdf_lazy)
-    def save_lazy_hdf(self, content, *args, file, mode, **kwargs): pass
+    def saver_lazy_hdf(self, content, *args, file, mode, **kwargs): pass
 
     @property
     def duplicates(self): return self.__duplicates
@@ -224,71 +255,6 @@ class DataframeFile(File, type=pd.DataFrame):
     def types(self): return self.__types
     @property
     def dates(self): return self.__dates
-
-
-class ArchiveMeta(ABCMeta):
-    locks = {}
-
-    def __call__(cls, *args, repository, **kwargs):
-        lock = ArchiveMeta.locks.get(str(repository),  multiprocessing.RLock())
-        ArchiveMeta.locks[str(repository)] = lock
-        instance = super(ArchiveMeta, cls).__call__(*args, repository=repository, lock=lock, **kwargs)
-        return instance
-
-
-class Archive(ABC, metaclass=ArchiveMeta):
-    def __repr__(self):
-        files = chain(self.load.keys(), self.save.keys())
-        return f"{self.name}[{', '.join([variable for variable in files])}]"
-
-    def __init__(self, *args, repository, load=[], save=[], lock, **kwargs):
-        assert isinstance(load, list) and isinstance(save, list)
-        assert all([isinstance(file, File) for file in load])
-        assert all([isinstance(file, File) for file in save])
-        if not os.path.exists(repository):
-            os.makedirs(repository)
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__load = {str(file.variable): file for file in load}
-        self.__save = {str(file.variable): file for file in save}
-        self.__repository = repository
-        self.__mutex = lock
-
-    def read(self, *args, folder=None, **kwargs):
-        folder = os.path.join(self.repository, folder) if folder is not None else self.repository
-        if not os.path.exists(folder):
-            return {}
-        with self.mutex:
-            contents = {variable: file.read(*args, folder=folder, **kwargs) for variable, file in self.load.items()}
-        contents = {variable: content for variable, content in contents.items() if content is not None}
-        return contents
-
-    def write(self, contents, *args, folder=None, **kwargs):
-        folder = os.path.join(self.repository, folder) if folder is not None else self.repository
-        if not os.path.exists(folder):
-            os.makedirs(folder)
-        contents = {variable: content for variable, content in contents.items() if content is not None}
-        with self.mutex:
-            for variable, file in self.save.items():
-                if variable in contents.keys():
-                    file.write(contents[variable], *args, folder=folder, **kwargs)
-
-    @property
-    def directory(self): return os.listdir(self.repository)
-    @property
-    def empty(self): return not bool(os.listdir(self.repository))
-    @property
-    def size(self): return len(os.listdir(self.repository))
-
-    @property
-    def repository(self): return self.__repository
-    @property
-    def mutex(self): return self.__mutex
-    @property
-    def load(self): return self.__load
-    @property
-    def save(self): return self.__save
-    @property
-    def name(self): return self.__name
 
 
 class Files:

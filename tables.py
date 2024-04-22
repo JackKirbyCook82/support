@@ -13,7 +13,7 @@ from collections import namedtuple as ntuple
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Tabulation", "Tables", "Options"]
+__all__ = ["Tables", "Options"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -28,8 +28,9 @@ class TableMeta(ABCMeta):
         assert cls.Variable is not None
         assert cls.Options is not None
         assert cls.Type is not None
-        parameters = dict(variable=cls.Variable, options=cls.Options)
         instance = cls.Type()
+        mutex = multiprocessing.RLock()
+        parameters = dict(variable=cls.Variable, options=cls.Options, mutex=mutex)
         wrapper = super(TableMeta, cls).__call__(instance, *args, **parameters, **kwargs)
         return wrapper
 
@@ -39,24 +40,23 @@ class Table(ABC, metaclass=TableMeta):
 
     def __bool__(self): return not self.empty if self.table is not None else False
     def __len__(self): return self.size
+    def __str__(self): return self.string
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __str__(self): return self.string
-    def __init__(self, instance, *args, variable, options, **kwargs):
+    def __init__(self, instance, *args, variable, options, mutex, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__mutex = multiprocessing.RLock()
         self.__variable = variable
         self.__options = options
-        self.__options = options
         self.__table = instance
+        self.__mutex = mutex
 
-    def __setitem__(self, locator, content): self.put(locator, content)
-    def __getitem__(self, locator): return self.get(locator)
+    def __setitem__(self, locator, content): self.place(locator, content)
+    def __getitem__(self, locator): return self.locate(locator)
 
     @abstractmethod
-    def put(self, locator, content, *args, **kwargs): pass
+    def place(self, locator, content, *args, **kwargs): pass
     @abstractmethod
-    def get(self, locator, *args, **kwargs): pass
+    def locate(self, locator, *args, **kwargs): pass
     @abstractmethod
     def remove(self, content, *args, **kwargs): pass
     @abstractmethod
@@ -66,13 +66,13 @@ class Table(ABC, metaclass=TableMeta):
 
     @property
     @abstractmethod
+    def string(self): pass
+    @property
+    @abstractmethod
     def empty(self): pass
     @property
     @abstractmethod
     def size(self): pass
-    @property
-    @abstractmethod
-    def string(self): pass
 
     @property
     def table(self): return self.__table
@@ -107,7 +107,7 @@ class DataframeLocatorError(Exception):
 
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
-    def put(self, locator, content, *args, **kwargs):
+    def place(self, locator, content, *args, **kwargs):
         index, column = locator
         if isinstance(index, (int, slice)) and isinstance(column, (int, slice)):
             self.table.iloc[index, column] = content
@@ -116,7 +116,7 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
         else:
             raise DataframeLocatorError(index, column)
 
-    def get(self, locator, **kwargs):
+    def locate(self, locator, **kwargs):
         index, column = locator
         if isinstance(index, (int, slice)) and isinstance(column, (int, slice)):
             return self.table.iloc[index, column]
@@ -158,21 +158,6 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
-
-
-class Tabulation(ABC):
-    def __repr__(self): return f"{self.name}[{', '.join([variable for variable in self.files.keys()])}]"
-    def __getitem__(self, variable): return self.tables[variable]
-    def __init__(self, *args, tables=[], **kwargs):
-        assert isinstance(tables, list)
-        assert all([isinstance(instance, Table) for instance in tables])
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__tables = {str(instance.variable): instance for instance in tables}
-
-    @property
-    def tables(self): return self.__tables
-    @property
-    def name(self): return self.__name
 
 
 class Tables:

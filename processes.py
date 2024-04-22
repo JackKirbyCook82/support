@@ -100,7 +100,7 @@ class Writer(Process, ABC):
         self.__destination = destination
 
     @abstractmethod
-    def write(self, query, *args, **kwargs): pass
+    def write(self, *args, **kwargs): pass
     @property
     def destination(self): return self.__destination
 
