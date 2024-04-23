@@ -57,8 +57,8 @@ class Loader(Reader, Producer):
 
     def execute(self, *args, **kwargs):
         for folder in self.directory(*args, **kwargs):
-            query = self.query(folder, *args, **kwargs)
-            contents = self.read(*args, folder=folder, **kwargs)
+            query = self.query(folder)
+            contents = self.read(*args, folder=folder, mode=self.mode, **kwargs)
             yield query | contents
 
     def read(self, *args, folder, **kwargs):
@@ -90,7 +90,7 @@ class Saver(Writer, Consumer):
 
     def execute(self, contents, *args, **kwargs):
         assert isinstance(contents, dict)
-        folder = self.folder(contents, *args, **kwargs)
+        folder = self.folder(contents)
         contents = {variable: content for variable, content in contents.items() if variable in self}
         self.write(contents, *args, folder=folder, **kwargs)
 
@@ -98,7 +98,7 @@ class Saver(Writer, Consumer):
         folder = os.path.join(self.repository, folder) if folder is not None else self.repository
         contents = {variable: content for variable, content in contents.items() if content is not None}
         for variable, content in contents.items():
-            self.destination[variable].write(content, *args, folder=folder, **kwargs)
+            self.destination[variable].write(content, *args, folder=folder, mode=self.mode, **kwargs)
 
     @property
     def repository(self): return self.__repository
@@ -108,7 +108,7 @@ class Saver(Writer, Consumer):
     def mode(self): return self.__mode
 
 
-class FileLock(dict, SingletonMeta):
+class FileLock(dict, metaclass=SingletonMeta):
     def __getitem__(self, file):
         self[file] = self.get(file, multiprocessing.RLock())
         return super().__getitem__(file)
@@ -155,6 +155,8 @@ class File(ABC, metaclass=FileMeta):
         method = FileMethod(self.typing, self.timing)
         filename = ".".join([self.variable, str(self.typing.name).lower()])
         file = os.path.join(folder, filename)
+        if self.missing(folder):
+            os.mkdir(folder)
         with self.mutex[file]:
             self.save(content, *args, file=file, method=method, **kwargs)
         __logger__.info("Saved: {}".format(str(file)))
