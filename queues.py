@@ -9,11 +9,35 @@ Created on Weds Jul 12 2023
 import queue
 from abc import ABC, ABCMeta, abstractmethod
 
+from support.pipelines import Producer, Consumer
+from support.processes import Reader, Writer
+
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Queues"]
+__all__ = ["Schedule", "Scheduler", "Queues"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
+
+
+class Schedule(Reader, Producer):
+    def execute(self, *args, **kwargs):
+        content = self.read(*args, **kwargs)
+        self.source.complete()
+        contents = {self.source.variable: content}
+        yield contents
+
+    def read(self, *args, **kwargs):
+        return self.source.read(*args, **kwargs)
+
+
+class Scheduler(Writer, Consumer):
+    def execute(self, contents, *args, **kwargs):
+        content = contents.get(self.destination.variable, None)
+        if content is not None:
+            self.write(content, *args, **kwargs)
+
+    def write(self, content, *args, **kwargs):
+        self.destination.write(content, *args, **kwargs)
 
 
 class QueueMeta(ABCMeta):
@@ -27,7 +51,7 @@ class QueueMeta(ABCMeta):
         assert isinstance(contents, list)
         assert (len(contents) <= capacity) if bool(capacity) else True
         instance = cls.Type(maxsize=capacity if capacity is not None else 0)
-        parameters = dict(variable=cls.Variable)
+        parameters = {"variable": cls.Variable}
         for content in contents:
             instance.put(content)
         wrapper = super(QueueMeta, cls).__call__(instance, *args, **parameters, **kwargs)
@@ -48,14 +72,15 @@ class Queue(ABC, metaclass=QueueMeta):
         self.__queue = instance
 
     @abstractmethod
-    def put(self, content, *args, **kwargs): pass
+    def write(self, content, *args, **kwargs): pass
     @abstractmethod
-    def get(self, *args, **kwargs): pass
+    def read(self, *args, **kwargs): pass
 
     @property
     def empty(self): return super().empty()
     @property
     def size(self): return super().qsize()
+    def complete(self): self.queue.task_done()
 
     @property
     def queue(self): return self.__queue
@@ -68,12 +93,11 @@ class Queue(ABC, metaclass=QueueMeta):
 
 
 class StandardQueue(Queue):
-    def put(self, content, *args, **kwargs):
+    def write(self, content, *args, **kwargs):
         self.queue.put(content, timeout=self.timeout)
 
-    def get(self, *args, **kwargs):
+    def read(self, *args, **kwargs):
         content = self.queue.get(timeout=self.timeout)
-        self.queue.task_done()
         return content
 
 
@@ -92,17 +116,16 @@ class PriorityQueue(Queue):
         for content in contents:
             self.write(content)
 
-    def put(self, content, *args, **kwargs):
+    def write(self, content, *args, **kwargs):
         priority = self.priority(content)
         assert isinstance(priority, int)
         multiplier = (int(not self.ascending) * 2) - 1
         couple = (multiplier * priority, content)
         self.queue.put(couple, timeout=self.timeout)
 
-    def get(self, *args, **kwargs):
+    def read(self, *args, **kwargs):
         couple = self.queue.get(timeout=self.timeout)
         priority, content = couple
-        self.queue.task_done()
         return content
 
     @property

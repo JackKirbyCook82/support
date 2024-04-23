@@ -20,17 +20,14 @@ __license__ = "MIT License"
 
 class TableMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
-        cls.Variable = kwargs.get("variable", getattr(cls, "Variable", None))
         cls.Options = kwargs.get("options", getattr(cls, "Options", None))
         cls.Type = kwargs.get("type", getattr(cls, "Type", None))
 
     def __call__(cls, *args, **kwargs):
-        assert cls.Variable is not None
         assert cls.Options is not None
         assert cls.Type is not None
         instance = cls.Type()
-        mutex = multiprocessing.RLock()
-        parameters = dict(variable=cls.Variable, options=cls.Options, mutex=mutex)
+        parameters = dict(variable=cls.Variable, options=cls.Options, mutex=multiprocessing.RLock())
         wrapper = super(TableMeta, cls).__call__(instance, *args, **parameters, **kwargs)
         return wrapper
 
@@ -43,20 +40,19 @@ class Table(ABC, metaclass=TableMeta):
     def __str__(self): return self.string
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, instance, *args, variable, options, mutex, **kwargs):
+    def __init__(self, instance, *args, options, mutex, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__variable = variable
         self.__options = options
         self.__table = instance
         self.__mutex = mutex
 
-    def __setitem__(self, locator, content): self.place(locator, content)
-    def __getitem__(self, locator): return self.locate(locator)
+    def __setitem__(self, locator, content): self.write(locator, content)
+    def __getitem__(self, locator): return self.read(locator)
 
     @abstractmethod
-    def place(self, locator, content, *args, **kwargs): pass
+    def write(self, locator, content, *args, **kwargs): pass
     @abstractmethod
-    def locate(self, locator, *args, **kwargs): pass
+    def read(self, locator, *args, **kwargs): pass
     @abstractmethod
     def remove(self, content, *args, **kwargs): pass
     @abstractmethod
@@ -79,8 +75,6 @@ class Table(ABC, metaclass=TableMeta):
     @table.setter
     def table(self, table): self.__table = table
 
-    @property
-    def variable(self): return self.__variable
     @property
     def options(self): return self.__options
     @property
@@ -107,7 +101,7 @@ class DataframeLocatorError(Exception):
 
 
 class DataframeTable(Table, ABC, type=pd.DataFrame):
-    def place(self, locator, content, *args, **kwargs):
+    def write(self, locator, content, *args, **kwargs):
         index, column = locator
         if isinstance(index, (int, slice)) and isinstance(column, (int, slice)):
             self.table.iloc[index, column] = content
@@ -116,7 +110,7 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
         else:
             raise DataframeLocatorError(index, column)
 
-    def locate(self, locator, **kwargs):
+    def read(self, locator, **kwargs):
         index, column = locator
         if isinstance(index, (int, slice)) and isinstance(column, (int, slice)):
             return self.table.iloc[index, column]
