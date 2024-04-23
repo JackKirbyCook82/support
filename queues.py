@@ -21,10 +21,11 @@ __license__ = "MIT License"
 
 class Schedule(Reader, Producer):
     def execute(self, *args, **kwargs):
-        content = self.read(*args, **kwargs)
-        self.source.complete()
-        contents = {self.source.variable: content}
-        yield contents
+        while bool(self.source):
+            content = self.read(*args, **kwargs)
+            contents = {self.source.variable: content}
+            yield contents
+            self.source.complete()
 
     def read(self, *args, **kwargs):
         return self.source.read(*args, **kwargs)
@@ -77,9 +78,9 @@ class Queue(ABC, metaclass=QueueMeta):
     def read(self, *args, **kwargs): pass
 
     @property
-    def empty(self): return super().empty()
+    def empty(self): return self.queue.empty()
     @property
-    def size(self): return super().qsize()
+    def size(self): return self.queue.qsize()
     def complete(self): self.queue.task_done()
 
     @property
