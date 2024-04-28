@@ -27,7 +27,7 @@ class TableMeta(ABCMeta):
         assert cls.Options is not None
         assert cls.Type is not None
         instance = cls.Type()
-        parameters = dict(variable=cls.Variable, options=cls.Options, mutex=multiprocessing.RLock())
+        parameters = dict(options=cls.Options, mutex=multiprocessing.RLock())
         wrapper = super(TableMeta, cls).__call__(instance, *args, **parameters, **kwargs)
         return wrapper
 
