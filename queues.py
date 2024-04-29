@@ -10,7 +10,6 @@ import queue
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.pipelines import Producer, Consumer
-from support.processes import Reader, Writer
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -19,7 +18,11 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Schedule(Reader, Producer):
+class Schedule(Producer):
+    def __init__(self, *args, source, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        self.__source = source
+
     def execute(self, *args, **kwargs):
         while bool(self.source):
             content = self.read(*args, **kwargs)
@@ -30,8 +33,15 @@ class Schedule(Reader, Producer):
     def read(self, *args, **kwargs):
         return self.source.read(*args, **kwargs)
 
+    @property
+    def source(self): return self.__source
 
-class Scheduler(Writer, Consumer):
+
+class Scheduler(Consumer):
+    def __init__(self, *args, destination, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        self.__destination = destination
+
     def execute(self, contents, *args, **kwargs):
         content = contents.get(self.destination.variable, None)
         if content is not None:
@@ -39,6 +49,9 @@ class Scheduler(Writer, Consumer):
 
     def write(self, content, *args, **kwargs):
         self.destination.write(content, *args, **kwargs)
+
+    @property
+    def destination(self): return self.__destination
 
 
 class QueueMeta(ABCMeta):

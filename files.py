@@ -16,10 +16,8 @@ from enum import IntEnum
 from itertools import chain
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
-from collections import OrderedDict as ODict
 
 from support.pipelines import Producer, Consumer
-from support.processes import Reader, Writer
 from support.dispatchers import kwargsdispatcher
 from support.meta import SingletonMeta
 
@@ -43,11 +41,11 @@ nc_eager = FileMethod(FileTyping.NC, FileTiming.EAGER)
 nc_lazy = FileMethod(FileTyping.NC, FileTiming.LAZY)
 
 
-class Loader(Reader, Producer):
+class Loader(Producer):
     def __init__(self, *args, source={}, **kwargs):
         assert isinstance(source, (File, dict))
         assert all([isinstance(file, File) for file in source.keys()])
-        super().__init__(*args, source=source, **kwargs)
+        self.__source = source
 
     def execute(self, *args, **kwargs):
         file = list(self.source.keys())[0]
@@ -60,12 +58,15 @@ class Loader(Reader, Producer):
         contents = {file.variable: file.read(*args, query=query, mode=mode, **kwargs) for file, mode in self.source.items()}
         return contents
 
+    @property
+    def source(self): return self.__source
 
-class Saver(Writer, Consumer):
+
+class Saver(Consumer):
     def __init__(self, *args, destination, **kwargs):
         assert isinstance(destination, (File, dict))
         assert all([isinstance(file, File) for file in destination.keys()])
-        super().__init__(*args, destination=destination, **kwargs)
+        self.__destination = destination
 
     def execute(self, contents, *args, **kwargs):
         contents = {variable: content for variable, content in contents.items() if content is not None}
@@ -76,6 +77,9 @@ class Saver(Writer, Consumer):
             query = contents[str(file.query)]
             content = contents[str(file.variable)]
             file.write(content, *args, query=query, mode=mode, **kwargs)
+
+    @property
+    def destination(self): return self.__destination
 
 
 class FileQuery(ntuple("Query", "variable tostring fromstring")):
@@ -200,9 +204,11 @@ class DataframeFile(File, type=pd.DataFrame):
         if self.duplicates:
             index = list(self.header.index)
             dataframe = dataframe.drop_duplicates(index, keep="first", inplace=False, ignore_index=True)
+        dataframe = dataframe.set_index(index, drop=True, inplace=False)
         return dataframe
 
     def write(self, dataframe, *args, **kwargs):
+        dataframe = dataframe.reset_index(drop=False, inplace=False)
         if self.duplicates:
             index = list(self.header.index)
             dataframe = dataframe.drop_duplicates(index, keep="first", inplace=False, ignore_index=True)

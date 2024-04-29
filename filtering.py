@@ -7,6 +7,7 @@ Created on Weds Jul 12 2023
 """
 
 import logging
+import numpy as np
 import pandas as pd
 import xarray as xr
 from functools import reduce
@@ -14,7 +15,6 @@ from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 
 from support.dispatchers import typedispatcher
-from support.processes import Process
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -42,6 +42,7 @@ class Criteria(ntuple("Criteria", "variable threshold"), ABC):
     @abstractmethod
     def execute(self, content, column): pass
 
+
 class Floor(Criteria):
     def execute(self, content, column): return content[column] >= self.threshold
 
@@ -62,7 +63,11 @@ class Criterion(object):
     CEILING = Ceiling
     NULL = Null
 
-class Filter(Process, ABC):
+
+class Filter(ABC):
+    def __init_subclass__(cls, *args, variable, **kwargs):
+        cls.__variable__ = variable
+
     def __init__(self, *args, criterion={},  **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(criterion, dict)
@@ -70,7 +75,13 @@ class Filter(Process, ABC):
         assert all([isinstance(parameter, (list, dict)) for parameter in criterion.values()])
         criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
+        self.__variable = self.__class__.__variable__
         self.__criterion = criterion
+
+    def mask(self, content, variable=None):
+        criterion = [criteria(content, variable=variable) for criteria in self.criterion]
+        mask = reduce(lambda x, y: x & y, criterion) if bool(criterion) else None
+        return mask
 
     @typedispatcher
     def where(self, content, mask=None): raise TypeError(type(content).__name__)
@@ -79,11 +90,19 @@ class Filter(Process, ABC):
     @where.register(pd.DataFrame)
     def where_dataframe(self, dataframe, mask=None): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
 
-    def mask(self, content, variable=None):
-        criterion = [criteria(content, variable=variable) for criteria in self.criterion]
-        mask = reduce(lambda x, y: x & y, criterion) if bool(criterion) else None
-        return mask
+    @typedispatcher
+    def size(self, content): raise TypeError(type(content).__name__)
+    @size.register(xr.DataArray)
+    def size_dataarray(self, dataarray): return np.count_nonzero(~np.isnan(dataarray.values))
+    @size.register(pd.DataFrame)
+    def size_dataframe(self, dataframe): return len(dataframe.dropna(how="all", inplace=False).index)
+    @size.register(pd.Series)
+    def size_series(self, series): return len(series.dropna(how="all", inplace=False).index)
 
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
+    @property
+    def variable(self): return self.__variable
     @property
     def criterion(self): return self.__criterion
 
