@@ -9,7 +9,7 @@ Created on Weds Jul 12 2023
 import numpy as np
 import pandas as pd
 import xarray as xr
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 
 from support.dispatchers import typedispatcher
 
@@ -28,7 +28,18 @@ class Equation(object):
     pass
 
 
-class Calculation(ABC):
+class CalculationMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        equation = kwargs.get("equation", getattr(cls, "__equation__", None))
+        fields = {key: value for key, value in getattr(cls, "__fields__", {}).items()}
+        fields = fields | dict.fromkeys(kwargs.get("fields", []))
+        fields = fields | {key: kwargs.get(key, None) for key in fields.items()}
+        assert all([attr not in fields.keys() for attr in ("domain", "equation")])
+        cls.__equation__ = equation
+        cls.__fields__ = fields
+
+
+class Calculation(ABC, metaclass=CalculationMeta):
     pass
 
 
@@ -37,9 +48,9 @@ class Calculator(ABC):
         super().__init_subclass__(*args, **kwargs)
         cls.Calculations = {key: value for key, value in calculations.items()}
 
-    def __init__(self, *args, feed, name=None, **kwargs):
+    def __init__(self, *args, name=None, **kwargs):
         super().__init__(*args, name=name, **kwargs)
-        self.__calculations = {key: calculation(*args, feed=feed, **kwargs) for key, calculation in self.Calculations.items()}
+        self.__calculations = {key: calculation(*args, **kwargs) for key, calculation in self.Calculations.items()}
 
     @typedispatcher
     def empty(self, content): raise TypeError(type(content).__name__)

@@ -65,9 +65,6 @@ class Criterion(object):
 
 
 class Filter(ABC):
-    def __init_subclass__(cls, *args, variable, **kwargs):
-        cls.__variable__ = variable
-
     def __init__(self, *args, criterion={},  **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(criterion, dict)
@@ -75,7 +72,6 @@ class Filter(ABC):
         assert all([isinstance(parameter, (list, dict)) for parameter in criterion.values()])
         criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
-        self.__variable = self.__class__.__variable__
         self.__criterion = criterion
 
     def mask(self, content, variable=None):
@@ -101,8 +97,6 @@ class Filter(ABC):
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
-    @property
-    def variable(self): return self.__variable
     @property
     def criterion(self): return self.__criterion
 
