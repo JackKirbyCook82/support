@@ -15,9 +15,13 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Equation", "Calculation", "Calculator"]
+__all__ = ["Variable", "Equation", "Calculation", "Calculator"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
+
+
+class Variable(object):
+    pass
 
 
 class Equation(object):
