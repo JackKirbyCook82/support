@@ -15,6 +15,7 @@ from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 
 from support.dispatchers import typedispatcher
+from support.pipelines import Processor
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -64,7 +65,7 @@ class Criterion(object):
     NULL = Null
 
 
-class Filter(ABC):
+class Filter(Processor, ABC, title="Filtered"):
     def __init__(self, *args, criterion={},  **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(criterion, dict)
@@ -95,8 +96,6 @@ class Filter(ABC):
     @size.register(pd.Series)
     def size_series(self, series): return len(series.dropna(how="all", inplace=False).index)
 
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
     @property
     def criterion(self): return self.__criterion
 
