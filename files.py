@@ -42,7 +42,8 @@ nc_lazy = FileMethod(FileTyping.NC, FileTiming.LAZY)
 
 
 class Loader(Producer):
-    def __init__(self, *args, source={}, **kwargs):
+    def __init__(self, *args, source={}, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
         assert isinstance(source, (File, dict))
         assert all([isinstance(file, File) for file in source.keys()])
         self.__source = source
@@ -63,7 +64,8 @@ class Loader(Producer):
 
 
 class Saver(Consumer):
-    def __init__(self, *args, destination, **kwargs):
+    def __init__(self, *args, destination, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
         assert isinstance(destination, (File, dict))
         assert all([isinstance(file, File) for file in destination.keys()])
         self.__destination = destination
@@ -200,17 +202,17 @@ class DataframeFile(File, type=pd.DataFrame):
         self.__header = header
 
     def read(self, *args, **kwargs):
+        index = list(self.header.index)
         dataframe = super().read(*args, **kwargs)
         if self.duplicates:
-            index = list(self.header.index)
             dataframe = dataframe.drop_duplicates(index, keep="first", inplace=False, ignore_index=True)
         dataframe = dataframe.set_index(index, drop=True, inplace=False)
         return dataframe
 
     def write(self, dataframe, *args, **kwargs):
+        index = list(self.header.index)
         dataframe = dataframe.reset_index(drop=False, inplace=False)
         if self.duplicates:
-            index = list(self.header.index)
             dataframe = dataframe.drop_duplicates(index, keep="first", inplace=False, ignore_index=True)
         super().write(dataframe, *args, **kwargs)
 

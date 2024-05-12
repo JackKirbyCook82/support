@@ -77,11 +77,13 @@ class Node(Mixin):
             yield from value.transverse()
 
     @property
-    def size(self): return len(self.nodes)
+    def leafs(self): return [value for value in self.transverse() if not bool(value.children)]
+    @property
+    def branches(self): return [value for value in self.transverse() if bool(value.children)]
     @property
     def children(self): return list(self.nodes.values())
     @property
-    def sources(self): return [value for value in self.transverse() if not value.children]
+    def size(self): return len(self.nodes)
 
     @property
     def tree(self):

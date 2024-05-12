@@ -12,11 +12,12 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from enum import Enum
+from numbers import Number
 from itertools import product
 from abc import ABC, ABCMeta, abstractmethod
 from collections import OrderedDict as ODict
 
-from support.dispatchers import typedispatcher
+from support.dispatchers import typedispatcher, kwargsdispatcher
 from support.pipelines import Processor
 from support.meta import SingletonMeta
 from support.mixins import Node
@@ -26,20 +27,6 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["Variable", "Equation", "Calculation", "Calculator"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-
-
-class Fields(frozenset):
-    def __getitem__(self, key): return self.todict()[key]
-    def __new__(cls, mapping):
-        assert isinstance(mapping, ODict)
-        mapping = list(mapping.items())
-        return super().__new__(cls, mapping)
-
-    def todict(self): return ODict(list(self))
-    def tolist(self): return list(self)
-    def keys(self): return self.todict().keys()
-    def values(self): return self.todict().values()
-    def items(self): return self.todict().items()
 
 
 class Variable(Node, ABC):
@@ -62,43 +49,86 @@ class Variable(Node, ABC):
 
 
 class Independent(Variable):
-    def __init__(self, name, *args, locator, **kwargs):
-        assert isinstance(locator, (int, str, Enum))
-        super().__init__(*args, name=name, **kwargs)
-        self.locator = str(locator.name).lower() if isinstance(locator, Enum) else locator
+    def __init__(self, varname, *args, position, locator, **kwargs):
+        assert isinstance(locator, (int, str, Enum)) and isinstance(locator, str)
+        super().__init__(*args, name=varname, **kwargs)
+        self.__locator = str(locator.name).lower() if isinstance(locator, Enum) else locator
+        self.__position = position
+
+    def __call__(self, *args, **kwargs):
+        return self.locate(*args, **kwargs)
 
     def copy(self):
         parameters = dict(name=self.name, formatter=self.formatter, style=self.style)
-        return type(self)(locator=self.locator, **parameters)
+        return type(self)(self.name, locator=self.locator, position=self.position, **parameters)
+
+    def locate(self, *args, **kwargs):
+        contents = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
+        if isinstance(contents, Number):
+            return contents
+        assert isinstance(contents, (xr.Dataset, pd.DataFrame))
+        return contents[self.locator]
 
     @property
-    def execute(self):
-        wrapper = lambda *args, **kwargs: args[self.locator] if isinstance(self.locator, int) else kwargs.get(self.locator, None)
+    def execute(self, order):
+        wrapper = lambda *contents: contents[order.index(self)]
         wrapper.__name__ = str(self.name).lower()
         return wrapper
+
+    @property
+    def position(self): return self.__position
+    @property
+    def locator(self): return self.__locator
 
 
 class Dependent(Variable):
-    def __init__(self, name, *args, function, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
+    def __init__(self, varname, vartype, *args, function, **kwargs):
+        super().__init__(*args, name=varname, **kwargs)
         assert isinstance(function, types.LambdaType)
-        self.function = function
+        self.__function = function
+        self.__type = vartype
+
+    def __call__(self, *args, **kwargs):
+        mapping = ODict([(stage, stage.locate(*args, **kwargs)) for stage in self.sources])
+        order, contents = list(mapping.keys()), list(mapping.values())
+        astype = set([type(content) for content in contents if not isinstance(content, Number)])
+        assert len(astype) == 1
+        execute = self.execute(order=order)
+        content = self.calculate(astype=astype, execute=execute, contents=contents)
+        content = content.rename(self.name)
+        return content
 
     def copy(self):
         parameters = dict(name=self.name, formatter=self.formatter, style=self.style)
-        return type(self)(funciton=self.function, **parameters)
+        return type(self)(self.name, self.type, funciton=self.function, **parameters)
+
+    @kwargsdispatcher("astype")
+    def calculate(self, *args, astype, **kwargs): raise TypeError(astype.__name__)
+    @calculate.register.value(xr.DataArray)
+    def dataarray(self, *args, execute, contents, **kwargs): return xr.apply_ufunc(execute, *contents, output_dtypes=[self.type], vectorize=True)
+    @calculate.register.value(pd.Series)
+    def series(self, *args, execute, contents, **kwargs): return pd.concat(list(contents), axis=1).apply(execute, axis=1, raw=True)
 
     @property
-    def execute(self):
-        sources = [variable.execute for variable in self.children]
-        wrapper = lambda *args, **kwargs: self.function(*[source(*args, **kwargs) for source in sources])
+    def execute(self, order):
+        executes = [variable.execute(order) for variable in self.children]
+        wrapper = lambda *contents: self.function(*[execute(*contents) for execute in executes])
         wrapper.__name__ = str(self.name).lower()
         return wrapper
+
+    @property
+    def sources(self): return list(set(self.leafs))
+    @property
+    def domain(self): return list(self.children)
+    @property
+    def function(self): return self.__function
+    @property
+    def type(self): return self.__type
 
 
 class EquationMeta(SingletonMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        exclude = [key for key, variable in attrs.itmes() if isinstance(variable, Variable)]
+        exclude = [key for key, variable in attrs.items() if isinstance(variable, Variable)]
         attrs = {key: value for key, value in attrs.items() if key not in exclude}
         cls = super(EquationMeta, mcs).__new__(mcs, name, bases, attrs)
         return cls
@@ -119,39 +149,44 @@ class EquationMeta(SingletonMeta):
         return instance
 
 class Equation(ABC, metaclass=EquationMeta):
+    def __init__(self, *args, variables, **kwargs): self.variables = variables
     def __getattr__(self, attr): return super().__getattr__(attr) if attr in self else self.variables[attr]
     def __contains__(self, attr): return attr in self.variables.keys()
-    def __init__(self, *args, variables, **kwargs): self.variables = variables
+
+
+class Fields(frozenset):
+    def __getitem__(self, key): return self.todict()[key]
+    def __bool__(self): return None not in self.values()
+
+    def __new__(cls, mapping):
+        assert isinstance(mapping, (dict, list))
+        mapping = ODict([(key, None) for key in mapping]) if isinstance(mapping, list) else mapping
+        mapping = list(mapping.items())
+        return super().__new__(cls, mapping)
+
+#    def __or__(self, mapping):
+#        assert isinstance(mapping, (dict, list))
+
+    def todict(self): return ODict(list(self))
+    def tolist(self): return list(self)
+    def keys(self): return self.todict().keys()
+    def values(self): return self.todict().values()
+    def items(self): return self.todict().items()
 
 
 class CalculationMeta(ABCMeta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        cls = super(CalculationMeta, mcs).__new__(mcs, name, bases, attrs)
-        if bool(cls):
-            fields = Fields(cls.fields)
-            cls.registry[fields] = cls
-        return cls
-
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        if not any([type(base) is CalculationMeta for base in bases]):
-            return
-        if not any([type(subbase) is CalculationMeta for base in bases for subbase in base]):
-            assert all([attr not in kwargs["fields"] for attr in ("equation", "domain", "fields")])
-            cls.__fields__ = ODict.fromkeys(list(set(kwargs["fields"])))
-            cls.__registry__ = ODict()
-        equation = kwargs.get("equation", getattr(cls, "__equation__", None))
-        fields = ODict([(key, kwargs.get(key, value)) for key, value in getattr(cls, "__fields__", {}).items()])
-        assert issubclass(equation, Equation) if equation is not None else True
-        cls.__equation__ = equation
-        cls.__fields__ = fields
-
-    def __bool__(cls): return None not in cls.fields.values()
     def __iter__(cls): return iter(list(cls.registry.items()))
-
-    def __call__(cls, *args, **kwargs):
-        parameters = dict(equation=cls.__equation__)
-        instance = super(CalculationMeta, cls).__call__(*args, **parameters, **kwargs)
-        return instance
+    def __init__(cls, *args, **kwargs):
+        if not any([type(base) is CalculationMeta for base in cls.__bases__]):
+            return
+        if not any([type(subbase) is CalculationMeta for base in cls.__bases__ for subbase in base.__bases__]):
+            cls.__fields__ = Fields(list(set(kwargs.get("fields", []))))
+            cls.__registry__ = ODict()
+        fields = getattr(cls, "__fields__", {}).items()
+        fields = ODict([(key, kwargs.get(key, value)) for (key, value) in iter(fields)])
+        if bool(fields):
+            cls.registry[fields] = cls
+        cls.__fields__ = cls.fields | fields
 
     @property
     def registry(cls): return cls.__registry__
@@ -160,9 +195,8 @@ class CalculationMeta(ABCMeta):
 
 
 class Calculation(ABC, metaclass=CalculationMeta):
-    def __init__(self, *args, equation, **kwargs):
-        self.__equation = equation
-
+    def __init_subclass__(cls, *args, **kwargs): pass
+    def __init__(self, *args, **kwargs): pass
     def __call__(self, *args, **kwargs):
         generator = self.execute(*args, **kwargs)
         contents = list(generator)
@@ -195,10 +229,10 @@ class Calculator(Processor, ABC, title="Calculated"):
         for field, calculation in iter(calculation):
             for key, value in field.items():
                 fields[key].append(value)
-        fields = ODict([(key, kwargs.get(key, values)) for key, values in field.items()])
+        fields = ODict([(key, kwargs.get(key, values)) for key, values in fields.items()])
         assert all([isinstance(values, list) for values in fields.values()])
         fields = [[(key, value) for value in values] for key, values in fields.items()]
-        fields = [Fields(mapping) for mapping in product(*fields)]
+        fields = [Fields(ODict(mapping)) for mapping in product(*fields)]
         calculations = ODict([(field, calculation) for field, calculation in iter(calculation) if field in fields])
         self.__calculations = calculations
 
