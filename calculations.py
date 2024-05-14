@@ -135,16 +135,11 @@ class AlgorithmMeta(SingletonMeta):
         cls = super(EquationMeta, mcs).__new__(mcs, name, bases, attrs)
         return cls
 
+    def __iter__(cls): return list(cls.__variables__.items())
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         existing = {key: variable.copy() for key, variable in getattr(cls, "__variables__", {}).items()}
         updated = {variable.key: variable for variable in attrs.values() if isinstance(variable, Variable)}
         cls.__variables__ = existing | updated
-
-    def __iter__(cls): return list(cls.__variables__.items())
-    def __call__(cls, *args, **kwargs):
-        variables = {key: variable for (key, variable) in iter(cls)}
-        instance = super(AlgorithmMeta, cls).__call__(*args, variables=variables, **kwargs)
-        return instance
 
 
 class Algorithm(ABC, metaclass=AlgorithmMeta):
@@ -194,12 +189,14 @@ class CalculationMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is CalculationMeta for base in cls.__bases__]):
             return
-        mapping = lambda contents: {index: value for index, value in enumerate(contents)}
-        equation = kwargs.get("equation", getattr(cls, "Equation", None))
-        domain = kwargs.get("domain", getattr(cls, "Domain", {}))
-        domain = [domain] if issubclass(domain, Domain) else domain
-        domain = mapping(domain) if isinstance(domain, list) else domain
-        cls.Equation, cls.Domain = equation, domain
+
+#        mapping = lambda contents: {index: value for index, value in enumerate(contents)}
+#        equation = kwargs.get("equation", getattr(cls, "Equation", None))
+#        domain = kwargs.get("domain", getattr(cls, "Domain", {}))
+#        domain = [domain] if issubclass(domain, Domain) else domain
+#        domain = mapping(domain) if isinstance(domain, list) else domain
+#        cls.Equation, cls.Domain = equation, domain
+
         if not any([type(subbase) is CalculationMeta for base in cls.__bases__ for subbase in base.__bases__]):
             cls.__fields__ = Fields(list(set(kwargs.get("fields", []))))
             cls.__registry__ = ODict()
@@ -210,22 +207,17 @@ class CalculationMeta(ABCMeta):
         cls.__fields__ = fields
 
     def __call__(cls, *args, **kwargs):
-        domain = {key: value(*args, **kwargs) for key, value in cls.Domain(*args, **kwargs)}
-        equation = cls.Equation(*args, domain=domain.values(), **kwargs)
+         pass
 
-
-        variables = ODict(list(iter(equation)))
-        for domain in list(cls.Domain.values()):
-            variables = variables | ODict(list(iter(domain)))
-        for variable in variables.values():
-            if isinstance(variable, Dependent):
-                for key in list(inspect.signature(variable.function).parameters.keys()):
-                    variable[key] = variables[key]
-
-
-        parameters = dict(equation=cls.Equation(*args, **kwargs))
-        instance = super(CalculationMeta, cls).__call__(*args, **parameters, **kwargs)
-        return instance
+#        domain = {key: value(*args, **kwargs) for key, value in cls.Domain(*args, **kwargs)}
+#        equation = cls.Equation(*args, domain=domain.values(), **kwargs)
+#        variables = ODict(list(iter(equation)))
+#        for domain in list(cls.Domain.values()):
+#            variables = variables | ODict(list(iter(domain)))
+#        for variable in variables.values():
+#            if isinstance(variable, Dependent):
+#                for key in list(inspect.signature(variable.function).parameters.keys()):
+#                    variable[key] = variables[key]
 
     @property
     def registry(cls): return cls.__registry__
@@ -235,9 +227,7 @@ class CalculationMeta(ABCMeta):
 
 class Calculation(ABC, metaclass=CalculationMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, equation, **kwargs):
-        self.__equation = equation
-
+    def __init__(self, *args, **kwargs): pass
     def __call__(self, *args, **kwargs):
         generator = self.execute(*args, **kwargs)
         contents = list(generator)
