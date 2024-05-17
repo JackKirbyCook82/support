@@ -65,7 +65,7 @@ class Variable(Node, ABC):
 
 class Independent(Variable):
     def __init__(self, *args, position, **kwargs):
-        assert isinstance(position, (str, Enum))
+        assert isinstance(position, (int, str, Enum))
         super().__init__(*args, **kwargs)
         self.__position = str(position.name).lower() if isinstance(position, Enum) else position
 
@@ -158,7 +158,7 @@ class EquationMeta(SingletonMeta):
         cls = super(EquationMeta, mcs).__new__(mcs, name, bases, attrs)
         return cls
 
-    def __iter__(cls): return list(cls.__variables__.items())
+    def __iter__(cls): return iter(cls.__variables__.items())
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         existing = {key: variable.copy() for key, variable in getattr(cls, "__variables__", {}).items()}
         updated = {str(variable): variable for variable in attrs.values() if isinstance(variable, Variable)}
@@ -198,7 +198,7 @@ class Equation(ABC, metaclass=EquationMeta):
             results = variable.calculate(execute, sources, constants, type=list(astype)[0])
             return results
 
-        wrapper.__name__ = "_".join([str(self.name).lower(), "equation"])
+        wrapper.__name__ = "_".join([str(variable.name).lower(), "equation"])
         return wrapper
 
     @property

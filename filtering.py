@@ -88,6 +88,15 @@ class Filter(Processor, ABC, title="Filtered"):
     def where_dataframe(self, dataframe, mask=None): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
 
     @typedispatcher
+    def empty(self, content): raise TypeError(type(content).__name__)
+    @empty.register(xr.DataArray)
+    def empty_dataarray(self, dataarray): return not bool(np.count_nonzero(~np.isnan(dataarray.values)))
+    @empty.register(pd.DataFrame)
+    def empty_dataframe(self, dataframe): return bool(dataframe.empty)
+    @empty.register(pd.Series)
+    def empty_series(self, series): return bool(series.empty)
+
+    @typedispatcher
     def size(self, content): raise TypeError(type(content).__name__)
     @size.register(xr.DataArray)
     def size_dataarray(self, dataarray): return np.count_nonzero(~np.isnan(dataarray.values))

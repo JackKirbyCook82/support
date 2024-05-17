@@ -202,19 +202,24 @@ class DataframeFile(File, type=pd.DataFrame):
         self.__header = header
 
     def read(self, *args, **kwargs):
-        index = list(self.header.index)
+        index = list(self.header.index.keys())
+        columns = list(self.header.columns.keys())
         dataframe = super().read(*args, **kwargs)
+        assert set(index + columns) == set(dataframe.columns)
         if self.duplicates:
             dataframe = dataframe.drop_duplicates(index, keep="first", inplace=False, ignore_index=True)
         dataframe = dataframe.set_index(index, drop=True, inplace=False)
-        return dataframe
+        return dataframe[columns]
 
     def write(self, dataframe, *args, **kwargs):
-        index = list(self.header.index)
+        index = list(self.header.index.keys())
+        columns = list(self.header.columns.keys())
         dataframe = dataframe.reset_index(drop=False, inplace=False)
         if self.duplicates:
             dataframe = dataframe.drop_duplicates(index, keep="first", inplace=False, ignore_index=True)
-        super().write(dataframe, *args, **kwargs)
+        for column in set(index + columns) - set(dataframe.columns):
+            dataframe[column] = np.NaN
+        super().write(dataframe[index + columns], *args, **kwargs)
 
     @staticmethod
     def empty(content): return bool(content.empty)

@@ -24,9 +24,9 @@ class Stage(ABC):
         cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
 
     def __repr__(self): return self.name
-    def __init__(self, *args, **kwargs):
-        self.__title = kwargs.get("title", self.__class__.__title__)
-        self.__name = kwargs.get("name", self.__class__.__name__)
+    def __init__(self, *args, name=None, title=None, **kwargs):
+        self.__title = title if title is not None else self.__class__.__title__
+        self.__name = name if name is not None else self.__class__.__name__
 
     def logger(self, elapsed):
         __logger__.info(f"{self.title}: {repr(self)}[{elapsed:.2f}s]")
