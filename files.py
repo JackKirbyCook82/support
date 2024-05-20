@@ -55,9 +55,9 @@ class Loader(Producer):
             contents = {variable: content for variable, content in contents.items() if content is not None}
             yield {variable: query} | contents
 
-    def read(self, *args, query, **kwargs):
+#    def read(self, *args, query, **kwargs):
 #        contents = {file.variable: file.read(*args, query=query, mode=mode, **kwargs) for file, mode in self.source.items()}
-        return contents
+#        return contents
 
     @property
     def source(self): return self.__source
@@ -74,11 +74,11 @@ class Saver(Consumer):
         contents = {variable: content for variable, content in contents.items() if content is not None}
         self.write(contents, *args, **kwargs)
 
-    def write(self, contents, *args, **kwargs):
-        for file, mode in self.destination.items():
-            query = contents[str(file.query)]
-#            content = contents[str(file.variable)]
-            file.write(content, *args, query=query, mode=mode, **kwargs)
+#    def write(self, contents, *args, **kwargs):
+#        for file, mode in self.destination.items():
+#            query = contents[str(file.query)]
+#           content = contents[str(file.variable)]
+#            file.write(content, *args, query=query, mode=mode, **kwargs)
 
     @property
     def destination(self): return self.__destination
@@ -113,11 +113,16 @@ class File(ABC, metaclass=FileMeta):
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __hash__(self): return hash(str(self.variable))
     def __init__(self, *args, variable, query, repository, mutex, typing, timing, **kwargs):
+        assert isinstance(variable, tuple) and len(variable) == 2
         if self.missing(repository):
             os.mkdir(repository)
+        variable, locator = variable
+        assert isinstance(locator, (str, list))
+        locator = [locator] if isinstance(locator, str) else locator
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__repository = repository
         self.__variable = variable
+        self.__locator = locator
         self.__timing = timing
         self.__typing = typing
         self.__query = query
@@ -172,6 +177,8 @@ class File(ABC, metaclass=FileMeta):
     def repository(self): return self.__repository
     @property
     def variable(self): return self.__variable
+    @property
+    def locator(self): return self.__locator
     @property
     def timing(self): return self.__timing
     @property

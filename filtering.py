@@ -15,7 +15,7 @@ from collections import namedtuple as ntuple
 
 from support.dispatchers import typedispatcher
 from support.pipelines import Processor
-from support.mixins import Data
+from support.query import Data
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"

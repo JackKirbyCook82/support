@@ -19,7 +19,8 @@ from collections import OrderedDict as ODict
 from support.dispatchers import typedispatcher, kwargsdispatcher
 from support.pipelines import Processor
 from support.meta import SingletonMeta
-from support.mixins import Node, Data
+from support.mixins import Node
+from support.query import Data
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
