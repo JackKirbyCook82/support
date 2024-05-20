@@ -56,7 +56,7 @@ class Loader(Producer):
             yield {variable: query} | contents
 
     def read(self, *args, query, **kwargs):
-        contents = {file.variable: file.read(*args, query=query, mode=mode, **kwargs) for file, mode in self.source.items()}
+#        contents = {file.variable: file.read(*args, query=query, mode=mode, **kwargs) for file, mode in self.source.items()}
         return contents
 
     @property
@@ -77,7 +77,7 @@ class Saver(Consumer):
     def write(self, contents, *args, **kwargs):
         for file, mode in self.destination.items():
             query = contents[str(file.query)]
-            content = contents[str(file.variable)]
+#            content = contents[str(file.variable)]
             file.write(content, *args, query=query, mode=mode, **kwargs)
 
     @property

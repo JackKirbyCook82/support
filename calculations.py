@@ -8,7 +8,6 @@ Created on Weds Jul 12 2023
 
 import types
 import inspect
-import numpy as np
 import pandas as pd
 import xarray as xr
 from enum import Enum
@@ -20,7 +19,7 @@ from collections import OrderedDict as ODict
 from support.dispatchers import typedispatcher, kwargsdispatcher
 from support.pipelines import Processor
 from support.meta import SingletonMeta
-from support.mixins import Node
+from support.mixins import Node, Data
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -276,7 +275,7 @@ class Calculation(ABC, metaclass=CalculationMeta):
     def equation(self): return self.__equation
 
 
-class Calculator(Processor, ABC, title="Calculated"):
+class Calculator(Data, Processor, ABC, title="Calculated"):
     def __init_subclass__(cls, *args, calculation, **kwargs):
         super().__init_subclass__(*args, **kwargs)
         cls.__calculation__ = calculation
@@ -294,15 +293,6 @@ class Calculator(Processor, ABC, title="Calculated"):
         fields = [Fields(ODict(mapping)) for mapping in product(*fields)]
         calculations = {field: calculation(*args, **kwargs) for field, calculation in iter(calculation) if field in fields}
         self.__calculations = calculations
-
-    @typedispatcher
-    def empty(self, content): raise TypeError(type(content).__name__)
-    @empty.register(xr.DataArray)
-    def empty_dataarray(self, dataarray): return not bool(np.count_nonzero(~np.isnan(dataarray.values)))
-    @empty.register(pd.DataFrame)
-    def empty_dataframe(self, dataframe): return bool(dataframe.empty)
-    @empty.register(pd.Series)
-    def empty_series(self, series): return bool(series.empty)
 
     @property
     def calculations(self): return self.__calculations

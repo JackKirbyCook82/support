@@ -7,7 +7,6 @@ Created on Weds Jul 12 2023
 """
 
 import logging
-import numpy as np
 import pandas as pd
 import xarray as xr
 from functools import reduce
@@ -16,6 +15,7 @@ from collections import namedtuple as ntuple
 
 from support.dispatchers import typedispatcher
 from support.pipelines import Processor
+from support.mixins import Data
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -65,7 +65,7 @@ class Criterion(object):
     NULL = Null
 
 
-class Filter(Processor, ABC, title="Filtered"):
+class Filter(Data, Processor, ABC, title="Filtered"):
     def __init__(self, *args, criterion={},  **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(criterion, dict)
@@ -86,24 +86,6 @@ class Filter(Processor, ABC, title="Filtered"):
     def where_dataset(self, dataset, mask=None): return dataset.where(mask, drop=True) if bool(mask is not None) else dataset
     @where.register(pd.DataFrame)
     def where_dataframe(self, dataframe, mask=None): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
-
-    @typedispatcher
-    def empty(self, content): raise TypeError(type(content).__name__)
-    @empty.register(xr.DataArray)
-    def empty_dataarray(self, dataarray): return not bool(np.count_nonzero(~np.isnan(dataarray.values)))
-    @empty.register(pd.DataFrame)
-    def empty_dataframe(self, dataframe): return bool(dataframe.empty)
-    @empty.register(pd.Series)
-    def empty_series(self, series): return bool(series.empty)
-
-    @typedispatcher
-    def size(self, content): raise TypeError(type(content).__name__)
-    @size.register(xr.DataArray)
-    def size_dataarray(self, dataarray): return np.count_nonzero(~np.isnan(dataarray.values))
-    @size.register(pd.DataFrame)
-    def size_dataframe(self, dataframe): return len(dataframe.dropna(how="all", inplace=False).index)
-    @size.register(pd.Series)
-    def size_series(self, series): return len(series.dropna(how="all", inplace=False).index)
 
     @property
     def criterion(self): return self.__criterion
