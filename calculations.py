@@ -20,7 +20,6 @@ from support.dispatchers import typedispatcher, kwargsdispatcher
 from support.pipelines import Processor
 from support.meta import SingletonMeta
 from support.mixins import Node
-from support.query import Data
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -276,16 +275,16 @@ class Calculation(ABC, metaclass=CalculationMeta):
     def equation(self): return self.__equation
 
 
-class Calculator(Data, Processor, ABC, title="Calculated"):
-    def __init_subclass__(cls, *args, calculation, **kwargs):
+class Calculator(Processor, ABC, title="Calculated"):
+    def __init_subclass__(cls, *args, calculations, **kwargs):
         super().__init_subclass__(*args, **kwargs)
-        cls.__calculation__ = calculation
+        cls.__calculations__ = calculations
 
     def __init__(self, *args, name=None, **kwargs):
         super().__init__(*args, name=name, **kwargs)
-        calculation = self.__class__.__calculation__
-        fields = ODict([(key, []) for key in list(calculation.fields.keys())])
-        for field, calculation in iter(calculation):
+        calculations = self.__class__.__calculations__
+        fields = ODict([(key, []) for key in list(calculations.fields.keys())])
+        for field, calculation in iter(calculations):
             for key, value in field.items():
                 fields[key].append(value)
         fields = ODict([(key, kwargs.get(key, values)) for key, values in fields.items()])

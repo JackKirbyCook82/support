@@ -6,7 +6,7 @@ Created on Sun 14 2023
 
 """
 
-import types
+import inspect
 import numpy as np
 import pandas as pd
 import xarray as xr
@@ -23,29 +23,18 @@ __license__ = "MIT License"
 class QueryMeta(type):
     def __call__(cls, *args, **kwargs):
         def decorator(generator):
-            assert isinstance(generator, types.GeneratorType)
+            assert inspect.isgeneratorfunction(generator)
             instance = super(QueryMeta, cls).__call__(generator, *args, **kwargs)
             return instance
         return decorator
 
 
 class Query(object, metaclass=QueryMeta):
-    def __init__(self, generator, *inlet, **outlet):
-        assert all([isinstance(argument, str) for argument in inlet])
-        assert all([isinstance(parameter, Header) for parameter in outlet.values()])
-        self.__generator = generator
-        self.__outlet = outlet
-        self.__inlet = inlet
+    def __init__(self, generator, *arguments, **parameters):
+        pass
 
     def __call__(self, contents, *args, **kwargs):
-        assert isinstance(contents, dict)
-        feed = filter(None, [contents.get(argument, None) for argument in self.inlet])
-        generator = self.generator(*feed, *args, **kwargs)
-        for updated in iter(generator):
-            assert isinstance(updated, dict)
-            parsed = {parameter: header(updated.pop(parameter, None)) for parameter, header in self.outlet.items()}
-            parsed = {parameter: content for parameter, content in parsed.items() if content is not None}
-            yield contents | updated | parsed
+        pass
 
     @property
     def generator(self): return self.__generator
@@ -56,7 +45,7 @@ class Query(object, metaclass=QueryMeta):
 
 
 class Header(object):
-    pass
+    def __init__(self, *args, **kwargs): pass
 
 
 class Data(object):
