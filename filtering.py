@@ -15,7 +15,7 @@ from collections import namedtuple as ntuple
 
 from support.dispatchers import typedispatcher
 from support.pipelines import Processor
-from support.query import Data
+from support.mixins import Sizing
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -65,7 +65,7 @@ class Criterion(object):
     NULL = Null
 
 
-class Filter(Data, Processor, ABC, title="Filtered"):
+class Filter(Sizing, Processor, ABC, title="Filtered"):
     def __init__(self, *args, criterion={},  **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(criterion, dict)
