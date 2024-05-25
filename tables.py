@@ -8,18 +8,36 @@ Created on Weds Jul 12 2023
 
 import multiprocessing
 import pandas as pd
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
+
+from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Tables", "Options"]
+__all__ = ["Options", "Table"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class TableMeta(ABCMeta):
+# class OptionsMeta(RegistryMeta):
+#     def __new__(mcs, name, bases, attrs, *args, **kwargs):
+#         cls = super(OptionsMeta, mcs).__new__(mcs, name, bases, attrs)
+#         return cls
+#
+#     def __call__(cls, *args, **kwargs):
+#         fields = [kwargs[field] for field in cls._fields]
+#         instance = super(OptionsMeta, cls).__call__(*fields)
+#         return instance
+
+
+# class Options(ABC, metaclass=OptionsMeta):
+#     pass
+
+
+class TableMeta(RegistryMeta):
     def __init__(cls, *args, **kwargs):
+        super(TableMeta, cls).__init__(*args, **kwargs)
         cls.Options = kwargs.get("options", getattr(cls, "Options", None))
         cls.Type = kwargs.get("type", getattr(cls, "Type", None))
 
@@ -83,14 +101,14 @@ class Table(ABC, metaclass=TableMeta):
     def name(self): return self.__name
 
 
-class DataframeOptions(ntuple("Options", "rows columns width formats numbers")):
-    def __new__(cls, *args, **kwargs): return super().__new__(cls, *[kwargs[field] for field in cls._fields])
+# class DataframeOptions(ntuple("Options", "rows columns width formats numbers"), Options, key="Dataframe"):
+#     def __new__(cls, *args, **kwargs): return super().__new__(cls, *[kwargs[field] for field in cls._fields])
+#
+#     @property
+#     def parameters(self): return dict(max_rows=self.rows, max_cols=self.columns, line_width=self.width, float_format=self.numbers, formatters=self.formats)
 
-    @property
-    def parameters(self): return dict(max_rows=self.rows, max_cols=self.columns, line_width=self.width, float_format=self.numbers, formatters=self.formats)
 
-
-class DataframeTable(Table, ABC, type=pd.DataFrame):
+class DataframeTable(Table, type=pd.DataFrame, key="Dataframe"):
     def write(self, locator, content, *args, **kwargs):
         index, column = locator
         assert isinstance(index, (int, slice)) and isinstance(column, int)
@@ -134,14 +152,6 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
-
-
-class Tables:
-    Dataframe = DataframeTable
-
-class Options:
-    Dataframe = DataframeOptions
-
 
 
 

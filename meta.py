@@ -34,13 +34,20 @@ mrostr = lambda x: ", ".join(list(map(lambda i: i.__name__, x.__mro__)))
 astype = lambda base, meta: meta(base.__name__, (base,), {})
 
 
+class Meta(ABCMeta):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        try:
+            return super(Meta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+        except TypeError:
+            return super(Meta, mcs).__new__(mcs, name, bases, attrs)
+
 class VariantKeyError(Exception):
     def __str__(self): return f"{self.__class__.__name__}[{self.args[0].__name__ if isclass(self.args[0]) else type(self.args[0]).__name__}]"
 
 class VariantValueError(Exception):
     def __str__(self): return f"{self.__class__.__name__}[{mrostr(self.args[0])}]"
 
-class VariantMeta(ABCMeta):
+class VariantMeta(Meta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         if not any([ismeta(base, VariantMeta) for base in bases]):
             attrs = {**attrs, "__variant__": False, "registry": dict()}
@@ -68,7 +75,7 @@ class VariantMeta(ABCMeta):
             raise VariantValueError(cls)
 
 
-class DelayerMeta(ABCMeta):
+class DelayerMeta(Meta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         assert not any([attr in attrs.keys() for attr in ("delay", "timer", "wait")])
         cls = super(DelayerMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
@@ -106,7 +113,7 @@ class DelayerMeta(ABCMeta):
     def timer(cls, timer): cls.__timer__ = timer
 
 
-class SingletonMeta(ABCMeta):
+class SingletonMeta(Meta):
     instances = {}
 
     def __call__(cls, *args, **kwargs):
@@ -115,7 +122,7 @@ class SingletonMeta(ABCMeta):
         return SingletonMeta.instances[cls]
 
 
-class RegistryMeta(ABCMeta):
+class RegistryMeta(Meta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         if not any([ismeta(base, RegistryMeta) for base in bases]):
             attrs = {**attrs, "registry": {}}
@@ -124,6 +131,10 @@ class RegistryMeta(ABCMeta):
 
     def __setitem__(cls, key, value): cls.registry[key] = value
     def __getitem__(cls, key): return cls.registry[key]
+    def __getattr__(cls, key):
+        if key not in cls.registry.keys():
+            raise AttributeError(key)
+        return cls.registry[key]
 
     def __init__(cls, *args, key=None, keys=[], **kwargs):
         assert isinstance(keys, list)

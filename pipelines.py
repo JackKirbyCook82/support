@@ -10,13 +10,36 @@ import time
 import types
 import logging
 from abc import ABC, abstractmethod
+from collections import namedtuple as ntuple
+
+from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Stage", "Routine", "Producer", "Processor", "Consumer"]
+__all__ = ["Query", "Header", "Stage", "Routine", "Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
+
+
+# class Query(object):
+#     pass
+
+
+# class HeaderMeta(RegistryMeta): pass
+# class Header(ABC, metaclass=HeaderMeta): pass
+
+
+# class DataframeHeader(ntuple("Header", "index columns"), Header, key="Dataframe"):
+#     def __new__(cls, *args, **kwargs): return super().__new__(cls, *[kwargs[field] for field in cls._fields])
+#     def __call__(self, dataframe):
+#         if not set(self.index) == set(dataframe.index.values):
+#             index = [column for column in self.index if column in dataframe.columns]
+#             dataframe = dataframe.set_index(index, drop=True, inplace=False)
+#         if not set(self.columns) == set(dataframe.columns):
+#             columns = [column for column in self.columns if column in dataframe.columns]
+#             dataframe = dataframe[columns]
+#         return dataframe
 
 
 class Stage(ABC):

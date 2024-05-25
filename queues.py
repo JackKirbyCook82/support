@@ -7,13 +7,14 @@ Created on Weds Jul 12 2023
 """
 
 import queue
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 
 from support.pipelines import Producer, Consumer
+from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Schedule", "Scheduler", "Queues"]
+__all__ = ["Schedule", "Scheduler", "Queue"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -54,8 +55,9 @@ class Scheduler(Consumer):
     def destination(self): return self.__destination
 
 
-class QueueMeta(ABCMeta):
+class QueueMeta(RegistryMeta):
     def __init__(cls, *args, **kwargs):
+        super(QueueMeta, cls).__init__(*args, **kwargs)
         cls.Variable = kwargs.get("variable", getattr(cls, "Variable", None))
         cls.Type = kwargs.get("type", getattr(cls, "Type", None))
 
@@ -148,17 +150,10 @@ class PriorityQueue(Queue):
     def priority(self): return self.__priority
 
 
-class FIFOQueue(StandardQueue, type=queue.Queue): pass
-class LIFOQueue(StandardQueue, type=queue.LifoQueue): pass
-class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=True): pass
-class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=False): pass
-
-
-class Queues:
-    FIFO = FIFOQueue
-    LIFO = LIFOQueue
-    HIPO = HIPOQueue
-    LIPO = LIPOQueue
+class FIFOQueue(StandardQueue, type=queue.Queue, key="FIFO"): pass
+class LIFOQueue(StandardQueue, type=queue.LifoQueue, key="LIFO"): pass
+class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, key="HIPO", ascending=True): pass
+class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, key="LIPO", ascending=False): pass
 
 
 
