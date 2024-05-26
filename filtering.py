@@ -34,7 +34,7 @@ class Criteria(ntuple("Criteria", "variable threshold"), ABC):
     @typedispatcher
     def column(self, variable): pass
     @column.register(type(None))
-    def single(self, empty): return self.variable
+    def single(self, null): return self.variable
     @column.register(str)
     def double(self, variable): return tuple([self.variable, variable])
     @column.register(list)

@@ -154,11 +154,12 @@ class EquationMeta(SingletonMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         exclude = [key for key, variable in attrs.items() if isinstance(variable, Variable)]
         attrs = {key: value for key, value in attrs.items() if key not in exclude}
-        cls = super(EquationMeta, mcs).__new__(mcs, name, bases, attrs)
+        cls = super(EquationMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
         return cls
 
     def __iter__(cls): return iter(cls.__variables__.items())
     def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(EquationMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         existing = {key: variable.copy() for key, variable in getattr(cls, "__variables__", {}).items()}
         updated = {str(variable): variable for variable in attrs.values() if isinstance(variable, Variable)}
         cls.__variables__ = existing | updated
@@ -242,11 +243,6 @@ class CalculationMeta(ABCMeta):
         cls.__equation__ = kwargs.get("equation", getattr(cls, "__equation__", None))
         cls.__fields__ = fields
 
-    def __call__(cls, *args, **kwargs):
-        parameters = dict(equation=cls.__equation__)
-        instance = super(CalculationMeta, cls).__call__(*args, **parameters, **kwargs)
-        return instance
-
     @property
     def registry(cls): return cls.__registry__
     @property
@@ -255,7 +251,9 @@ class CalculationMeta(ABCMeta):
 
 class Calculation(ABC, metaclass=CalculationMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, equation, **kwargs): self.__equation = equation
+    def __init__(self, *args, **kwargs):
+        self.__equation = self.__class__.__equation__
+
     def __call__(self, *args, **kwargs):
         generator = self.execute(*args, **kwargs)
         contents = list(generator)

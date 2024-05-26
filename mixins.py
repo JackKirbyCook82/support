@@ -17,7 +17,7 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Node", "Sizing", "Publisher", "Subscriber", "renderer"]
+__all__ = ["Node", "Sizing", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -43,7 +43,7 @@ def renderer(node, layers=[], style=single):
             yield from renderer(value, layers=[*layers, last(index, node.size - 1)], style=style)
 
 
-class Mixin(object):
+class Mixin(ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try:
             super().__init_subclass__(*args, **kwargs)
@@ -52,9 +52,9 @@ class Mixin(object):
 
     def __new__(cls, *args, **kwargs):
         try:
-            super().__new__(cls, *args, **kwargs)
+            return super().__new__(cls, *args, **kwargs)
         except TypeError:
-            super().__new__(cls)
+            return super().__new__(cls)
 
     def __init__(self, *args, **kwargs):
         try:
@@ -63,7 +63,7 @@ class Mixin(object):
             super().__init__()
 
 
-class Sizing(object):
+class Sizing(Mixin):
     @typedispatcher
     def empty(self, content): raise TypeError(type(content).__name__)
     @empty.register(dict)

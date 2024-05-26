@@ -89,7 +89,7 @@ class Registry(object):
     def function(self): return self.__function
 
 
-def argsdispatcher(index=0, func=lambda x: x):
+def argsdispatcher(index=0, parser=lambda x: x):
     assert isinstance(index, int)
 
     def decorator(mainfunction):
@@ -98,12 +98,12 @@ def argsdispatcher(index=0, func=lambda x: x):
         __registry__ = Registry(mainfunction)
 
         def method_wrapper(self, *args, **kwargs):
-            lookup = func(args[index])
+            lookup = parser(args[index])
             function = __registry__[lookup]
             return function(self, *args, **kwargs)
 
         def function_wrapper(*args, **kwargs):
-            lookup = func(args[index])
+            lookup = parser(args[index])
             function = __registry__[lookup]
             return function(*args, **kwargs)
 
@@ -114,7 +114,7 @@ def argsdispatcher(index=0, func=lambda x: x):
     return decorator
 
 
-def kwargsdispatcher(key, func=lambda x: x):
+def kwargsdispatcher(key, parser=lambda x: x):
     assert isinstance(key, str)
 
     def decorator(mainfunction):
@@ -123,12 +123,12 @@ def kwargsdispatcher(key, func=lambda x: x):
         __registry__ = Registry(mainfunction)
 
         def method_wrapper(self, *args, **kwargs):
-            lookup = func(kwargs[key])
+            lookup = parser(kwargs[key])
             function = __registry__[lookup]
             return function(self, *args, **kwargs)
 
         def function_wrapper(*args, **kwargs):
-            lookup = func(kwargs[key])
+            lookup = parser(kwargs[key])
             function = __registry__[lookup]
             return function(*args, **kwargs)
 

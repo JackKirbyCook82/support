@@ -10,7 +10,7 @@ import queue
 from abc import ABC, abstractmethod
 
 from support.pipelines import Producer, Consumer
-from support.meta import RegistryMeta
+from support.meta import AttributeMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -55,37 +55,35 @@ class Scheduler(Consumer):
     def destination(self): return self.__destination
 
 
-class QueueMeta(RegistryMeta):
+class QueueMeta(AttributeMeta):
     def __init__(cls, *args, **kwargs):
         super(QueueMeta, cls).__init__(*args, **kwargs)
-        cls.Variable = kwargs.get("variable", getattr(cls, "Variable", None))
-        cls.Type = kwargs.get("type", getattr(cls, "Type", None))
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
+        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
 
     def __call__(cls, *args, capacity=None, contents=[], **kwargs):
-        assert cls.Variable is not None
-        assert cls.Type is not None
+        assert cls.__variable__ is not None
+        assert cls.__type__ is not None
         assert isinstance(contents, list)
         assert (len(contents) <= capacity) if bool(capacity) else True
-        instance = cls.Type(maxsize=capacity if capacity is not None else 0)
-        parameters = {"variable": cls.Variable}
+        parameters = dict(maxsize=capacity if capacity is not None else 0)
+        stack = cls.__type__(**parameters)
         for content in contents:
-            instance.put(content)
-        wrapper = super(QueueMeta, cls).__call__(instance, *args, **parameters, **kwargs)
-        return wrapper
+            stack.put(content)
+        instance = super(QueueMeta, cls).__call__(stack, *args, **kwargs)
+        return instance
 
 
 class Queue(ABC, metaclass=QueueMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
-
     def __bool__(self): return not self.empty
     def __len__(self): return self.size
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, instance, *args, variable, timeout=None, **kwargs):
+    def __init__(self, stack, *args, timeout=None, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__variable = variable
+        self.__variable = self.__class__.__variable__
         self.__timeout = timeout
-        self.__queue = instance
+        self.__queue = stack
 
     @abstractmethod
     def write(self, content, *args, **kwargs): pass
@@ -125,9 +123,8 @@ class PriorityQueue(Queue):
 
     def __init__(self, contents, *args, priority, **kwargs):
         assert callable(priority)
-        ascending = self.__class__.__ascending__
         super().__init__(*args, **kwargs)
-        self.__ascending = ascending
+        self.__ascending = self.__class__.__ascending__
         self.__priority = priority
         for content in contents:
             self.write(content)
@@ -150,10 +147,10 @@ class PriorityQueue(Queue):
     def priority(self): return self.__priority
 
 
-class FIFOQueue(StandardQueue, type=queue.Queue, key="FIFO"): pass
-class LIFOQueue(StandardQueue, type=queue.LifoQueue, key="LIFO"): pass
-class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, key="HIPO", ascending=True): pass
-class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, key="LIPO", ascending=False): pass
+class FIFOQueue(StandardQueue, type=queue.Queue, register="FIFO"): pass
+class LIFOQueue(StandardQueue, type=queue.LifoQueue, register="LIFO"): pass
+class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, register="HIPO", ascending=True): pass
+class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, register="LIPO", ascending=False): pass
 
 
 

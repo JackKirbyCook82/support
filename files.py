@@ -19,7 +19,7 @@ from collections import namedtuple as ntuple
 
 from support.pipelines import Producer, Consumer
 from support.dispatchers import kwargsdispatcher
-from support.meta import SingletonMeta, RegistryMeta
+from support.meta import SingletonMeta, AttributeMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -94,36 +94,33 @@ class FileLock(dict, metaclass=SingletonMeta):
 
 class FileDirectoryMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
-        cls.Variable = kwargs.get("variable", getattr(cls, "Variable", None))
-        cls.Query = kwargs.get("query", getattr(cls, "Query", None))
-        cls.Data = kwargs.get("data", getattr(cls, "Data", None))
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
+        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
+        cls.__data__ = kwargs.get("data", getattr(cls, "__data__", None))
 
     def __call__(cls, *args, **kwargs):
-        assert cls.Variable is not None
-        assert cls.Query is not None
-        assert cls.Data is not None
-        parameters = {"variable": cls.Variable, "query": cls.Query, "mutex": FileLock(), "data": cls.Data}
-        instance = super(FileDirectoryMeta, cls).__call__(*args, **parameters, **kwargs)
+        assert cls.__variable__ is not None
+        assert cls.__query__ is not None
+        assert cls.__data__ is not None
+        mutex = FileLock()
+        instance = super(FileDirectoryMeta, cls).__call__(*args, mutex=mutex, **kwargs)
         return instance
 
 
 class FileDirectory(ABC, metaclass=FileDirectoryMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
-
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __hash__(self): return hash(str(self.variable))
-    def __init__(self, *args, variable, query, data, repository, mutex, typing, timing, **kwargs):
-        assert isinstance(query, FileQuery)
+    def __init__(self, *args, repository, mutex, typing, timing, **kwargs):
         if not os.path.exists(repository):
             os.mkdir(repository)
         self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__variable = self.__class__.__variable__
+        self.__query = self.__class__.__query__
+        self.__data = self.__class__.__data__
         self.__repository = repository
-        self.__variable = variable
         self.__timing = timing
         self.__typing = typing
-        self.__query = query
         self.__mutex = mutex
-        self.__data = data
 
     def __iter__(self):
         directory = os.path.join(self.repository, self.variable)
@@ -176,7 +173,7 @@ class FileDirectory(ABC, metaclass=FileDirectoryMeta):
     def name(self): return self.__name
 
 
-class FileDataMeta(RegistryMeta): pass
+class FileDataMeta(AttributeMeta): pass
 class FileData(ABC, metaclass=FileDataMeta):
     @abstractmethod
     def read(self, *args, **kwargs): pass
@@ -190,7 +187,7 @@ class FileData(ABC, metaclass=FileDataMeta):
     def empty(self, content): pass
 
 
-class FileDataFrame(FileData, key="Dataframe"):
+class FileDataFrame(FileData, register="Dataframe"):
     def __init__(self, *args, index={}, columns={}, duplicates, **kwargs):
         assert isinstance(index, dict) and isinstance(columns, dict)
         header = [(key, value) for key, value in chain(index.items(), columns.items())]
@@ -224,10 +221,12 @@ class FileDataFrame(FileData, key="Dataframe"):
 
     @load.register.value(csv_eager)
     def load_eager_csv(self, *args, file, mode, **kwargs):
+        assert mode == "r"
         return pd.read_csv(file, iterator=False, index_col=None, header=0, dtype=self.types, parse_dates=self.dates)
 
     @load.register.value(csv_lazy)
     def load_lazy_csv(self, *args, file, mode, size, **kwargs):
+        assert mode == "r"
         return dk.read_csv(file, blocksize=size, index_col=None, header=0, dtype=self.types, parse_dates=self.dates)
 
     @load.register.value(hdf_eager)

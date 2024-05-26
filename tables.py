@@ -9,9 +9,8 @@ Created on Weds Jul 12 2023
 import multiprocessing
 import pandas as pd
 from abc import ABC, abstractmethod
-from collections import namedtuple as ntuple
 
-from support.meta import RegistryMeta
+from support.meta import AttributeMeta, FieldsMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -20,48 +19,36 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-# class OptionsMeta(RegistryMeta):
-#     def __new__(mcs, name, bases, attrs, *args, **kwargs):
-#         cls = super(OptionsMeta, mcs).__new__(mcs, name, bases, attrs)
-#         return cls
-#
-#     def __call__(cls, *args, **kwargs):
-#         fields = [kwargs[field] for field in cls._fields]
-#         instance = super(OptionsMeta, cls).__call__(*fields)
-#         return instance
+class OptionsMeta(AttributeMeta, FieldsMeta): pass
+class Options(ABC, metaclass=OptionsMeta): pass
 
 
-# class Options(ABC, metaclass=OptionsMeta):
-#     pass
-
-
-class TableMeta(RegistryMeta):
+class TableMeta(AttributeMeta):
     def __init__(cls, *args, **kwargs):
         super(TableMeta, cls).__init__(*args, **kwargs)
-        cls.Options = kwargs.get("options", getattr(cls, "Options", None))
-        cls.Type = kwargs.get("type", getattr(cls, "Type", None))
+        cls.__options__ = kwargs.get("options", getattr(cls, "__options__", None))
+        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
 
     def __call__(cls, *args, **kwargs):
-        assert cls.Options is not None
-        assert cls.Type is not None
-        instance = cls.Type()
-        parameters = dict(options=cls.Options, mutex=multiprocessing.RLock())
-        wrapper = super(TableMeta, cls).__call__(instance, *args, **parameters, **kwargs)
+        assert cls.__options__ is not None
+        assert cls.__type__ is not None
+        parameters = dict()
+        stack = cls.__type__(**parameters)
+        mutex = multiprocessing.RLock()
+        wrapper = super(TableMeta, cls).__call__(stack, *args, mutex=mutex, **kwargs)
         return wrapper
 
 
 class Table(ABC, metaclass=TableMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
-
     def __bool__(self): return not self.empty if self.table is not None else False
     def __len__(self): return self.size
     def __str__(self): return self.string
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, instance, *args, options, mutex, **kwargs):
+    def __init__(self, stack, *args, mutex, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__options = options
-        self.__table = instance
+        self.__options = self.__class__.__options__
+        self.__table = stack
         self.__mutex = mutex
 
     def __setitem__(self, locator, content): self.write(locator, content)
@@ -101,14 +88,8 @@ class Table(ABC, metaclass=TableMeta):
     def name(self): return self.__name
 
 
-# class DataframeOptions(ntuple("Options", "rows columns width formats numbers"), Options, key="Dataframe"):
-#     def __new__(cls, *args, **kwargs): return super().__new__(cls, *[kwargs[field] for field in cls._fields])
-#
-#     @property
-#     def parameters(self): return dict(max_rows=self.rows, max_cols=self.columns, line_width=self.width, float_format=self.numbers, formatters=self.formats)
-
-
-class DataframeTable(Table, type=pd.DataFrame, key="Dataframe"):
+class DataframeOptions(Options, fields=["rows", "columns", "width", "formats", "numbers"], register="Dataframe"): pass
+class DataframeTable(Table, type=pd.DataFrame, register="Dataframe"):
     def write(self, locator, content, *args, **kwargs):
         index, column = locator
         assert isinstance(index, (int, slice)) and isinstance(column, int)
@@ -147,7 +128,7 @@ class DataframeTable(Table, type=pd.DataFrame, key="Dataframe"):
             self.table = self.table.head(rows)
 
     @property
-    def string(self): return self.table.to_string(**self.options.parameters, show_dimensions=True)
+    def string(self): return self.table.to_string(**self.options.todict(), show_dimensions=True)
     @property
     def empty(self): return bool(self.table.empty)
     @property
