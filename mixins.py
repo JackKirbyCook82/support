@@ -17,7 +17,7 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Node", "Sizing", "Publisher", "Subscriber"]
+__all__ = ["Node", "Fields", "Sizing", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -61,6 +61,20 @@ class Mixin(ABC):
             super().__init__(*args, **kwargs)
         except TypeError:
             super().__init__()
+
+
+# class Fields(Mixin):
+#     def __init_subclass__(cls, *args, fields=[], **kwargs):
+#         super().__init_subclass__(*args, **kwargs)
+#         existing = getattr(cls, "__fields__", [])
+#         update = [field for field in existing if field not in existing]
+#         cls.__fields__ = existing + update
+#
+#     def __new__(cls, *args, **kwargs):
+#         fields = ODict([(field, kwargs.get(field, None)) for field in cls.__fields__])
+#         named = ntuple(cls.__name__, list(fields.keys()))
+#         cls = type(cls.__name__, (named, cls), {})
+#         return super().__new__(cls)
 
 
 class Sizing(Mixin):

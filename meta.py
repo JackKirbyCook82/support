@@ -17,7 +17,7 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["VariantMeta", "DelayerMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "FieldsMeta"]
+__all__ = ["VariantMeta", "DelayerMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -181,37 +181,6 @@ class RegistryMeta(Meta):
 
     @property
     def registry(cls): return cls.__registry__
-
-
-class FieldsMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, fields=[], **kwargs):
-        assert all([attr not in attrs.keys() for attr in ("keys", "values", "items")])
-        assert all([attr not in attrs.keys() for attr in ("todict", "tolist", "totuple")])
-        assert "fields" not in attrs.keys() and isinstance(fields, list)
-        super(FieldsMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        if not any([ismeta(base, FieldsMeta) for base in bases]):
-            assert all([field not in attrs.keys() for field in fields])
-            cls.__fields__ = fields
-            return
-        fields = [field for field in fields if field not in cls.fields]
-        assert all([field not in attrs.keys() for field in fields])
-        cls.__fields__ = fields
-
-    def __call__(cls, *args, **kwargs):
-        contents = ODict([(field, kwargs.get(field, None)) for field in cls.fields])
-        instance = super(FieldsMeta, cls).__call__(*args, **kwargs)
-        for key, value in contents.items():
-            setattr(instance, key, value)
-        setattr(instance, "totuple", lambda: tuple(contents.values()))
-        setattr(instance, "tolist", lambda: list(contents.values()))
-        setattr(instance, "todict", lambda: dict(contents))
-        setattr(instance, "values", lambda: contents.values())
-        setattr(instance, "items", lambda: contents.items())
-        setattr(instance, "keys", lambda: contents.keys())
-        return instance
-
-    @property
-    def fields(cls): return cls.__fields__
 
 
 

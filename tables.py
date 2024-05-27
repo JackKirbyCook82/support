@@ -10,7 +10,8 @@ import multiprocessing
 import pandas as pd
 from abc import ABC, abstractmethod
 
-from support.meta import AttributeMeta, FieldsMeta
+from support.meta import AttributeMeta
+from support.mixins import Fields
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -19,8 +20,9 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class OptionsMeta(AttributeMeta, FieldsMeta): pass
-class Options(ABC, metaclass=OptionsMeta): pass
+class OptionsMeta(AttributeMeta): pass
+class Options(Fields, metaclass=OptionsMeta): pass
+class DataframeOptions(Options, fields=["rows", "columns", "width", "formats", "numbers"], register="Dataframe"): pass
 
 
 class TableMeta(AttributeMeta):
@@ -88,7 +90,6 @@ class Table(ABC, metaclass=TableMeta):
     def name(self): return self.__name
 
 
-class DataframeOptions(Options, fields=["rows", "columns", "width", "formats", "numbers"], register="Dataframe"): pass
 class DataframeTable(Table, type=pd.DataFrame, register="Dataframe"):
     def write(self, locator, content, *args, **kwargs):
         index, column = locator
