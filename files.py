@@ -108,6 +108,8 @@ class FileDirectoryMeta(ABCMeta):
 
 
 class FileDirectory(ABC, metaclass=FileDirectoryMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
+
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __hash__(self): return hash(str(self.variable))
     def __init__(self, *args, repository, mutex, typing, timing, **kwargs):

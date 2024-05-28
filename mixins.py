@@ -63,18 +63,32 @@ class Mixin(ABC):
             super().__init__()
 
 
-# class Fields(Mixin):
-#     def __init_subclass__(cls, *args, fields=[], **kwargs):
-#         super().__init_subclass__(*args, **kwargs)
-#         existing = getattr(cls, "__fields__", [])
-#         update = [field for field in existing if field not in existing]
-#         cls.__fields__ = existing + update
-#
-#     def __new__(cls, *args, **kwargs):
-#         fields = ODict([(field, kwargs.get(field, None)) for field in cls.__fields__])
-#         named = ntuple(cls.__name__, list(fields.keys()))
-#         cls = type(cls.__name__, (named, cls), {})
-#         return super().__new__(cls)
+class Fields(Mixin):
+    def __init_subclass__(cls, *args, fields=[], **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        existing = getattr(cls, "__fields__", [])
+        update = [field for field in existing if field not in existing]
+        named = kwargs.get("named", getattr(cls, "__named__", False))
+        cls.__fields__ = existing + update
+        cls.__named__ = named
+
+    def __new__(cls, *args, **kwargs):
+        fields = list(cls.__fields__)
+        if not cls.__named__:
+            named = ntuple(cls.__name__, fields)
+            namespace = cls.namespace()
+            cls = type(cls.__name__, (cls, named), namespace, named=True)
+            return cls(*args, **kwargs)
+        else:
+            contents = [kwargs.get(field, None) for field in fields]
+            return super().__new__(cls, *contents, *args, **kwargs)
+
+    @staticmethod
+    def namespace():
+        def keys(self): return self._asdict().keys()
+        def values(self): return self._asdict().values()
+        def items(self): return self._asdict().items()
+        return dict(keys=keys, values=values, items=items)
 
 
 class Sizing(Mixin):
