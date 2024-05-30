@@ -62,6 +62,9 @@ class Fields(Mixin):
         cls.__fields__ = existing + update
         cls.__named__ = named
 
+    def __new__(cls, *args, **kwargs):
+        pass
+
 #    def __new__(cls, *args, **kwargs):
 #        fields = list(cls.__fields__)
 #        if not cls.__named__:
