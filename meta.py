@@ -8,9 +8,8 @@ Created on Fri Aug 27 2021
 
 import time
 import multiprocessing
-from abc import ABCMeta
 from inspect import isclass
-from itertools import product
+from abc import ABC, ABCMeta
 from functools import update_wrapper
 from datetime import datetime as Datetime
 from collections import OrderedDict as ODict
@@ -37,16 +36,10 @@ astype = lambda base, meta: meta(base.__name__, (base,), {})
 
 class Meta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        try:
-            return super(Meta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
-        except TypeError:
-            return super(Meta, mcs).__new__(mcs, name, bases, attrs)
+        return super(Meta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
 
-    def __init__(cls, *args, **kwargs):
-        try:
-            super(Meta, cls).__init__(*args, **kwargs)
-        except TypeError:
-            super(Meta, cls).__init__()
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(Meta, cls).__init__(name, bases, attrs, *args, **kwargs)
 
 
 class VariantKeyError(Exception):
@@ -75,24 +68,24 @@ class VariantValueError(Exception):
 
 class VariantMeta(Meta):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        assert all([attr not in attrs.keys() for attr in ("variant", "registry")])
+        assert all([attr not in attrs.keys() for attr in ("variant", "variants")])
         super(VariantMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         if not any([ismeta(base, VariantMeta) for base in bases]):
-            cls.__registry__ = dict()
+            cls.__variants__ = dict()
             cls.__variant__ = False
             return
         variants = [kwargs.get("variant", None)] + kwargs.get("variants", [])
         variants = list(filter(None, variants))
-        registry = cls.registry | {key: cls for key in variants}
         variant = any([base.variant for base in bases if type(base) is VariantMeta]) or bool(variants)
-        cls.__registry__ = registry
+        variants = cls.variants | {key: cls for key in variants}
+        cls.__variants__ = variants
         cls.__variant__ = variant
 
     def __call__(cls, *args, variant, **kwargs):
         assert variant is not None
-        if variant not in cls.registry.keys():
+        if variant not in cls.variants.keys():
             raise VariantKeyError(variant)
-        base = cls.registry[variant]
+        base = cls.variants[variant]
         if not bool(cls.variant):
             cls = type(cls)(cls.__name__, (cls, base), {}, *args, **kwargs)
         try:
@@ -102,7 +95,7 @@ class VariantMeta(Meta):
             raise VariantValueError(cls)
 
     @property
-    def registry(cls): return cls.__registry__
+    def variants(cls): return cls.__variants__
     @property
     def variant(cls): return cls.__variant__
 
@@ -148,21 +141,9 @@ class SingletonMeta(Meta):
 
     def __call__(cls, *args, **kwargs):
         if cls not in SingletonMeta.__instances__.keys():
-            SingletonMeta.__instances__[cls] = super(SingletonMeta, cls).__call__(*args, **kwargs)
+            instance = super(SingletonMeta, cls).__call__(*args, **kwargs)
+            SingletonMeta.__instances__[cls] = instance
         return SingletonMeta.__instances__[cls]
-
-
-class AttributeMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, register=None, **kwargs):
-        assert isinstance(register, (list, str, type(None)))
-        super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        if not any([ismeta(base, AttributeMeta) for base in bases]):
-            return
-        parents = [base for base in bases if ismeta(base, AttributeMeta)]
-        register = list(filter(None, [register] if not isinstance(register, list) else register))
-        assert all([isinstance(value, str) for value in register])
-        for parent, key in product(parents, register):
-            setattr(parent, key, cls)
 
 
 class RegistryMeta(Meta):
@@ -170,6 +151,7 @@ class RegistryMeta(Meta):
         assert "registry" not in attrs.keys()
         super(RegistryMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         if not any([ismeta(base, RegistryMeta) for base in bases]):
+            assert register is None
             cls.__registry__ = dict()
             return
         register = list(filter(None, [register] if not isinstance(register, list) else register))
@@ -181,6 +163,24 @@ class RegistryMeta(Meta):
 
     @property
     def registry(cls): return cls.__registry__
+
+
+class AttributeMeta(Meta):
+    def __init__(cls, name, bases, attrs, *args, attribute=None, **kwargs):
+        assert "root" not in attrs.keys()
+        assert isinstance(attribute, (list, str, type(None)))
+        super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        if not any([ismeta(base, AttributeMeta) for base in bases]):
+            assert attribute is None
+            cls.__root__ = cls
+            return
+        attributes = list(filter(None, [attribute] if not isinstance(attribute, list) else attribute))
+        assert all([isinstance(attribute, str) for attribute in attributes])
+        for attribute in attributes:
+            setattr(cls.root, attribute, cls)
+
+    @property
+    def root(cls): return cls.__root__
 
 
 

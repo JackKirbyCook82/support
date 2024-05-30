@@ -26,7 +26,7 @@ __logger__ = logging.getLogger(__name__)
 
 class HeaderMeta(AttributeMeta): pass
 class Header(Fields, metaclass=HeaderMeta): pass
-class DataFrameHeader(Header, fields=["index", "columns"], register="Dataframe"):
+class DataFrameHeader(Header, fields=["index", "columns"], attribute="Dataframe"):
     def __call__(self, dataframe):
         if not set(self.index) == set(dataframe.index.values):
             index = [column for column in self.index if column in dataframe.columns]
@@ -42,12 +42,12 @@ class Query(object):
         assert isinstance(arguments, list) and isinstance(parameters, dict)
         assert all([isinstance(parameter, list) for parameter in parameters.values()])
 
-        arguments = lambda query: {argument: query.get(argument, None) for argument in arguments}
-        parameters = lambda query: {parameter: {content: query.get(content, None) for content in contents} for parameter, contents in parameters.items()}
+        position = lambda query: {argument: query.get(argument, None) for argument in arguments}
+        keyword = lambda query: {parameter: {content: query.get(content, None) for content in contents} for parameter, contents in parameters.items()}
 
         def extract(query):
             assert isinstance(query, dict)
-            return arguments(query) | parameters(query)
+            return position(query) | keyword(query)
 
         def parse(results):
             assert isinstance(results, dict)

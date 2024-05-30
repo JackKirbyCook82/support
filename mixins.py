@@ -45,50 +45,37 @@ def renderer(node, layers=[], style=single):
 
 class Mixin(ABC):
     def __init_subclass__(cls, *args, **kwargs):
-        try:
-            super().__init_subclass__(*args, **kwargs)
-        except TypeError:
-            super().__init_subclass__()
+        index = list(cls.__mro__).index(Mixin)
+        residual = set(cls.__mro__[index+1:]) - {ABC, object}
+        assert not bool(residual)
 
-    def __new__(cls, *args, **kwargs):
-        try:
-            return super().__new__(cls, *args, **kwargs)
-        except TypeError:
-            return super().__new__(cls)
-
-    def __init__(self, *args, **kwargs):
-        try:
-            super().__init__(*args, **kwargs)
-        except TypeError:
-            super().__init__()
+    def __new__(cls, *args, **kwargs): return super().__new__(cls)
+    def __init__(self, *args, **kwargs): super().__init__()
 
 
 class Fields(Mixin):
     def __init_subclass__(cls, *args, fields=[], **kwargs):
         super().__init_subclass__(*args, **kwargs)
         existing = getattr(cls, "__fields__", [])
-        update = [field for field in existing if field not in existing]
+        update = [field for field in fields if field not in existing]
         named = kwargs.get("named", getattr(cls, "__named__", False))
         cls.__fields__ = existing + update
         cls.__named__ = named
 
-    def __new__(cls, *args, **kwargs):
-        fields = list(cls.__fields__)
-        if not cls.__named__:
-            named = ntuple(cls.__name__, fields)
-            namespace = cls.namespace()
-            cls = type(cls.__name__, (cls, named), namespace, named=True)
-            return cls(*args, **kwargs)
-        else:
-            contents = [kwargs.get(field, None) for field in fields]
-            return super().__new__(cls, *contents, *args, **kwargs)
+#    def __new__(cls, *args, **kwargs):
+#        fields = list(cls.__fields__)
+#        if not cls.__named__:
+#            named = ntuple("Named", fields)
+#            namespace = cls.namespace()
+#            cls = type(cls.__name__, (named, cls), namespace, named=True)
+#            return cls(*args, **kwargs)
+#        else:
+#            contents = [kwargs.get(field, None) for field in fields]
+#            return super().__new__(cls, *contents, *args, **kwargs)
 
-    @staticmethod
-    def namespace():
-        def keys(self): return self._asdict().keys()
-        def values(self): return self._asdict().values()
-        def items(self): return self._asdict().items()
-        return dict(keys=keys, values=values, items=items)
+#    def keys(self): return self.todict().keys()
+#    def values(self): return self.todict().values()
+#    def items(self): return self.todict().items()
 
 
 class Sizing(Mixin):

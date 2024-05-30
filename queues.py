@@ -147,10 +147,10 @@ class PriorityQueue(Queue):
     def priority(self): return self.__priority
 
 
-class FIFOQueue(StandardQueue, type=queue.Queue, register="FIFO"): pass
-class LIFOQueue(StandardQueue, type=queue.LifoQueue, register="LIFO"): pass
-class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, register="HIPO", ascending=True): pass
-class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, register="LIPO", ascending=False): pass
+class FIFOQueue(StandardQueue, type=queue.Queue, attribute="FIFO"): pass
+class LIFOQueue(StandardQueue, type=queue.LifoQueue, attribute="LIFO"): pass
+class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, attribute="HIPO", ascending=True): pass
+class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, attribute="LIPO", ascending=False): pass
 
 
 

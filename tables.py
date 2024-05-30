@@ -22,7 +22,7 @@ __license__ = "MIT License"
 
 class OptionsMeta(AttributeMeta): pass
 class Options(Fields, metaclass=OptionsMeta): pass
-class DataframeOptions(Options, fields=["rows", "columns", "width", "formats", "numbers"], register="Dataframe"): pass
+class DataframeOptions(Options, fields=["rows", "columns", "width", "formats", "numbers"], attribute="Dataframe"): pass
 
 
 class TableMeta(AttributeMeta):

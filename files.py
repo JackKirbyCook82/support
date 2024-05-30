@@ -189,7 +189,7 @@ class FileData(ABC, metaclass=FileDataMeta):
     def empty(self, content): pass
 
 
-class FileDataFrame(FileData, register="Dataframe"):
+class FileDataFrame(FileData, attribute="Dataframe"):
     def __init__(self, *args, index={}, columns={}, duplicates, **kwargs):
         assert isinstance(index, dict) and isinstance(columns, dict)
         header = [(key, value) for key, value in chain(index.items(), columns.items())]
