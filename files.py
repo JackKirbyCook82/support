@@ -13,7 +13,6 @@ import numpy as np
 import pandas as pd
 import dask.dataframe as dk
 from enum import IntEnum
-from itertools import chain
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
@@ -142,7 +141,7 @@ class FileDirectory(ABC, metaclass=FileDirectoryMeta):
             return
         with self.mutex[filepath]:
             parameters = dict(file=filepath, mode=mode, method=method)
-            content = self.data.read(*args, **parameters, **kwargs)
+            content = self.data.load(*args, **parameters, **kwargs)
         return content
 
     def write(self, content, *args, query, mode, **kwargs):
@@ -154,7 +153,7 @@ class FileDirectory(ABC, metaclass=FileDirectoryMeta):
         filepath = os.path.join(directory, file)
         with self.mutex[filepath]:
             parameters = dict(file=filepath, mode=mode, method=method)
-            self.data.write(content, *args, **parameters, **kwargs)
+            self.data.save(content, *args, **parameters, **kwargs)
         __logger__.info("Saved: {}".format(str(filepath)))
 
     @property
@@ -180,10 +179,6 @@ class FileData(ABC, metaclass=FileDataMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
     @abstractmethod
-    def read(self, *args, **kwargs): pass
-    @abstractmethod
-    def write(self, content, *args, **kwargs): pass
-    @abstractmethod
     def load(self, *args, file, mode, **kwargs): pass
     @abstractmethod
     def save(self, content, *args, file, mode, **kwargs): pass
@@ -192,31 +187,11 @@ class FileData(ABC, metaclass=FileDataMeta):
 
 
 class FileDataFrame(FileData, attribute="Dataframe"):
-    def __init__(self, *args, index={}, columns={}, duplicates, **kwargs):
-        assert isinstance(index, dict) and isinstance(columns, dict)
-        header = [(key, value) for key, value in chain(index.items(), columns.items())]
+    def __init__(self, *args, header={}, **kwargs):
+        assert isinstance(header, dict)
+        header = [(key, value) for key, value in header.items()]
         self.__types = {key: value for (key, value) in iter(header) if not any([value is str, value is np.datetime64])}
         self.__dates = [key for (key, value) in iter(header) if value is np.datetime64]
-        self.__columns = list(columns.keys())
-        self.__index = list(index.keys())
-        self.__duplicates = duplicates
-
-    def read(self, *args, **kwargs):
-        dataframe = self.load(*args, **kwargs)
-        assert set(self.index + self.columns) == set(dataframe.columns)
-        if not bool(self.duplicates):
-            dataframe = dataframe.drop_duplicates(self.index, keep="first", inplace=False, ignore_index=True)
-        dataframe = dataframe.set_index(self.index, drop=True, inplace=False)
-        return dataframe[self.columns]
-
-    def write(self, dataframe, *args, **kwargs):
-        dataframe = dataframe.reset_index(drop=False, inplace=False)
-        if not bool(self.duplicates):
-            dataframe = dataframe.drop_duplicates(self.index, keep="first", inplace=False, ignore_index=True)
-        for column in set(self.index + self.columns) - set(dataframe.columns):
-            dataframe[column] = np.NaN
-        dataframe = dataframe[self.index + self.columns]
-        self.save(dataframe, *args, **kwargs)
 
     @kwargsdispatcher("method")
     def load(self, *args, file, mode, method, **kwargs): raise ValueError(str(method.name).lower())
@@ -255,12 +230,6 @@ class FileDataFrame(FileData, attribute="Dataframe"):
     @staticmethod
     def empty(dataframe): return bool(dataframe.empty)
 
-    @property
-    def duplicates(self): return self.__duplicates
-    @property
-    def columns(self): return self.__columns
-    @property
-    def index(self): return self.__index
     @property
     def types(self): return self.__types
     @property
