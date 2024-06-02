@@ -65,7 +65,7 @@ class Criterion(object):
     NULL = Null
 
 
-class Filter(Sizing, Processor, ABC, title="Filtered"):
+class Filter(Processor, Sizing, ABC, title="Filtered"):
     def __init__(self, *args, criterion={},  **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(criterion, dict)

@@ -42,6 +42,7 @@ class TableMeta(AttributeMeta):
 
 
 class Table(ABC, metaclass=TableMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
     def __bool__(self): return not self.empty if self.table is not None else False
     def __len__(self): return self.size
     def __str__(self): return self.string

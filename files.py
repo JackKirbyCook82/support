@@ -52,10 +52,10 @@ class Loader(Producer):
         for variable, query, extension in iter(file):
             contents = self.read(*args, query=query, **kwargs)
             contents = {variable: content for variable, content in contents.items() if content is not None}
-            yield {variable: query} | contents
+            yield {str(file.query): str(query)} | contents
 
     def read(self, *args, query, **kwargs):
-        contents = {file.variable: file.read(*args, query=query, mode=mode, **kwargs) for file, mode in self.source.items()}
+        contents = {str(file.variable): file.read(*args, query=query, mode=mode, **kwargs) for file, mode in self.source.items()}
         return contents
 
     @property
@@ -155,7 +155,7 @@ class FileDirectory(ABC, metaclass=FileDirectoryMeta):
         with self.mutex[filepath]:
             parameters = dict(file=filepath, mode=mode, method=method)
             self.data.write(content, *args, **parameters, **kwargs)
-        __logger__.info("Saved: {}".format(str(file)))
+        __logger__.info("Saved: {}".format(str(filepath)))
 
     @property
     def repository(self): return self.__repository
@@ -177,6 +177,8 @@ class FileDirectory(ABC, metaclass=FileDirectoryMeta):
 
 class FileDataMeta(AttributeMeta): pass
 class FileData(ABC, metaclass=FileDataMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
+
     @abstractmethod
     def read(self, *args, **kwargs): pass
     @abstractmethod

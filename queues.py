@@ -75,6 +75,7 @@ class QueueMeta(AttributeMeta):
 
 
 class Queue(ABC, metaclass=QueueMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
     def __bool__(self): return not self.empty
     def __len__(self): return self.size
 

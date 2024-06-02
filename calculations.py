@@ -12,18 +12,16 @@ import pandas as pd
 import xarray as xr
 from enum import Enum
 from numbers import Number
-from itertools import product
 from abc import ABC, ABCMeta, abstractmethod
 from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher, kwargsdispatcher
-from support.pipelines import Processor
 from support.meta import SingletonMeta
 from support.mixins import Node
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Variable", "Equation", "Calculation", "Calculator"]
+__all__ = ["Variable", "Equation", "Calculation"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -273,25 +271,4 @@ class Calculation(ABC, metaclass=CalculationMeta):
     def equation(self): return self.__equation
 
 
-class Calculator(Processor, ABC, title="Calculated"):
-    def __init_subclass__(cls, *args, calculations, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        cls.__calculations__ = calculations
-
-    def __init__(self, *args, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        calculations = self.__class__.__calculations__
-        fields = ODict([(key, []) for key in list(calculations.fields.keys())])
-        for field, calculation in iter(calculations):
-            for key, value in field.items():
-                fields[key].append(value)
-        fields = ODict([(key, kwargs.get(key, values)) for key, values in fields.items()])
-        assert all([isinstance(values, list) for values in fields.values()])
-        fields = [[(key, value) for value in values] for key, values in fields.items()]
-        fields = [Fields(ODict(mapping)) for mapping in product(*fields)]
-        calculations = {field: calculation(*args, **kwargs) for field, calculation in iter(calculation) if field in fields}
-        self.__calculations = calculations
-
-    @property
-    def calculations(self): return self.__calculations
 

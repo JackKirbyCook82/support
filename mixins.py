@@ -56,29 +56,24 @@ class Mixin(ABC):
 class Fields(Mixin):
     def __init_subclass__(cls, *args, fields=[], **kwargs):
         super().__init_subclass__(*args, **kwargs)
+        assert all([attr not in fields for attr in ("fields", "keys", "values", "items")])
         existing = getattr(cls, "__fields__", [])
         update = [field for field in fields if field not in existing]
-        named = kwargs.get("named", getattr(cls, "__named__", False))
         cls.__fields__ = existing + update
-        cls.__named__ = named
 
     def __new__(cls, *args, **kwargs):
-        pass
+        instance = super().__new__(cls, *args, **kwargs)
+        fields = list(cls.__fields__)
+        for field in fields:
+            content = kwargs.get(field, None)
+            setattr(instance, field, content)
+        return instance
 
-#    def __new__(cls, *args, **kwargs):
-#        fields = list(cls.__fields__)
-#        if not cls.__named__:
-#            named = ntuple("Named", fields)
-#            namespace = cls.namespace()
-#            cls = type(cls.__name__, (named, cls), namespace, named=True)
-#            return cls(*args, **kwargs)
-#        else:
-#            contents = [kwargs.get(field, None) for field in fields]
-#            return super().__new__(cls, *contents, *args, **kwargs)
-
-#    def keys(self): return self.todict().keys()
-#    def values(self): return self.todict().values()
-#    def items(self): return self.todict().items()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        fields = list(self.__class__.__fields__)
+        fields = [(field, kwargs.get(field, None)) for field in fields]
+        self.__fields = ODict(fields)
 
 
 class Sizing(Mixin):

@@ -8,65 +8,15 @@ Created on Weds Jul 12 2023
 
 import time
 import types
-import inspect
 import logging
 from abc import ABC, abstractmethod
-from functools import update_wrapper
-
-from support.meta import AttributeMeta
-from support.mixins import Fields
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Query", "Header", "Stage", "Routine", "Producer", "Processor", "Consumer"]
+__all__ = ["Stage", "Routine", "Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
-
-
-class HeaderMeta(AttributeMeta): pass
-class Header(Fields, metaclass=HeaderMeta): pass
-class DataFrameHeader(Header, fields=["index", "columns"], attribute="Dataframe"):
-    def __call__(self, dataframe):
-        if not set(self.index) == set(dataframe.index.values):
-            index = [column for column in self.index if column in dataframe.columns]
-            dataframe = dataframe.set_index(index, drop=True, inplace=False)
-        if not set(self.columns) == set(dataframe.columns):
-            columns = [column for column in self.columns if column in dataframe.columns]
-            dataframe = dataframe[columns]
-        return dataframe
-
-
-class Query(object):
-    def __new__(cls, arguments=[], parameters={}, headers={}):
-        assert isinstance(arguments, list) and isinstance(parameters, dict)
-        assert all([isinstance(parameter, list) for parameter in parameters.values()])
-
-        position = lambda query: {argument: query.get(argument, None) for argument in arguments}
-        keyword = lambda query: {parameter: {content: query.get(content, None) for content in contents} for parameter, contents in parameters.items()}
-
-        def extract(query):
-            assert isinstance(query, dict)
-            return position(query) | keyword(query)
-
-        def parse(results):
-            assert isinstance(results, dict)
-            updated = {key: value for key, value in results.items() if key in headers.keys()}
-            updated = {key: headers[key](value) for key, value in updated.items()}
-            return results | updated
-
-        def decorator(execute):
-            assert inspect.isgeneratorfunction(execute)
-
-            def wrapper(self, query, *args, **kwargs):
-                feed = extract(query)
-                for results in execute(self, *args, **feed, **kwargs):
-                    results = parse(results)
-                    yield query | results
-
-            update_wrapper(wrapper, execute)
-            return wrapper
-        return decorator
 
 
 class Stage(ABC):
