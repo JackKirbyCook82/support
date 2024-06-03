@@ -28,7 +28,7 @@ class Stage(ABC):
         self.__title = title if title is not None else self.__class__.__title__
         self.__name = name if name is not None else self.__class__.__name__
 
-    def logger(self, elapsed):
+    def logger(self, *args, elapsed, **kwargs):
         __logger__.info(f"{self.title}: {repr(self)}[{elapsed:.2f}s]")
 
     @abstractmethod
@@ -49,7 +49,8 @@ class Routine(Stage, ABC, title="Performed"):
     def process(self, *args, **kwargs):
         start = time.time()
         self.execute(*args, **kwargs)
-        self.logger(time.time() - start)
+        elapsed = time.time() - start
+        self.logger(elapsed=elapsed)
 
 
 class Generator(Stage, ABC, title="Generated"):
@@ -77,7 +78,8 @@ class Generator(Stage, ABC, title="Generated"):
         generator = self.execute(*args, **kwargs)
         start = time.time()
         for content in iter(generator):
-            self.logger(time.time() - start)
+            elapsed = time.time() - start
+            self.logger(elapsed=elapsed)
             yield content
             start = time.time()
 
@@ -119,7 +121,8 @@ class Consumer(Stage, ABC, title="Consumed"):
         for query in iter(stage):
             start = time.time()
             self.execute(query, *args, **kwargs)
-            self.logger(time.time() - start)
+            elapsed = time.time() - start
+            self.logger(elapsed=elapsed)
 
 
 
