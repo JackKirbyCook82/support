@@ -18,175 +18,55 @@ from collections import namedtuple as ntuple
 
 from support.pipelines import Producer, Consumer
 from support.dispatchers import kwargsdispatcher
-from support.meta import SingletonMeta, AttributeMeta
+from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Saver", "Loader", "FileDirectory", "FileQuery", "FileData", "FileTyping", "FileTiming"]
+__all__ = ["Saver", "Loader", "File", "FileTypes", "FileTimings"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-FileTyping = IntEnum("Typing", ["NC", "HDF", "CSV"], start=1)
-FileTiming = IntEnum("Timing", ["EAGER", "LAZY"], start=1)
-FileMethod = ntuple("Method", "typing timing")
+FileTypes = IntEnum("Typing", ["NC", "HDF", "CSV"], start=1)
+FileTimings = IntEnum("Timing", ["EAGER", "LAZY"], start=1)
+FileMethod = ntuple("FileMethod", "filetype filetiming")
 
-csv_eager = FileMethod(FileTyping.CSV, FileTiming.EAGER)
-csv_lazy = FileMethod(FileTyping.CSV, FileTiming.LAZY)
-hdf_eager = FileMethod(FileTyping.HDF, FileTiming.EAGER)
-hdf_lazy = FileMethod(FileTyping.HDF, FileTiming.LAZY)
-nc_eager = FileMethod(FileTyping.NC, FileTiming.EAGER)
-nc_lazy = FileMethod(FileTyping.NC, FileTiming.LAZY)
+csv_eager = FileMethod(FileTypes.CSV, FileTimings.EAGER)
+csv_lazy = FileMethod(FileTypes.CSV, FileTimings.LAZY)
+hdf_eager = FileMethod(FileTypes.HDF, FileTimings.EAGER)
+hdf_lazy = FileMethod(FileTypes.HDF, FileTimings.LAZY)
+nc_eager = FileMethod(FileTypes.NC, FileTimings.EAGER)
+nc_lazy = FileMethod(FileTypes.NC, FileTimings.LAZY)
 
 
 class Loader(Producer):
-    def __init__(self, *args, source={}, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        assert isinstance(source, dict) and all([isinstance(file, FileDirectory) for file in source.keys()])
-        self.__source = source
-
     def execute(self, *args, **kwargs):
-        file = list(self.source.keys())[0]
-        for variable, query, extension in iter(file):
-            contents = self.read(*args, query=query, **kwargs)
-            contents = {variable: content for variable, content in contents.items() if content is not None}
-            yield {str(file.query): str(query)} | contents
-
-    def read(self, *args, query, **kwargs):
-        contents = {str(file.variable): file.read(*args, query=query, mode=mode, **kwargs) for file, mode in self.source.items()}
-        return contents
-
-    @property
-    def source(self): return self.__source
+        pass
 
 
 class Saver(Consumer):
-    def __init__(self, *args, destination, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        assert isinstance(destination, dict) and all([isinstance(file, FileDirectory) for file in destination.keys()])
-        self.__destination = destination
-
     def execute(self, contents, *args, **kwargs):
-        contents = {variable: content for variable, content in contents.items() if content is not None}
-        self.write(contents, *args, **kwargs)
-
-    def write(self, contents, *args, **kwargs):
-        for file, mode in self.destination.items():
-            query = contents[str(file.query)]
-            content = contents[str(file.variable)]
-            file.write(content, *args, query=query, mode=mode, **kwargs)
-
-    @property
-    def destination(self): return self.__destination
+        pass
 
 
-class FileQuery(ntuple("Query", "name tofile fromfile")):
-    def __str__(self): return str(self.name)
-
-
-class FileLock(dict, metaclass=SingletonMeta):
+class Lock(dict, metaclass=SingletonMeta):
     def __getitem__(self, file):
         self[file] = self.get(file, multiprocessing.RLock())
         return super().__getitem__(file)
 
 
-class FileDirectoryMeta(ABCMeta):
-    def __init__(cls, *args, **kwargs):
-        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
-        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
-        cls.__data__ = kwargs.get("data", getattr(cls, "__data__", None))
-
-    def __call__(cls, *args, **kwargs):
-        assert cls.__variable__ is not None
-        assert cls.__query__ is not None
-        assert cls.__data__ is not None
-        mutex = FileLock()
-        instance = super(FileDirectoryMeta, cls).__call__(*args, mutex=mutex, **kwargs)
-        return instance
-
-
-class FileDirectory(ABC, metaclass=FileDirectoryMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
-
-    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __hash__(self): return hash(str(self.variable))
-    def __init__(self, *args, repository, mutex, typing, timing, **kwargs):
-        if not os.path.exists(repository):
-            os.mkdir(repository)
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__variable = self.__class__.__variable__
-        self.__query = self.__class__.__query__
-        self.__data = self.__class__.__data__
-        self.__repository = repository
-        self.__timing = timing
-        self.__typing = typing
-        self.__mutex = mutex
-
-    def __iter__(self):
-        directory = os.path.join(self.repository, self.variable)
-        variable = str(self.variable)
-        for file in list(os.listdir(directory)):
-            filename, extension = str(file).split(".")
-            query = self.query.fromfile(filename)
-            yield variable, query, extension
-
-    def read(self, *args, query, mode, **kwargs):
-        method = FileMethod(self.typing, self.timing)
-        directory = os.path.join(self.repository, self.variable)
-        filename = self.query.tofile(query)
-        file = ".".join([filename, str(self.typing.name).lower()])
-        filepath = os.path.join(directory, file)
-        if not os.path.exists(filepath):
-            return
-        with self.mutex[filepath]:
-            parameters = dict(file=filepath, mode=mode, method=method)
-            content = self.data.load(*args, **parameters, **kwargs)
-        return content
-
-    def write(self, content, *args, query, mode, **kwargs):
-        assert content is not None
-        method = FileMethod(self.typing, self.timing)
-        directory = os.path.join(self.repository, self.variable)
-        filename = self.query.tofile(query)
-        file = ".".join([filename, str(self.typing.name).lower()])
-        filepath = os.path.join(directory, file)
-        with self.mutex[filepath]:
-            parameters = dict(file=filepath, mode=mode, method=method)
-            self.data.save(content, *args, **parameters, **kwargs)
-        __logger__.info("Saved: {}".format(str(filepath)))
-
-    @property
-    def repository(self): return self.__repository
-    @property
-    def variable(self): return self.__variable
-    @property
-    def timing(self): return self.__timing
-    @property
-    def typing(self): return self.__typing
-    @property
-    def query(self): return self.__query
-    @property
-    def mutex(self): return self.__mutex
-    @property
-    def data(self): return self.__data
-    @property
-    def name(self): return self.__name
-
-
-class FileDataMeta(AttributeMeta): pass
-class FileData(ABC, metaclass=FileDataMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
-
+class DataStream(ABC):
     @abstractmethod
     def load(self, *args, file, mode, **kwargs): pass
     @abstractmethod
     def save(self, content, *args, file, mode, **kwargs): pass
+    @staticmethod
     @abstractmethod
-    def empty(self, content): pass
+    def empty(content): pass
 
 
-class FileDataFrame(FileData, attribute="Dataframe"):
+class DataframeStream(DataStream, datatype=pd.DataFrame):
     def __init__(self, *args, header={}, **kwargs):
         assert isinstance(header, dict)
         header = [(key, value) for key, value in header.items()]
@@ -199,19 +79,12 @@ class FileDataFrame(FileData, attribute="Dataframe"):
     def save(self, dataframe, args, file, mode, method, **kwargs): raise ValueError(str(method.name).lower())
 
     @load.register.value(csv_eager)
-    def load_eager_csv(self, *args, file, mode, **kwargs):
-        assert mode == "r"
+    def load_eager_csv(self, *args, file, **kwargs):
         return pd.read_csv(file, iterator=False, index_col=None, header=0, dtype=self.types, parse_dates=self.dates)
 
     @load.register.value(csv_lazy)
-    def load_lazy_csv(self, *args, file, mode, size, **kwargs):
-        assert mode == "r"
+    def load_lazy_csv(self, *args, file, size, **kwargs):
         return dk.read_csv(file, blocksize=size, index_col=None, header=0, dtype=self.types, parse_dates=self.dates)
-
-    @load.register.value(hdf_eager)
-    def load_eager_hdf(self, *args, file, mode, **kwargs): pass
-    @load.register.value(hdf_lazy)
-    def load_lazy_hdf(self, *args, file, mode, **kwargs): pass
 
     @save.register.value(csv_eager)
     def save_eager_csv(self, dataframe, *args, file, mode, **kwargs):
@@ -222,18 +95,66 @@ class FileDataFrame(FileData, attribute="Dataframe"):
         parameters = dict(compute=True, single_file=True, header_first_partition_only=True)
         dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
 
-    @save.register.value(hdf_eager)
-    def save_eager_hdf(self, dataframe, *args, file, mode, **kwargs): pass
-    @save.register.value(hdf_lazy)
-    def save_lazy_hdf(self, dataframe, *args, file, mode, **kwargs): pass
-
     @staticmethod
     def empty(dataframe): return bool(dataframe.empty)
-
     @property
     def types(self): return self.__types
     @property
     def dates(self): return self.__dates
+
+
+class FileMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        if not any([type(base) is FileMeta for base in cls.__bases__]):
+            return
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
+        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
+        cls.__header__ = kwargs.get("header", getattr(cls, "__header__", None))
+        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
+
+    def __call__(cls, *args, **kwargs):
+        assert cls.__variable__ is not None
+        assert cls.__datatype__ is not None
+        assert cls.__header__ is not None
+        assert cls.__query__ is not None
+        instance = super(FileMeta, cls).__call__(*args, mutex=Lock(), **kwargs)
+        return instance
+
+
+class File(ABC, metaclass=FileMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
+    def __init__(self, *args, repository, mutex, filetype, filetiming, **kwargs):
+        if not os.path.exists(repository):
+            os.mkdir(repository)
+        query, querytype = self.__class__.__query__
+        self.__variable = self.__class__.__variable__
+        self.__datatype = self.__class__.__datatype__
+        self.__header = self.__class__.__header__
+        self.__repository = repository
+        self.__filetiming = filetiming
+        self.__filetype = filetype
+        self.__querytype = querytype
+        self.__query = query
+        self.__mutex = mutex
+
+    @property
+    def repository(self): return self.__repository
+    @property
+    def variable(self): return self.__variable
+    @property
+    def querytype(self): return self.__querytype
+    @property
+    def datatype(self): return self.__datatype
+    @property
+    def filetype(self): return self.__filetype
+    @property
+    def header(self): return self.__header
+    @property
+    def timing(self): return self.__timing
+    @property
+    def query(self): return self.__query
+    @property
+    def mutex(self): return self.__mutex
 
 
 

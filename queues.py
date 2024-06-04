@@ -7,14 +7,13 @@ Created on Weds Jul 12 2023
 """
 
 import queue
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 
 from support.pipelines import Producer, Consumer
-from support.meta import AttributeMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Schedule", "Scheduler", "Queue"]
+__all__ = ["Schedule", "Scheduler", "Queues"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -55,19 +54,20 @@ class Scheduler(Consumer):
     def destination(self): return self.__destination
 
 
-class QueueMeta(AttributeMeta):
+class QueueMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
-        super(QueueMeta, cls).__init__(*args, **kwargs)
+        if not any([type(base) is QueueMeta for base in cls.__bases__]):
+            return
         cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
-        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
+        cls.__queuetype__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
 
     def __call__(cls, *args, capacity=None, contents=[], **kwargs):
         assert cls.__variable__ is not None
-        assert cls.__type__ is not None
+        assert cls.__queuetype__ is not None
         assert isinstance(contents, list)
         assert (len(contents) <= capacity) if bool(capacity) else True
         parameters = dict(maxsize=capacity if capacity is not None else 0)
-        stack = cls.__type__(**parameters)
+        stack = cls.__queuetype__(**parameters)
         for content in contents:
             stack.put(content)
         instance = super(QueueMeta, cls).__call__(stack, *args, **kwargs)
@@ -148,10 +148,17 @@ class PriorityQueue(Queue):
     def priority(self): return self.__priority
 
 
-class FIFOQueue(StandardQueue, type=queue.Queue, attribute="FIFO"): pass
-class LIFOQueue(StandardQueue, type=queue.LifoQueue, attribute="LIFO"): pass
-class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, attribute="HIPO", ascending=True): pass
-class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, attribute="LIPO", ascending=False): pass
+class FIFOQueue(StandardQueue, queuetype=queue.Queue): pass
+class LIFOQueue(StandardQueue, queuetype=queue.LifoQueue): pass
+class HIPOQueue(PriorityQueue, queuetype=queue.PriorityQueue, ascending=True): pass
+class LIPOQueue(PriorityQueue, queuetype=queue.PriorityQueue, ascending=False): pass
+
+
+class Queues(object):
+    FIFO = FIFOQueue
+    LIFO = LIFOQueue
+    HIPO = HIPOQueue
+    LIPO = LIPOQueue
 
 
 

@@ -8,37 +8,37 @@ Created on Weds Jul 12 2023
 
 import multiprocessing
 import pandas as pd
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 
-from support.meta import AttributeMeta
 from support.mixins import Fields
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Options", "Table"]
+__all__ = ["Options", "Tables"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class OptionsMeta(AttributeMeta): pass
+class OptionsMeta(ABCMeta): pass
 class Options(Fields, metaclass=OptionsMeta): pass
-class DataframeOptions(Options, fields=["rows", "columns", "width", "formats", "numbers"], attribute="Dataframe"): pass
+class DataframeOptions(Options, fields=["rows", "columns", "width", "formats", "numbers"]): pass
 
 
-class TableMeta(AttributeMeta):
+class TableMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
-        super(TableMeta, cls).__init__(*args, **kwargs)
+        if not any([type(base) is TableMeta for base in cls.__bases__]):
+            return
         cls.__options__ = kwargs.get("options", getattr(cls, "__options__", None))
-        cls.__type__ = kwargs.get("type", getattr(cls, "__type__", None))
+        cls.__tabletype__ = kwargs.get("tabletype", getattr(cls, "__tabletype__", None))
 
     def __call__(cls, *args, **kwargs):
         assert cls.__options__ is not None
-        assert cls.__type__ is not None
+        assert cls.__tabletype__ is not None
         parameters = dict()
-        stack = cls.__type__(**parameters)
+        stack = cls.__tabletype__(**parameters)
         mutex = multiprocessing.RLock()
-        wrapper = super(TableMeta, cls).__call__(stack, *args, mutex=mutex, **kwargs)
-        return wrapper
+        instance = super(TableMeta, cls).__call__(stack, *args, mutex=mutex, **kwargs)
+        return instance
 
 
 class Table(ABC, metaclass=TableMeta):
@@ -91,7 +91,7 @@ class Table(ABC, metaclass=TableMeta):
     def name(self): return self.__name
 
 
-class DataframeTable(Table, type=pd.DataFrame, register="Dataframe"):
+class DataframeTable(Table, tabletype=pd.DataFrame):
     def write(self, locator, content, *args, **kwargs):
         index, column = locator
         assert isinstance(index, (int, slice)) and isinstance(column, int)
@@ -135,6 +135,14 @@ class DataframeTable(Table, type=pd.DataFrame, register="Dataframe"):
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
+
+
+class Tables(object):
+    DATAFRAME = DataframeTable
+
+
+class Options(object):
+    DATAFRAME = DataframeOptions
 
 
 

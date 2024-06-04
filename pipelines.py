@@ -9,14 +9,16 @@ Created on Weds Jul 12 2023
 import time
 import types
 import logging
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Stage", "Routine", "Producer", "Processor", "Consumer"]
+__all__ = ["Stage", "Routine", "Producer", "Processor", "Consumer", "Header"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
+
+import pandas as pd
 
 
 class Stage(ABC):
@@ -124,6 +126,70 @@ class Consumer(Stage, ABC, title="Consumed"):
             elapsed = time.time() - start
             self.logger(elapsed=elapsed)
 
+
+class Axes(ABC):
+    @abstractmethod
+    def parse(self, content, *args, **kwargs): pass
+
+
+class DataframeAxes(Axes, datatype=pd.DataFrame):
+    def __init__(self, *args, index, columns, duplicates=True, **kwargs):
+        assert not set(index) & set(columns)
+        self.__duplicates = duplicates
+        self.__columns = columns
+        self.__index = index
+
+    def parse(self, dataframe, *args, **kwargs):
+        index = [value for value in self.index if value in dataframe.columns]
+        columns = [value for value in self.columns if value in dataframe.columns]
+        dataframe = dataframe.drop_duplicates(index, inplace=False) if not self.duplicates else dataframe
+        dataframe = dataframe.set_index(index, drop=True, inplace=False)
+        dataframe = dataframe[columns]
+        return dataframe
+
+    @property
+    def duplicates(self): return self.__duplicates
+    @property
+    def columns(self): return self.__columns
+    @property
+    def index(self): return self.__index
+
+
+class HeaderMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        if not any([type(base) is HeaderMeta for base in cls.__bases__]):
+            return
+        cls.__duplicates__ = kwargs.get("duplicates", getattr(cls, "__duplicates__", True))
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
+        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
+        cls.__axes__ = kwargs.get("axes", getattr(cls, "__axes__", None))
+
+    def __call__(cls, *args, **kwargs):
+        assert cls.__variable__ is not None
+        assert cls.__datatype__ is not None
+        assert cls.__axes__ is not None
+        instance = super(HeaderMeta, cls).__call__(*args, **kwargs)
+        return instance
+
+
+class Header(Processor, metaclass=HeaderMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__duplicates = self.__class__.__duplicates__
+        self.__variable = self.__class__.__variable__
+        self.__datatype = self.__class__.__datatype__
+        self.__axes = self.__class__.__axes__
+
+    def execute(self, contents, *args, **kwargs):
+        pass
+
+    @property
+    def variable(self): return self.__variable
+    @property
+    def datatype(self): return self.__datatype
+    @property
+    def axis(self): return self.__axes
 
 
 
