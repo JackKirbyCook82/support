@@ -11,6 +11,8 @@ import types
 import logging
 from abc import ABC, ABCMeta, abstractmethod
 
+from support.meta import RegistryMeta
+
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Stage", "Routine", "Producer", "Processor", "Consumer", "Header"]
@@ -127,12 +129,17 @@ class Consumer(Stage, ABC, title="Consumed"):
             self.logger(elapsed=elapsed)
 
 
-class Axes(ABC):
+class AxesMeta(RegistryMeta):
+    def __init__(cls, *args, datatype=None, **kwargs):
+        super(AxesMeta, cls).__init__(*args, key=datatype, **kwargs)
+
+
+class Axes(ABC, metaclass=AxesMeta):
     @abstractmethod
     def parse(self, content, *args, **kwargs): pass
 
 
-class DataframeAxes(Axes, datatype=pd.DataFrame):
+class Dataframe(Axes, datatype=pd.DataFrame):
     def __init__(self, *args, index, columns, duplicates=True, **kwargs):
         assert not set(index) & set(columns)
         self.__duplicates = duplicates
@@ -159,7 +166,6 @@ class HeaderMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is HeaderMeta for base in cls.__bases__]):
             return
-        cls.__duplicates__ = kwargs.get("duplicates", getattr(cls, "__duplicates__", True))
         cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
         cls.__axes__ = kwargs.get("axes", getattr(cls, "__axes__", None))
@@ -168,28 +174,30 @@ class HeaderMeta(ABCMeta):
         assert cls.__variable__ is not None
         assert cls.__datatype__ is not None
         assert cls.__axes__ is not None
-        instance = super(HeaderMeta, cls).__call__(*args, **kwargs)
+        datatype, axes = cls.__datatype__, cls.__axes__
+        axes = Axes[datatype](*args, **axes, **kwargs)
+        parameters = dict(axes=axes)
+        instance = super(HeaderMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
 
 class Header(Processor, metaclass=HeaderMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, axes, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__duplicates = self.__class__.__duplicates__
         self.__variable = self.__class__.__variable__
-        self.__datatype = self.__class__.__datatype__
-        self.__axes = self.__class__.__axes__
+        self.__axes = axes
 
     def execute(self, contents, *args, **kwargs):
-        pass
+        contents = self.axes.parse(contents, *args, **kwargs)
+        return contents
 
+    @property
+    def duplicates(self): return self.__duplicates
     @property
     def variable(self): return self.__variable
     @property
-    def datatype(self): return self.__datatype
-    @property
-    def axis(self): return self.__axes
+    def axes(self): return self.__axes
 
 
 

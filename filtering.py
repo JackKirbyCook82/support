@@ -58,7 +58,7 @@ class Criterion(object):
     NULL = Null
 
 
-class Filter(Processor, Sizing, ABC, title="Filtered"):
+class Filter(Processor, Sizing, title="Filtered"):
     def __init_subclass__(cls, *args, variables, query, **kwargs):
         assert isinstance(variables, list) and isinstance(query, str)
         cls.__variables__ = variables
