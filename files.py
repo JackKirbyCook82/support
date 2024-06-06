@@ -51,7 +51,7 @@ class Loader(Producer, title="Loaded"):
         for variable, query, extension in iter(file):
             contents = self.read(*args, query=query, **kwargs)
             contents = {variable: content for variable, content in contents.items() if content is not None}
-            yield {str(file.queryname): str(query)} | contents
+            yield {str(file.query): query} | contents
 
     def read(self, *args, query, **kwargs):
         contents = {str(file.variable): file.read(*args, query=query, mode=mode, **kwargs) for file, mode in self.source.items()}
@@ -73,7 +73,7 @@ class Saver(Consumer, title="Saved"):
 
     def write(self, contents, *args, **kwargs):
         for file, mode in self.destination.items():
-            query = contents[str(file.queryname)]
+            query = contents[str(file.query)]
             content = contents[str(file.variable)]
             file.write(content, *args, query=query, mode=mode, **kwargs)
 
@@ -89,10 +89,12 @@ class Lock(dict, metaclass=SingletonMeta):
 
 class DataMeta(RegistryMeta):
     def __init__(cls, *args, datatype=None, **kwargs):
-        super(DataMeta, cls).__init__(*args, key=datatype, **kwargs)
+        super(DataMeta, cls).__init__(*args, register=datatype, **kwargs)
 
 
 class Data(ABC, metaclass=DataMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
+
     @abstractmethod
     def load(self, *args, file, mode, **kwargs): pass
     @abstractmethod
@@ -143,22 +145,18 @@ class FileMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is FileMeta for base in cls.__bases__]):
             return
-        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
         cls.__header__ = kwargs.get("header", getattr(cls, "__header__", None))
         cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
 
     def __call__(cls, *args, **kwargs):
-        assert cls.__variable__ is not None
         assert cls.__datatype__ is not None
+        assert cls.__variable__ is not None
         assert cls.__header__ is not None
         assert cls.__query__ is not None
-        datatype, header = cls.__datatype__, cls.__header__
-        querytype, queryname = cls.__query__
-        mutex = Lock()
-        data = datatype(header=header)
-        parameters = dict(mutex=mutex, data=data, querytype=querytype, queryname=queryname)
-        instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
+        stack = Data[cls.__datatype__](*args, header=cls.__header__, **kwargs)
+        instance = super(FileMeta, cls).__call__(stack, *args, mutex=Lock(), **kwargs)
         return instance
 
 
@@ -166,28 +164,29 @@ class File(ABC, metaclass=FileMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
     def __repr__(self): return self.name
-    def __init__(self, *args, repository, mutex, data, filetype, filetiming, queryname, querytype, **kwargs):
-        assert hasattr(querytype, "fromstring") and callable(querytype.fromstring)
+    def __init__(self, stack, *args, repository, mutex, filetype, filetiming, **kwargs):
         if not os.path.exists(repository):
             os.mkdir(repository)
+        self.__name = kwargs.get("name", self.__class__.__name__)
         self.__variable = self.__class__.__variable__
+        self.__query = self.__class__.__query__
         self.__repository = repository
-        self.__querytype = querytype
-        self.__queryname = queryname
         self.__filetiming = filetiming
         self.__filetype = filetype
         self.__mutex = mutex
-        self.__data = data
+        self.__data = stack
 
     def __iter__(self):
         directory = os.path.join(self.repository, self.variable)
         variable = str(self.variable)
         for file in list(os.listdir(directory)):
             filename, extension = str(file).split(".")
-            query = self.querytype.fromstring(filename)
+            query = self.query[filename]
+            assert isinstance(query, self.query)
             yield variable, query, extension
 
     def read(self, *args, query, mode, **kwargs):
+        assert isinstance(query, self.query)
         method = FileMethod(self.filetype, self.filetiming)
         file = self.file(*args, query=query, **kwargs)
         if not os.path.exists(file):
@@ -198,6 +197,7 @@ class File(ABC, metaclass=FileMeta):
         return content
 
     def write(self, content, *args, query, mode, **kwargs):
+        assert isinstance(query, self.query)
         method = FileMethod(self.filetype, self.filetiming)
         file = self.file(*args, query=query, **kwargs)
         with self.mutex[file]:
@@ -206,6 +206,7 @@ class File(ABC, metaclass=FileMeta):
         self.logger(*args, file=str(file), **kwargs)
 
     def file(self, *args, query, **kwargs):
+        assert isinstance(query, self.query)
         directory = os.path.join(self.repository, self.variable)
         file = ".".join([str(query), str(self.filetype.name).lower()])
         return os.path.join(directory, file)
@@ -217,18 +218,19 @@ class File(ABC, metaclass=FileMeta):
     @property
     def repository(self): return self.__repository
     @property
-    def variable(self): return self.__variable
-    @property
-    def querytype(self): return self.__querytype
-    @property
-    def queryname(self): return self.__queryname
+    def filetiming(self): return self.__filetiming
     @property
     def filetype(self): return self.__filetype
     @property
-    def filetiming(self): return self.__filetiming
+    def variable(self): return self.__variable
+    @property
+    def query(self): return self.__query
     @property
     def mutex(self): return self.__mutex
     @property
     def data(self): return self.__data
+    @property
+    def name(self): return self.__name
+
 
 

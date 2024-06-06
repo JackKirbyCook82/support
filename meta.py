@@ -156,7 +156,8 @@ class RegistryMeta(Meta):
             return
         register = list(filter(None, [register] if not isinstance(register, list) else register))
         registry = cls.registry | {key: cls for key in register}
-        cls.__registry__ = registry
+        for register in registry:
+            cls[register] = cls
 
     def __setitem__(cls, key, value): cls.registry[key] = value
     def __getitem__(cls, key): return cls.registry[key]

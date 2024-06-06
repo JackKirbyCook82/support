@@ -28,14 +28,13 @@ class TableMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is TableMeta for base in cls.__bases__]):
             return
-        cls.__options__ = kwargs.get("options", getattr(cls, "__options__", None))
         cls.__tabletype__ = kwargs.get("tabletype", getattr(cls, "__tabletype__", None))
+        cls.__options__ = kwargs.get("options", getattr(cls, "__options__", None))
 
     def __call__(cls, *args, **kwargs):
-        assert cls.__options__ is not None
         assert cls.__tabletype__ is not None
-        parameters = dict()
-        stack = cls.__tabletype__(**parameters)
+        assert cls.__options__ is not None
+        stack = cls.__tabletype__()
         mutex = multiprocessing.RLock()
         instance = super(TableMeta, cls).__call__(stack, *args, mutex=mutex, **kwargs)
         return instance

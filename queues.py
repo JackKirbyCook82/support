@@ -8,6 +8,7 @@ Created on Weds Jul 12 2023
 
 import queue
 from abc import ABC, ABCMeta, abstractmethod
+from collections import namedtuple as ntuple
 
 from support.pipelines import Producer, Consumer
 
@@ -19,14 +20,14 @@ __license__ = "MIT License"
 
 
 class Schedule(Producer):
-    def __init__(self, *args, source, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
+    def __init__(self, *args, source, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__source = source
 
     def execute(self, *args, **kwargs):
         while bool(self.source):
             content = self.read(*args, **kwargs)
-            contents = {self.source.variable: content}
+            contents = {str(self.source.query): content}
             yield contents
             self.source.complete()
 
@@ -38,12 +39,12 @@ class Schedule(Producer):
 
 
 class Scheduler(Consumer):
-    def __init__(self, *args, destination, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
+    def __init__(self, *args, destination, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__destination = destination
 
     def execute(self, contents, *args, **kwargs):
-        content = contents.get(self.destination.variable, None)
+        content = contents.get(str(self.destination.query), None)
         if content is not None:
             self.write(content, *args, **kwargs)
 
@@ -58,19 +59,20 @@ class QueueMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is QueueMeta for base in cls.__bases__]):
             return
-        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
         cls.__queuetype__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
+        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
 
-    def __call__(cls, *args, capacity=None, contents=[], **kwargs):
-        assert cls.__variable__ is not None
+    def __call__(cls, *args, capacity=None, querys=[], **kwargs):
         assert cls.__queuetype__ is not None
-        assert isinstance(contents, list)
-        assert (len(contents) <= capacity) if bool(capacity) else True
-        parameters = dict(maxsize=capacity if capacity is not None else 0)
-        stack = cls.__queuetype__(**parameters)
-        for content in contents:
-            stack.put(content)
+        assert cls.__query__ is not None
+        assert isinstance(querys, list)
+        assert (len(querys) <= capacity) if bool(capacity) else True
+        stack = cls.__queuetype__(maxsize=capacity if capacity is not None else 0)
         instance = super(QueueMeta, cls).__call__(stack, *args, **kwargs)
+        for query in querys:
+            assert isinstance(query, (tuple, str))
+            query = instance.query(*query) if isinstance(query, tuple) else instance.query[query]
+            stack.put(query)
         return instance
 
 
@@ -82,7 +84,7 @@ class Queue(ABC, metaclass=QueueMeta):
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __init__(self, stack, *args, timeout=None, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__variable = self.__class__.__variable__
+        self.__query = self.__class__.__query__
         self.__timeout = timeout
         self.__queue = stack
 
@@ -98,22 +100,24 @@ class Queue(ABC, metaclass=QueueMeta):
     def complete(self): self.queue.task_done()
 
     @property
-    def queue(self): return self.__queue
-    @property
-    def variable(self): return self.__variable
-    @property
     def timeout(self): return self.__timeout
+    @property
+    def query(self): return self.__query
+    @property
+    def queue(self): return self.__queue
     @property
     def name(self): return self.__name
 
 
 class StandardQueue(Queue):
-    def write(self, content, *args, **kwargs):
-        self.queue.put(content, timeout=self.timeout)
+    def write(self, query, *args, **kwargs):
+        assert isinstance(query, self.query)
+        self.queue.put(query, timeout=self.timeout)
 
     def read(self, *args, **kwargs):
-        content = self.queue.get(timeout=self.timeout)
-        return content
+        query = self.queue.get(timeout=self.timeout)
+        assert isinstance(query, self.query)
+        return query
 
 
 class PriorityQueue(Queue):
@@ -122,25 +126,25 @@ class PriorityQueue(Queue):
         assert isinstance(ascending, bool)
         cls.__ascending__ = ascending
 
-    def __init__(self, contents, *args, priority, **kwargs):
+    def __init__(self, *args, priority, **kwargs):
         assert callable(priority)
         super().__init__(*args, **kwargs)
         self.__ascending = self.__class__.__ascending__
         self.__priority = priority
-        for content in contents:
-            self.write(content)
 
-    def write(self, content, *args, **kwargs):
-        priority = self.priority(content)
+    def write(self, query, *args, **kwargs):
+        assert isinstance(query, self.query)
+        priority = self.priority(query)
         assert isinstance(priority, int)
         multiplier = (int(not self.ascending) * 2) - 1
-        couple = (multiplier * priority, content)
+        couple = (multiplier * priority, query)
         self.queue.put(couple, timeout=self.timeout)
 
     def read(self, *args, **kwargs):
         couple = self.queue.get(timeout=self.timeout)
-        priority, content = couple
-        return content
+        priority, query = couple
+        assert isinstance(query, self.query)
+        return query
 
     @property
     def ascending(self): return self.__ascending
