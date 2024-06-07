@@ -208,7 +208,9 @@ class File(ABC, metaclass=FileMeta):
     def file(self, *args, query, **kwargs):
         assert isinstance(query, self.query)
         directory = os.path.join(self.repository, self.variable)
-        file = ".".join([str(query), str(self.filetype.name).lower()])
+        query = str(query).replace("|", "_")
+        filename = str(self.filetype.name).lower()
+        file = ".".join([query, filename])
         return os.path.join(directory, file)
 
     @staticmethod

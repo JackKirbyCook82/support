@@ -28,7 +28,7 @@ __logger__ = logging.getLogger(__name__)
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
     def __repr__(self): return f"{type(self).__name__}[{str(self.variable)}, {str(self.threshold)}]"
-    def __call__(self, content, *args, stack, **kwargs):
+    def __call__(self, content, *args, stack=None, **kwargs):
         assert isinstance(stack, (list, type(None)))
         variable = self.variable if stack is None else tuple([self.variable] + stack)
         return self.execute(content, variable)
@@ -79,6 +79,8 @@ class Filter(Processor, Sizing, title="Filtered"):
         query = str(contents[self.query])
         variables = {variable: contents[variable] for variable in self.variables if variable in contents.keys()}
         variables = ODict(list(self.calculate(variables, *args, query=query, **kwargs)))
+        if not bool(variables):
+            return
         yield contents | dict(variables)
 
     def calculate(self, contents, *args, query, **kwargs):
@@ -88,7 +90,9 @@ class Filter(Processor, Sizing, title="Filtered"):
             prior = self.size(content)
             content = self.filter(content, *args, **parameters, **kwargs)
             post = self.size(content)
-            self.logger(prior=prior, post=post, **parameters)
+            self.notify(prior=prior, post=post, **parameters)
+            if self.empty(content):
+                return
             yield variable, content
 
     def filter(self, content, *args, **kwargs):
@@ -101,7 +105,7 @@ class Filter(Processor, Sizing, title="Filtered"):
         mask = reduce(lambda x, y: x & y, criterion) if bool(criterion) else None
         return mask
 
-    def logger(self, *args, variable, query, prior, post, **kwargs):
+    def notify(self, *args, variable, query, prior, post, **kwargs):
         __logger__.info(f"Filter: {repr(self)}|{str(variable)}|{str(query)}[{prior:.0f}|{post:.0f}]")
 
     @typedispatcher
