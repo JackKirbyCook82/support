@@ -21,7 +21,10 @@ __license__ = "MIT License"
 
 class OptionsMeta(ABCMeta): pass
 class Options(Fields, metaclass=OptionsMeta): pass
-class DataframeOptions(Options, fields=["rows", "columns", "width", "formats", "numbers"]): pass
+class DataframeOptions(Options, fields=["rows", "columns", "width", "formats", "numbers"]):
+    @property
+    def parameters(self):
+        return dict(max_rows=self.rows, max_cols=self.columns, line_width=self.width, formatters=self.formats, float_format=self.numbers)
 
 
 class TableMeta(ABCMeta):
@@ -129,7 +132,7 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
             self.table = self.table.head(rows)
 
     @property
-    def string(self): return self.table.to_string(**self.options.todict(), show_dimensions=True)
+    def string(self): return self.table.to_string(**self.options.parameters, show_dimensions=True)
     @property
     def empty(self): return bool(self.table.empty)
     @property
@@ -137,11 +140,11 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
 
 
 class Tables(object):
-    DATAFRAME = DataframeTable
+    Dataframe = DataframeTable
 
 
 class Options(object):
-    DATAFRAME = DataframeOptions
+    Dataframe = DataframeOptions
 
 
 

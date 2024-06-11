@@ -75,6 +75,15 @@ class Fields(Mixin):
         fields = [(field, kwargs.get(field, None)) for field in fields]
         self.__fields = ODict(fields)
 
+    def tolist(self): return list(self.fields.items())
+    def todict(self): return dict(self.fields)
+    def items(self): return self.fields.items()
+    def values(self): return self.fields.values()
+    def keys(self): return self.fields.keys()
+
+    @property
+    def fields(self): return self.__fields
+
 
 class Sizing(Mixin):
     @typedispatcher
