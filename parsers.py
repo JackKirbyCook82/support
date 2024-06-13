@@ -8,6 +8,7 @@ Created on Weds Jul 12 2023
 
 import logging
 import pandas as pd
+from enum import IntEnum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import OrderedDict as ODict
 
@@ -103,15 +104,16 @@ class HeaderMeta(ABCMeta):
         assert cls.__variable__ is not None
         assert cls.__datatype__ is not None
         assert cls.__axes__ is not None
+        variable = str(cls.__variable__.name).lower() if isinstance(cls.__variable__, IntEnum) else str(cls.__variable__)
         axes = Axes[cls.__datatype__](*args, **cls.__axes__, **kwargs)
-        instance = super(HeaderMeta, cls).__call__(*args, axes=axes, **kwargs)
+        instance = super(HeaderMeta, cls).__call__(*args, variable=variable, axes=axes, **kwargs)
         return instance
 
 
 class Header(ABC, metaclass=HeaderMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, axes, **kwargs):
-        self.__variable = self.__class__.__variable__
+    def __init__(self, *args, variable, axes, **kwargs):
+        self.__variable = variable
         self.__axes = axes
 
     def __call__(self, content, *args, **kwargs):

@@ -76,7 +76,7 @@ class Filter(Processor, Sizing, title="Filtered"):
         self.__criterion = criterion
 
     def execute(self, contents, *args, **kwargs):
-        query = str(contents[self.query])
+        query = str(contents[str(self.query)])
         variables = {variable: contents[variable] for variable in self.variables if variable in contents.keys()}
         variables = ODict(list(self.calculate(variables, *args, query=query, **kwargs)))
         if not bool(variables):

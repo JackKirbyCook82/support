@@ -155,8 +155,10 @@ class FileMeta(ABCMeta):
         assert cls.__variable__ is not None
         assert cls.__header__ is not None
         assert cls.__query__ is not None
+        variable = str(cls.__variable__.name).lower() if isinstance(cls.__variable__, IntEnum) else str(cls.__variable__)
         stack = Data[cls.__datatype__](*args, header=cls.__header__, **kwargs)
-        instance = super(FileMeta, cls).__call__(stack, *args, mutex=Lock(), **kwargs)
+        query = cls.__query__
+        instance = super(FileMeta, cls).__call__(stack, *args, mutex=Lock(), variable=variable, query=query, **kwargs)
         return instance
 
 
@@ -164,15 +166,15 @@ class File(ABC, metaclass=FileMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
     def __repr__(self): return self.name
-    def __init__(self, stack, *args, repository, mutex, filetype, filetiming, **kwargs):
+    def __init__(self, stack, *args, repository, mutex, variable, query, filetype, filetiming, **kwargs):
         if not os.path.exists(repository):
             os.mkdir(repository)
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__variable = self.__class__.__variable__
-        self.__query = self.__class__.__query__
         self.__repository = repository
         self.__filetiming = filetiming
         self.__filetype = filetype
+        self.__variable = variable
+        self.__query = query
         self.__mutex = mutex
         self.__data = stack
 
