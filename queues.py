@@ -8,7 +8,6 @@ Created on Weds Jul 12 2023
 
 import queue
 from abc import ABC, ABCMeta, abstractmethod
-from collections import namedtuple as ntuple
 
 from support.pipelines import Producer, Consumer
 

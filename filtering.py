@@ -9,6 +9,7 @@ Created on Weds Jul 12 2023
 import logging
 import pandas as pd
 import xarray as xr
+from enum import Enum
 from functools import reduce
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
@@ -60,8 +61,8 @@ class Criterion(object):
 
 class Filter(Processor, Sizing, title="Filtered"):
     def __init_subclass__(cls, *args, variables, query, **kwargs):
-        assert isinstance(variables, list) and isinstance(query, str)
-        cls.__variables__ = variables
+        assert isinstance(variables, list)
+        cls.__variables__ = [str(variable.name).lower() if isinstance(variable, Enum) else str(variable) for variable in variables]
         cls.__query__ = query
 
     def __init__(self, *args, criterion={},  **kwargs):

@@ -47,6 +47,7 @@ class Variable(Node, ABC):
         assert isinstance(sources, list) and isinstance(constants, list)
         datatype = set([type(content) for content in sources])
         assert len(datatype) == 1
+        datatype = list(datatype)[0]
         results = self.calculate(execute, sources, constants, datatype=datatype)
         results = results.rename(self.name) if not isinstance(results, Number) else results
         return results

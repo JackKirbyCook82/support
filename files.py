@@ -106,11 +106,12 @@ class Data(ABC, metaclass=DataMeta):
 
 
 class Dataframe(Data, datatype=pd.DataFrame):
-    def __init__(self, *args, header={}, **kwargs):
+    def __init__(self, *args, header={}, parsers={}, **kwargs):
         assert isinstance(header, dict)
         header = [(key, value) for key, value in header.items()]
         self.__types = {key: value for (key, value) in iter(header) if not any([value is str, value is np.datetime64])}
         self.__dates = [key for (key, value) in iter(header) if value is np.datetime64]
+        self.__parsers = {key: value for key, value in parsers.items()}
 
     @kwargsdispatcher("method")
     def load(self, *args, file, mode, method, **kwargs): raise ValueError(str(method.name).lower())
@@ -119,11 +120,11 @@ class Dataframe(Data, datatype=pd.DataFrame):
 
     @load.register.value(csv_eager)
     def load_eager_csv(self, *args, file, **kwargs):
-        return pd.read_csv(file, iterator=False, index_col=None, header=0, dtype=self.types, parse_dates=self.dates)
+        return pd.read_csv(file, iterator=False, index_col=None, header=0, dtype=self.types, converters=self.parsers, parse_dates=self.dates)
 
     @load.register.value(csv_lazy)
     def load_lazy_csv(self, *args, file, size, **kwargs):
-        return dk.read_csv(file, blocksize=size, index_col=None, header=0, dtype=self.types, parse_dates=self.dates)
+        return dk.read_csv(file, blocksize=size, index_col=None, header=0, dtype=self.types, converters=self.parsers, parse_dates=self.dates)
 
     @save.register.value(csv_eager)
     def save_eager_csv(self, dataframe, *args, file, mode, **kwargs):
@@ -141,6 +142,8 @@ class Dataframe(Data, datatype=pd.DataFrame):
     @staticmethod
     def empty(dataframe): return bool(dataframe.empty)
     @property
+    def parsers(self): return self.__parsers
+    @property
     def types(self): return self.__types
     @property
     def dates(self): return self.__dates
@@ -152,18 +155,19 @@ class FileMeta(ABCMeta):
             return
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
         cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
+        cls.__parsers__ = kwargs.get("parsers", getattr(cls, "__parsers__", {}))
         cls.__header__ = kwargs.get("header", getattr(cls, "__header__", None))
         cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
 
     def __call__(cls, *args, **kwargs):
         assert cls.__datatype__ is not None
         assert cls.__variable__ is not None
+        assert cls.__parsers__ is not None
         assert cls.__header__ is not None
         assert cls.__query__ is not None
         variable = str(cls.__variable__.name).lower() if isinstance(cls.__variable__, IntEnum) else str(cls.__variable__)
-        stack = Data[cls.__datatype__](*args, header=cls.__header__, **kwargs)
-        query = cls.__query__
-        instance = super(FileMeta, cls).__call__(stack, *args, mutex=Lock(), variable=variable, query=query, **kwargs)
+        stack = Data[cls.__datatype__](*args, header=cls.__header__, parsers=cls.__parsers__, **kwargs)
+        instance = super(FileMeta, cls).__call__(stack, *args, mutex=Lock(), variable=variable, query=cls.__query__, **kwargs)
         return instance
 
 
