@@ -43,6 +43,14 @@ class Variable(Node, ABC):
         self.__type = vartype
         self.__key = varkey
 
+    def __call__(self, execute, sources, constants):
+        assert isinstance(sources, list) and isinstance(constants, list)
+        datatype = set([type(content) for content in sources])
+        assert len(datatype) == 1
+        results = self.calculate(execute, sources, constants, datatype=datatype)
+        results = results.rename(self.name) if not isinstance(results, Number) else results
+        return results
+
     def __setitem__(self, key, value): self.set(key, value)
     def __getitem__(self, key): return self.get(key)
 
@@ -53,7 +61,10 @@ class Variable(Node, ABC):
     def copy(self): return type(self)(*self.arguments, **self.parameters)
 
     @abstractmethod
+    def calculate(self, execute, sources, constants, *args, **kwargs): pass
+    @abstractmethod
     def execute(self, order): pass
+
     @property
     def type(self): return self.__type
     @property
@@ -66,6 +77,7 @@ class Independent(Variable):
         super().__init__(*args, **kwargs)
         self.__position = str(position.name).lower() if isinstance(position, Enum) else position
 
+    def calculate(self, execute, sources, constants, *args, **kwargs): return execute(sources + constants)
     def execute(self, order):
         wrapper = lambda *contents: contents[order.index(self)]
         wrapper.__name__ = "_".join([str(self.name).lower(), "independent", "variable"])
@@ -115,8 +127,8 @@ class Dependent(Variable):
         wrapper.__name__ = "_".join([str(self.name).lower(), "dependent", "variable"])
         return wrapper
 
-    @kwargsdispatcher("type")
-    def calculate(self, *args, **kwargs): raise TypeError(kwargs["type"].__name__)
+    @kwargsdispatcher("datatype")
+    def calculate(self, execute, sources, constants, *args, **kwargs): raise TypeError(kwargs["datatype"].__name__)
 
     @calculate.register.value(xr.DataArray)
     def dataarray(self, execute, sources, constants, *args, **kwargs):
@@ -124,7 +136,6 @@ class Dependent(Variable):
         assert all([isinstance(constant, Number) for constant in constants])
         contents = list(sources) + list(constants)
         dataarray = xr.apply_ufunc(execute, *contents, output_dtypes=[self.type], vectorize=True)
-        dataarray = dataarray.rename(self.name)
         return dataarray
 
     @calculate.register.value(pd.Series)
@@ -133,7 +144,6 @@ class Dependent(Variable):
         assert all([isinstance(constant, Number) for constant in constants])
         function = lambda array, *arguments: execute(*list(array), *arguments)
         series = pd.concat(list(sources), axis=1).apply(function, axis=1, raw=True, args=tuple(constants))
-        series = series.rename(self.name)
         return series
 
     @property
@@ -191,9 +201,7 @@ class Equation(ABC, metaclass=EquationMeta):
             execute = variable.execute(order)
             sources = list(sources.values())
             constants = list(constants.values())
-            astype = set([type(content) for content in sources])
-            assert len(astype) == 1
-            results = variable.calculate(execute, sources, constants, type=list(astype)[0])
+            results = variable(execute, sources, constants)
             return results
 
         wrapper.__name__ = "_".join([str(variable.name).lower(), "equation"])

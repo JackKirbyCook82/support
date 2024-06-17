@@ -15,6 +15,7 @@ import dask.dataframe as dk
 from enum import IntEnum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
+from collections import OrderedDict as ODict
 
 from support.pipelines import Producer, Consumer
 from support.dispatchers import kwargsdispatcher
@@ -126,10 +127,14 @@ class Dataframe(Data, datatype=pd.DataFrame):
 
     @save.register.value(csv_eager)
     def save_eager_csv(self, dataframe, *args, file, mode, **kwargs):
+        for column, function in self.types.items():
+            dataframe[column] = dataframe[column].apply(function)
         dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
     @save.register.value(csv_lazy)
     def save_lazy_csv(self, dataframe, *args, file, mode, **kwargs):
+        for column, function in self.types.items():
+            dataframe[column] = dataframe[column].apply(function)
         parameters = dict(compute=True, single_file=True, header_first_partition_only=True)
         dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
 
