@@ -15,7 +15,6 @@ import dask.dataframe as dk
 from enum import IntEnum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
-from collections import OrderedDict as ODict
 
 from support.pipelines import Producer, Consumer
 from support.dispatchers import kwargsdispatcher
@@ -209,7 +208,7 @@ class File(ABC, metaclass=FileMeta):
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
             self.data.save(content, *args, **parameters, **kwargs)
-        self.logger(*args, file=str(file), **kwargs)
+        __logger__.info("Saved: {}".format(str(file)))
 
 #    def file(self, *args, file, **kwargs):
 #        directory = os.path.join(self.repository, self.variable)
@@ -217,10 +216,6 @@ class File(ABC, metaclass=FileMeta):
 #        extension = str(self.filetype.name).lower()
 #        file = ".".join([file, extension])
 #        return os.path.join(directory, file)
-
-    @staticmethod
-    def logger(*args, file, **kwargs):
-        __logger__.info("Saved: {}".format(file))
 
     @property
     def repository(self): return self.__repository
