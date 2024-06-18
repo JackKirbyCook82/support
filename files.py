@@ -157,17 +157,15 @@ class FileMeta(ABCMeta):
         cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
         cls.__parsers__ = kwargs.get("parsers", getattr(cls, "__parsers__", {}))
         cls.__header__ = kwargs.get("header", getattr(cls, "__header__", None))
-        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
 
     def __call__(cls, *args, **kwargs):
         assert cls.__datatype__ is not None
         assert cls.__variable__ is not None
         assert cls.__parsers__ is not None
         assert cls.__header__ is not None
-        assert cls.__query__ is not None
         variable = str(cls.__variable__.name).lower() if isinstance(cls.__variable__, IntEnum) else str(cls.__variable__)
         stack = Data[cls.__datatype__](*args, header=cls.__header__, parsers=cls.__parsers__, **kwargs)
-        instance = super(FileMeta, cls).__call__(stack, *args, mutex=Lock(), variable=variable, query=cls.__query__, **kwargs)
+        instance = super(FileMeta, cls).__call__(stack, *args, mutex=Lock(), variable=variable, **kwargs)
         return instance
 
 
@@ -175,7 +173,7 @@ class File(ABC, metaclass=FileMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
     def __repr__(self): return self.name
-    def __init__(self, stack, *args, repository, mutex, variable, query, filetype, filetiming, **kwargs):
+    def __init__(self, stack, *args, repository, mutex, variable, filetype, filetiming, **kwargs):
         if not os.path.exists(repository):
             os.mkdir(repository)
         self.__name = kwargs.get("name", self.__class__.__name__)
@@ -183,23 +181,21 @@ class File(ABC, metaclass=FileMeta):
         self.__filetiming = filetiming
         self.__filetype = filetype
         self.__variable = variable
-        self.__query = query
         self.__mutex = mutex
         self.__data = stack
 
-    def __iter__(self):
-        directory = os.path.join(self.repository, self.variable)
-        variable = str(self.variable)
-        for file in list(os.listdir(directory)):
-            filename, extension = str(file).split(".")
-            query = self.query[filename]
-            assert isinstance(query, self.query)
-            yield variable, query, extension
+#    def __iter__(self):
+#        directory = os.path.join(self.repository, self.variable)
+#        variable = str(self.variable)
+#        for file in list(os.listdir(directory)):
+#            filename, extension = str(file).split(".")
+#            query = self.query[filename]
+#            assert isinstance(query, self.query)
+#            yield variable, query, extension
 
-    def read(self, *args, query, mode, **kwargs):
-        assert isinstance(query, self.query)
+    def read(self, *args, mode, **kwargs):
         method = FileMethod(self.filetype, self.filetiming)
-        file = self.file(*args, query=query, **kwargs)
+        file = self.file(*args, **kwargs)
         if not os.path.exists(file):
             return
         with self.mutex[file]:
@@ -207,22 +203,20 @@ class File(ABC, metaclass=FileMeta):
             content = self.data.load(*args, **parameters, **kwargs)
         return content
 
-    def write(self, content, *args, query, mode, **kwargs):
-        assert isinstance(query, self.query)
+    def write(self, content, *args, mode, **kwargs):
         method = FileMethod(self.filetype, self.filetiming)
-        file = self.file(*args, query=query, **kwargs)
+        file = self.file(*args, **kwargs)
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
             self.data.save(content, *args, **parameters, **kwargs)
         self.logger(*args, file=str(file), **kwargs)
 
-    def file(self, *args, query, **kwargs):
-        assert isinstance(query, self.query)
-        directory = os.path.join(self.repository, self.variable)
-        query = str(query).replace("|", "_")
-        filename = str(self.filetype.name).lower()
-        file = ".".join([query, filename])
-        return os.path.join(directory, file)
+#    def file(self, *args, file, **kwargs):
+#        directory = os.path.join(self.repository, self.variable)
+#        file = str(file).replace("|", "_")
+#        extension = str(self.filetype.name).lower()
+#        file = ".".join([file, extension])
+#        return os.path.join(directory, file)
 
     @staticmethod
     def logger(*args, file, **kwargs):
@@ -236,8 +230,6 @@ class File(ABC, metaclass=FileMeta):
     def filetype(self): return self.__filetype
     @property
     def variable(self): return self.__variable
-    @property
-    def query(self): return self.__query
     @property
     def mutex(self): return self.__mutex
     @property

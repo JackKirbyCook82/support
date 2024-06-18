@@ -60,10 +60,9 @@ class Criterion(object):
 
 
 class Filter(Processor, Sizing, title="Filtered"):
-    def __init_subclass__(cls, *args, variables, query, **kwargs):
+    def __init_subclass__(cls, *args, variables, **kwargs):
         assert isinstance(variables, list)
         cls.__variables__ = [str(variable.name).lower() if isinstance(variable, Enum) else str(variable) for variable in variables]
-        cls.__query__ = query
 
     def __init__(self, *args, criterion={},  **kwargs):
         super().__init__(*args, **kwargs)
@@ -73,25 +72,22 @@ class Filter(Processor, Sizing, title="Filtered"):
         criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
         self.__variables = self.__class__.__variables__
-        self.__query = self.__class__.__query__
         self.__criterion = criterion
 
     def execute(self, contents, *args, **kwargs):
-        query = str(contents[str(self.query)])
         variables = {variable: contents[variable] for variable in self.variables if variable in contents.keys()}
-        variables = ODict(list(self.calculate(variables, *args, query=query, **kwargs)))
+        variables = ODict(list(self.calculate(variables, *args, **kwargs)))
         if not bool(variables):
             return
         yield contents | dict(variables)
 
-    def calculate(self, contents, *args, query, **kwargs):
+    def calculate(self, contents, *args, **kwargs):
         assert isinstance(contents, dict)
         for variable, content in contents.items():
-            parameters = dict(variable=variable, query=query)
             prior = self.size(content)
-            content = self.filter(content, *args, **parameters, **kwargs)
+            content = self.filter(content, *args, variable=variable, **kwargs)
             post = self.size(content)
-            self.notify(prior=prior, post=post, **parameters)
+            self.notfiy(variable=variable, prior=prior, post=post)
             if self.empty(content):
                 return
             yield variable, content
@@ -106,8 +102,8 @@ class Filter(Processor, Sizing, title="Filtered"):
         mask = reduce(lambda x, y: x & y, criterion) if bool(criterion) else None
         return mask
 
-    def notify(self, *args, variable, query, prior, post, **kwargs):
-        __logger__.info(f"Filter: {repr(self)}|{str(variable)}|{str(query)}[{prior:.0f}|{post:.0f}]")
+    def notify(self, *args, variable, prior, post, **kwargs):
+        __logger__.info(f"Filter: {repr(self)}|{str(variable)}[{prior:.0f}|{post:.0f}]")
 
     @typedispatcher
     def where(self, content, *args, mask=None, **kwargs): raise TypeError(type(content).__name__)
@@ -120,8 +116,6 @@ class Filter(Processor, Sizing, title="Filtered"):
     def criterion(self): return self.__criterion
     @property
     def variables(self): return self.__variables
-    @property
-    def query(self): return self.__query
 
 
 
