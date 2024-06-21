@@ -87,7 +87,7 @@ class Filter(Processor, Sizing, title="Filtered"):
             prior = self.size(content)
             content = self.filter(content, *args, variable=variable, **kwargs)
             post = self.size(content)
-            self.notfiy(variable=variable, prior=prior, post=post)
+            __logger__.info(f"Filtered: {repr(self)}|{str(variable)}[{prior:.0f}|{post:.0f}]")
             if self.empty(content):
                 return
             yield variable, content
@@ -101,9 +101,6 @@ class Filter(Processor, Sizing, title="Filtered"):
         criterion = [criteria(content, *args, **kwargs) for criteria in self.criterion]
         mask = reduce(lambda x, y: x & y, criterion) if bool(criterion) else None
         return mask
-
-    def notify(self, *args, variable, prior, post, **kwargs):
-        __logger__.info(f"Filter: {repr(self)}|{str(variable)}[{prior:.0f}|{post:.0f}]")
 
     @typedispatcher
     def where(self, content, *args, mask=None, **kwargs): raise TypeError(type(content).__name__)
