@@ -37,9 +37,10 @@ class TableMeta(ABCMeta):
     def __call__(cls, *args, **kwargs):
         assert cls.__tabletype__ is not None
         assert cls.__options__ is not None
-        stack = cls.__tabletype__()
-        mutex = multiprocessing.RLock()
-        instance = super(TableMeta, cls).__call__(stack, *args, mutex=mutex, **kwargs)
+        tabletype, options = cls.__tabletype__, cls.__options__
+        instance = tabletype()
+        parameters = dict(mutex=multiprocessing.RLock(), options=options)
+        instance = super(TableMeta, cls).__call__(instance, *args, **parameters, **kwargs)
         return instance
 
 
@@ -50,10 +51,10 @@ class Table(ABC, metaclass=TableMeta):
     def __str__(self): return self.string
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, stack, *args, mutex, **kwargs):
+    def __init__(self, instance, *args, mutex, options, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__options = self.__class__.__options__
-        self.__table = stack
+        self.__options = options
+        self.__table = instance
         self.__mutex = mutex
 
     def __setitem__(self, locator, content): self.write(locator, content)

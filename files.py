@@ -15,6 +15,7 @@ import dask.dataframe as dk
 from enum import IntEnum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
+from collections import OrderedDict as ODict
 
 from support.pipelines import Producer, Consumer
 from support.dispatchers import kwargsdispatcher
@@ -40,42 +41,101 @@ nc_eager = FileMethod(FileTypes.NC, FileTimings.EAGER)
 nc_lazy = FileMethod(FileTypes.NC, FileTimings.LAZY)
 
 
-class Loader(Producer, title="Loaded"):
-    def __init__(self, *args, source={}, **kwargs):
+class Directory(ABC):
+    def __init__(self, *args, repository, variable, **kwargs):
+        self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__repository = repository
+        self.__variable = variable
+
+    def __iter__(self):
+        directory = os.path.join(self.repository, self.variable)
+        filenames = os.listdir(directory)
+        for filename in filenames:
+            filename, extension = str(filename).split(".")
+            query = self.parser(filename)
+            yield query
+
+    @staticmethod
+    @abstractmethod
+    def parser(filename): pass
+
+    @property
+    def repository(self): return self.__repository
+    @property
+    def variable(self): return self.__variable
+    @property
+    def name(self): return self.__name
+
+
+class Filer(ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
+
+    def __new__(cls, *args, **kwargs):
+        assert cls.__query__ is not None
+        assert isinstance(cls.__query__, tuple)
+        assert len(cls.__query__) == 2
+        return super().__new__(cls)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        queryname, querytype = self.__class__.__query__
+        self.__queryname = queryname
+        self.__querytype = querytype
+
+    @property
+    def queryname(self): return self.__queryname
+    @property
+    def querytype(self): return self.__querytype
+
+
+class Loader(Filer, Producer, title="Loaded"):
+    def __init__(self, *args, directory, source={}, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, dict) and all([isinstance(file, File) for file in source.keys()])
+        self.__directory = directory
         self.__source = source
 
     def execute(self, *args, **kwargs):
-        file = list(self.source.keys())[0]
-        for variable, query, extension in iter(file):
-            contents = self.read(*args, query=query, **kwargs)
-            contents = {variable: content for variable, content in contents.items() if content is not None}
-            yield {str(file.query): query} | contents
+        for query in iter(self.directory):
+            assert isinstance(query, self.querytype)
+            contents = ODict(list(self.read(*args, query=query, **kwargs)))
+            query = {str(self.queryname): query}
+            yield query | contents
 
-    def read(self, *args, query, **kwargs):
-        contents = {str(file.variable): file.read(*args, query=query, mode=mode, **kwargs) for file, mode in self.source.items()}
-        return contents
+    def read(self, *args, **kwargs):
+        for file, mode in self.source.items():
+            variable = str(file.variable)
+            content = file.read(*args, mode=mode, **kwargs)
+            if content is None:
+                continue
+            yield variable, content
 
+    @property
+    def directory(self): return self.__directory
     @property
     def source(self): return self.__source
 
 
-class Saver(Consumer, title="Saved"):
+class Saver(Filer, Consumer, title="Saved"):
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(destination, dict) and all([isinstance(file, File) for file in destination.keys()])
         self.__destination = destination
 
     def execute(self, contents, *args, **kwargs):
-        contents = {variable: content for variable, content in contents.items() if content is not None}
-        self.write(contents, *args, **kwargs)
+        query = contents[str(self.queryname)]
+        assert isinstance(query, self.querytype)
+        self.write(contents, *args, query=query, **kwargs)
 
     def write(self, contents, *args, **kwargs):
         for file, mode in self.destination.items():
-            query = contents[str(file.query)]
-            content = contents[str(file.variable)]
-            file.write(content, *args, query=query, mode=mode, **kwargs)
+            variable = str(file.variable)
+            content = contents.get(variable, None)
+            if content is None:
+                continue
+            file.write(content, *args, mode=mode, **kwargs)
 
     @property
     def destination(self): return self.__destination
@@ -154,17 +214,21 @@ class FileMeta(ABCMeta):
             return
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
         cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
+        cls.__filename__ = kwargs.get("filename", getattr(cls, "__filename__", None))
         cls.__parsers__ = kwargs.get("parsers", getattr(cls, "__parsers__", {}))
-        cls.__header__ = kwargs.get("header", getattr(cls, "__header__", None))
+        cls.__header__ = kwargs.get("header", getattr(cls, "__header__", {}))
 
     def __call__(cls, *args, **kwargs):
         assert cls.__datatype__ is not None
         assert cls.__variable__ is not None
+        assert cls.__filename__ is not None
         assert cls.__parsers__ is not None
         assert cls.__header__ is not None
-        variable = str(cls.__variable__.name).lower() if isinstance(cls.__variable__, IntEnum) else str(cls.__variable__)
-        stack = Data[cls.__datatype__](*args, header=cls.__header__, parsers=cls.__parsers__, **kwargs)
-        instance = super(FileMeta, cls).__call__(stack, *args, mutex=Lock(), variable=variable, **kwargs)
+        datatype, variable, filename, header, parsers = cls.__datatype__, cls.__variable__, cls.__filename__, cls.__header__, cls.__parsers__
+        variable = str(variable.name).lower() if isinstance(variable, IntEnum) else str(variable)
+        instance = Data[datatype](*args, header=header, parsers=parsers, **kwargs)
+        parameters = dict(variable=variable, filename=filename, mutex=Lock())
+        instance = super(FileMeta, cls).__call__(instance, *args, **parameters, **kwargs)
         return instance
 
 
@@ -172,25 +236,17 @@ class File(ABC, metaclass=FileMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
     def __repr__(self): return self.name
-    def __init__(self, stack, *args, repository, mutex, variable, filetype, filetiming, **kwargs):
+    def __init__(self, instance, *args, repository, mutex, variable, filename, filetype, filetiming, **kwargs):
         if not os.path.exists(repository):
             os.mkdir(repository)
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__repository = repository
         self.__filetiming = filetiming
+        self.__filename = filename
         self.__filetype = filetype
         self.__variable = variable
         self.__mutex = mutex
-        self.__data = stack
-
-#    def __iter__(self):
-#        directory = os.path.join(self.repository, self.variable)
-#        variable = str(self.variable)
-#        for file in list(os.listdir(directory)):
-#            filename, extension = str(file).split(".")
-#            query = self.query[filename]
-#            assert isinstance(query, self.query)
-#            yield variable, query, extension
+        self.__data = instance
 
     def read(self, *args, mode, **kwargs):
         method = FileMethod(self.filetype, self.filetiming)
@@ -210,17 +266,18 @@ class File(ABC, metaclass=FileMeta):
             self.data.save(content, *args, **parameters, **kwargs)
         __logger__.info("Saved: {}".format(str(file)))
 
-#    def file(self, *args, file, **kwargs):
-#        directory = os.path.join(self.repository, self.variable)
-#        file = str(file).replace("|", "_")
-#        extension = str(self.filetype.name).lower()
-#        file = ".".join([file, extension])
-#        return os.path.join(directory, file)
+    def file(self, *args, query, **kwargs):
+        directory = os.path.join(self.repository, self.variable)
+        filename = self.filename(query)
+        extension = str(self.filetype.name).lower()
+        return os.path.join(directory, ".".join([filename, extension]))
 
     @property
     def repository(self): return self.__repository
     @property
     def filetiming(self): return self.__filetiming
+    @property
+    def filename(self): return self.__filename
     @property
     def filetype(self): return self.__filetype
     @property
