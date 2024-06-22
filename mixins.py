@@ -200,7 +200,7 @@ class Subscriber(Mixin, ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__publisher = set()
+        self.__publishers = set()
 
     def observe(self, event, *args, publisher, **kwargs):
         assert isinstance(publisher, Publisher)
