@@ -43,17 +43,19 @@ class Variable(Node, ABC):
         self.__type = vartype
         self.__key = varkey
 
-    def __call__(self, execute, sources, constants):
-        assert isinstance(sources, list) and isinstance(constants, list)
-        datatype = set([type(content) for content in sources])
-        assert len(datatype) == 1
-        datatype = list(datatype)[0]
-        results = self.calculate(execute, sources, constants, datatype=datatype)
-        results = results.rename(self.name) if not isinstance(results, Number) else results
-        return results
-
     def __setitem__(self, key, value): self.set(key, value)
     def __getitem__(self, key): return self.get(key)
+
+    @property
+    def constants(self): return [stage for stage in self.leafs if isinstance(stage, Constant)]
+    @property
+    def sources(self): return [stage for stage in self.leafs if isinstance(stage, Source)]
+    @property
+    def independents(self): return list(self.leafs)
+    @property
+    def dependents(self): return list(self.branches)
+    @property
+    def domain(self): return list(self.children)
 
     @property
     def arguments(self): return tuple([self.key, self.name, self.type])
@@ -62,7 +64,7 @@ class Variable(Node, ABC):
     def copy(self): return type(self)(*self.arguments, **self.parameters)
 
     @abstractmethod
-    def calculate(self, execute, sources, constants, *args, **kwargs): pass
+    def calculate(self, execute, *args, datatype, sources, constants, **kwargs): pass
     @abstractmethod
     def execute(self, order): pass
 
@@ -78,14 +80,28 @@ class Independent(Variable):
         super().__init__(*args, **kwargs)
         self.__position = str(position.name).lower() if isinstance(position, Enum) else position
 
-    def calculate(self, execute, sources, constants, *args, **kwargs): return execute(sources + constants)
     def execute(self, order):
-        wrapper = lambda *contents: contents[order.index(self)]
-        wrapper.__name__ = "_".join([str(self.name).lower(), "independent", "variable"])
+        calculation = lambda *contents: contents[order.index(self)]
+        calculation.__name__ = "_".join([str(self.name).lower(), "independent", "calculation"])
+        calculation.__order__ = [str(variable) for variable in order]
+        return calculation
+
+    def calculate(self, execute, *args, sources, constants, **kwargs):
+        contents = list(sources) + list(constants)
+        return execute(contents)
+
+    @property
+    def location(self):
+        def wrapper(*args, **kwargs):
+            results = self.locate(*args, **kwargs)
+            results = results.rename(self.name) if not isinstance(results, Number) else results
+            return results
+        wrapper.__name__ = "_".join([str(self.name), "location"])
         return wrapper
 
     @abstractmethod
     def locate(self, *args, **kwargs): pass
+
     @property
     def parameters(self): return super().parameters | dict(position=self.position)
     @property
@@ -123,38 +139,52 @@ class Dependent(Variable):
         self.__function = function
 
     def execute(self, order):
-        executes = [variable.execute(order) for variable in self.domain]
-        wrapper = lambda *args, **kwargs: self.function(*[execute(*args, **kwargs) for execute in executes])
-        wrapper.__name__ = "_".join([str(self.name).lower(), "dependent", "variable"])
-        return wrapper
+        domains = [variable.execute(order) for variable in self.domain]
+        calculation = lambda *contents: self.function(*[domain(*contents) for domain in domains])
+        calculation.__name__ = "_".join([str(self.name).lower(), "dependent", "calculation"])
+        calculation.__order__ = [str(variable) for variable in order]
+        return calculation
 
     @kwargsdispatcher("datatype")
-    def calculate(self, execute, sources, constants, *args, **kwargs): raise TypeError(kwargs["datatype"].__name__)
+    def calculate(self, execute, *args, **kwargs): raise TypeError(kwargs["datatype"].__name__)
 
     @calculate.register.value(xr.DataArray)
-    def dataarray(self, execute, sources, constants, *args, **kwargs):
+    def dataarray(self, execute, *args, sources, constants, **kwargs):
         assert all([isinstance(source, xr.DataArray) for source in sources])
-        assert all([isinstance(constant, Number) for constant in constants])
         contents = list(sources) + list(constants)
         dataarray = xr.apply_ufunc(execute, *contents, output_dtypes=[self.type], vectorize=True)
         return dataarray
 
     @calculate.register.value(pd.Series)
-    def series(self, execute, sources, constants, *args, **kwargs):
+    def series(self, execute, *args, sources, constants, **kwargs):
         assert all([isinstance(source, pd.Series) for source in sources])
-        assert all([isinstance(constant, Number) for constant in constants])
-        function = lambda array, *arguments: execute(*list(array), *arguments)
-        series = pd.concat(list(sources), axis=1).apply(function, axis=1, raw=True, args=tuple(constants))
+        function = lambda array, *arguments: execute(*list(array), *list(arguments))
+        series = pd.concat(list(sources), axis=1).apply(function, axis=1, raw=False, args=tuple(constants))
         return series
 
     @property
-    def constants(self): return [stage for stage in self.leafs if isinstance(stage, Constant)]
-    @property
-    def sources(self): return [stage for stage in self.leafs if isinstance(stage, Source)]
+    def calculation(self):
+        def wrapper(*args, **kwargs):
+            sources = ODict([(stage, stage.locate(*args, **kwargs)) for stage in self.sources])
+            constants = ODict([(stage, stage.locate(*args, **kwargs)) for stage in self.constants])
+            order = list(sources.keys()) + list(constants.keys())
+            execute = self.execute(order)
+            sources = list(sources.values())
+            constants = list(constants.values())
+            assert isinstance(sources, list) and isinstance(constants, list)
+            assert all([isinstance(constant, Number) for constant in constants])
+            datatype = set([type(content) for content in sources])
+            assert len(datatype) == 1
+            datatype = list(datatype)[0]
+            parameters = dict(datatype=datatype, sources=sources, constants=constants)
+            results = self.calculate(execute, *args, **parameters, **kwargs)
+            results = results.rename(self.name) if not isinstance(results, Number) else results
+            return results
+        wrapper.__name__ = "_".join([str(self.name), "location"])
+        return wrapper
+
     @property
     def parameters(self): return super().parameters | dict(function=self.function)
-    @property
-    def domain(self): return list(self.children)
     @property
     def function(self): return self.__function
 
@@ -194,19 +224,7 @@ class Equation(ABC, metaclass=EquationMeta):
         if variable not in self.variables.keys():
             raise AttributeError(variable)
         variable = self.variables[variable]
-
-        def wrapper(*args, **kwargs):
-            sources = ODict([(stage, stage.locate(*args, **kwargs)) for stage in variable.sources])
-            constants = ODict([(stage, stage.locate(*args, **kwargs)) for stage in variable.constants])
-            order = list(sources.keys()) + list(constants.keys())
-            execute = variable.execute(order)
-            sources = list(sources.values())
-            constants = list(constants.values())
-            results = variable(execute, sources, constants)
-            return results
-
-        wrapper.__name__ = "_".join([str(variable.name).lower(), "equation"])
-        return wrapper
+        return variable.location if isinstance(variable, Independent) else variable.calculation
 
     @property
     def variables(self): return self.__variables
