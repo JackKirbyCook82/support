@@ -78,7 +78,7 @@ class Independent(Variable):
     def __init__(self, *args, position, **kwargs):
         assert isinstance(position, (int, str, Enum))
         super().__init__(*args, **kwargs)
-        self.__position = str(position.name).lower() if isinstance(position, Enum) else position
+        self.__position = position
 
     def execute(self, order):
         calculation = lambda *contents: contents[order.index(self)]
@@ -115,9 +115,9 @@ class Source(Independent):
         self.__locator = locator
 
     def locate(self, *args, **kwargs):
-        contents = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
+        contents = args[int(self.position)] if isinstance(self.position, int) else kwargs[str(self.position)]
         assert isinstance(contents, (xr.Dataset, pd.DataFrame))
-        return contents[self.locator]
+        return contents[str(self.locator)]
 
     @property
     def parameters(self): return super().parameters | dict(locator=self.locator)
@@ -127,7 +127,7 @@ class Source(Independent):
 
 class Constant(Independent):
     def locate(self, *args, **kwargs):
-        content = args[self.position] if isinstance(self.position, int) else kwargs[self.position]
+        content = args[int(self.position)] if isinstance(self.position, int) else kwargs[str(self.position)]
         assert isinstance(content, Number)
         return content
 

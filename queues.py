@@ -18,39 +18,20 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Queuer(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
+class Dequeuer(Producer, title="Dequeued"):
+    def __init_subclass__(cls, *args, query, **kwargs):
         super().__init_subclass__(*args, **kwargs)
-        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
+        cls.__query__ = query
 
-    def __new__(cls, *args, **kwargs):
-        assert cls.__query__ is not None
-        assert isinstance(cls.__query__, tuple)
-        assert len(cls.__query__) == 2
-        return super().__new__(cls)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        queryname, querytype = self.__class__.__query__
-        self.__queryname = queryname
-        self.__querytype = querytype
-
-    @property
-    def queryname(self): return self.__queryname
-    @property
-    def querytype(self): return self.__querytype
-
-
-class Dequeuer(Queuer, Producer, title="Dequeued"):
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
+        self.__query = self.__class__.__query__
         self.__source = source
 
     def execute(self, *args, **kwargs):
         while bool(self.source):
-            query = self.read(*args, **kwargs)
-            assert isinstance(query, self.querytype)
-            contents = {str(self.queryname): query}
+            content = self.read(*args, **kwargs)
+            contents = {self.query: content}
             yield contents
             self.source.complete()
 
@@ -59,23 +40,31 @@ class Dequeuer(Queuer, Producer, title="Dequeued"):
 
     @property
     def source(self): return self.__source
+    @property
+    def query(self): return self.__query
 
 
-class Requeuer(Queuer, Consumer, title="Requeued"):
+class Requeuer(Consumer, title="Requeued"):
+    def __init_subclass__(cls, *args, query, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__query__ = query
+
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
+        self.__query = self.__class__.__query__
         self.__destination = destination
 
     def execute(self, contents, *args, **kwargs):
-        query = contents[str(self.queryname)]
-        assert isinstance(query, self.querytype)
-        self.write(query, *args, **kwargs)
+        content = contents[self.query]
+        self.write(content, *args, **kwargs)
 
     def write(self, content, *args, **kwargs):
         self.destination.write(content, *args, **kwargs)
 
     @property
     def destination(self): return self.__destination
+    @property
+    def query(self): return self.__query
 
 
 class QueueMeta(ABCMeta):
@@ -127,12 +116,12 @@ class Queue(ABC, metaclass=QueueMeta):
 
 
 class StandardQueue(Queue):
-    def write(self, query, *args, **kwargs):
-        self.queue.put(query, timeout=self.timeout)
+    def write(self, content, *args, **kwargs):
+        self.queue.put(content, timeout=self.timeout)
 
     def read(self, *args, **kwargs):
-        query = self.queue.get(timeout=self.timeout)
-        return query
+        content = self.queue.get(timeout=self.timeout)
+        return content
 
 
 class PriorityQueue(Queue):
@@ -147,17 +136,17 @@ class PriorityQueue(Queue):
         self.__ascending = self.__class__.__ascending__
         self.__priority = priority
 
-    def write(self, query, *args, **kwargs):
-        priority = self.priority(query)
+    def write(self, content, *args, **kwargs):
+        priority = self.priority(content)
         assert isinstance(priority, int)
         multiplier = (int(not self.ascending) * 2) - 1
-        couple = (multiplier * priority, query)
+        couple = (multiplier * priority, content)
         self.queue.put(couple, timeout=self.timeout)
 
     def read(self, *args, **kwargs):
         couple = self.queue.get(timeout=self.timeout)
-        priority, query = couple
-        return query
+        priority, content = couple
+        return content
 
     @property
     def ascending(self): return self.__ascending

@@ -48,7 +48,7 @@ class Directory(ABC):
         self.__variable = variable
 
     def __iter__(self):
-        directory = os.path.join(self.repository, self.variable)
+        directory = os.path.join(self.repository, str(self.variable))
         filenames = os.listdir(directory)
         for filename in filenames:
             filename, extension = str(filename).split(".")
@@ -67,78 +67,65 @@ class Directory(ABC):
     def name(self): return self.__name
 
 
-class Filer(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
+class Loader(Producer, title="Loaded"):
+    def __init_subclass__(cls, *args, query, **kwargs):
         super().__init_subclass__(*args, **kwargs)
-        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
+        cls.__query__ = query
 
-    def __new__(cls, *args, **kwargs):
-        assert cls.__query__ is not None
-        assert isinstance(cls.__query__, tuple)
-        assert len(cls.__query__) == 2
-        return super().__new__(cls)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        queryname, querytype = self.__class__.__query__
-        self.__queryname = queryname
-        self.__querytype = querytype
-
-    @property
-    def queryname(self): return self.__queryname
-    @property
-    def querytype(self): return self.__querytype
-
-
-class Loader(Filer, Producer, title="Loaded"):
     def __init__(self, *args, directory, source={}, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, dict) and all([isinstance(file, File) for file in source.keys()])
+        self.__query = self.__class__.__query__
         self.__directory = directory
         self.__source = source
 
     def execute(self, *args, **kwargs):
         for query in iter(self.directory):
-            assert isinstance(query, self.querytype)
             contents = ODict(list(self.read(*args, query=query, **kwargs)))
-            query = {str(self.queryname): query}
+            query = {self.query: query}
             yield query | contents
 
     def read(self, *args, **kwargs):
         for file, mode in self.source.items():
-            variable = str(file.variable)
             content = file.read(*args, mode=mode, **kwargs)
             if content is None:
                 continue
-            yield variable, content
+            yield file.variable, content
 
     @property
     def directory(self): return self.__directory
     @property
     def source(self): return self.__source
+    @property
+    def query(self): return self.__query
 
 
-class Saver(Filer, Consumer, title="Saved"):
+class Saver(Consumer, title="Saved"):
+    def __init_subclass__(cls, *args, query, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__query__ = query
+
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(destination, dict) and all([isinstance(file, File) for file in destination.keys()])
+        self.__query = self.__class__.__query__
         self.__destination = destination
 
     def execute(self, contents, *args, **kwargs):
-        query = contents[str(self.queryname)]
-        assert isinstance(query, self.querytype)
+        query = contents[self.query]
         self.write(contents, *args, query=query, **kwargs)
 
     def write(self, contents, *args, **kwargs):
         for file, mode in self.destination.items():
-            variable = str(file.variable)
-            content = contents.get(variable, None)
+            content = contents.get(file.variable, None)
             if content is None:
                 continue
             file.write(content, *args, mode=mode, **kwargs)
 
     @property
     def destination(self): return self.__destination
+    @property
+    def query(self): return self.__query
 
 
 class Lock(dict, metaclass=SingletonMeta):
@@ -225,7 +212,6 @@ class FileMeta(ABCMeta):
         assert cls.__parsers__ is not None
         assert cls.__header__ is not None
         datatype, variable, filename, header, parsers = cls.__datatype__, cls.__variable__, cls.__filename__, cls.__header__, cls.__parsers__
-        variable = str(variable.name).lower() if isinstance(variable, IntEnum) else str(variable)
         instance = Data[datatype](*args, header=header, parsers=parsers, **kwargs)
         parameters = dict(variable=variable, filename=filename, mutex=Lock())
         instance = super(FileMeta, cls).__call__(instance, *args, **parameters, **kwargs)
@@ -267,7 +253,7 @@ class File(ABC, metaclass=FileMeta):
         __logger__.info("Saved: {}".format(str(file)))
 
     def file(self, *args, query, **kwargs):
-        directory = os.path.join(self.repository, self.variable)
+        directory = os.path.join(self.repository, str(self.variable))
         filename = self.filename(query)
         extension = str(self.filetype.name).lower()
         return os.path.join(directory, ".".join([filename, extension]))
