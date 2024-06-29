@@ -12,7 +12,7 @@ import multiprocessing
 import numpy as np
 import pandas as pd
 import dask.dataframe as dk
-from enum import IntEnum
+from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
@@ -29,8 +29,8 @@ __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-FileTypes = IntEnum("Typing", ["NC", "HDF", "CSV"], start=1)
-FileTimings = IntEnum("Timing", ["EAGER", "LAZY"], start=1)
+FileTypes = Enum("Typing", ["NC", "HDF", "CSV"], start=1)
+FileTimings = Enum("Timing", ["EAGER", "LAZY"], start=1)
 FileMethod = ntuple("FileMethod", "filetype filetiming")
 
 csv_eager = FileMethod(FileTypes.CSV, FileTimings.EAGER)
@@ -42,8 +42,13 @@ nc_lazy = FileMethod(FileTypes.NC, FileTimings.LAZY)
 
 
 class Directory(ABC):
+    def __init_subclass__(cls, *args, query, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__query__ = query
+
     def __init__(self, *args, repository, variable, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__query = self.__class__.__query__
         self.__repository = repository
         self.__variable = variable
 
@@ -52,17 +57,15 @@ class Directory(ABC):
         filenames = os.listdir(directory)
         for filename in filenames:
             filename, extension = str(filename).split(".")
-            query = self.parser(filename)
-            yield query
-
-    @staticmethod
-    @abstractmethod
-    def parser(filename): pass
+#            value = self.query(filename)
+            yield value
 
     @property
     def repository(self): return self.__repository
     @property
     def variable(self): return self.__variable
+    @property
+    def query(self): return self.__query
     @property
     def name(self): return self.__name
 
@@ -80,10 +83,10 @@ class Loader(Producer, title="Loaded"):
         self.__source = source
 
     def execute(self, *args, **kwargs):
-        for query in iter(self.directory):
-            contents = ODict(list(self.read(*args, query=query, **kwargs)))
-            query = {self.query: query}
-            yield query | contents
+        for value in iter(self.directory):
+            contents = ODict(list(self.read(*args, query=value, **kwargs)))
+            values = {self.query: value}
+            yield values | contents
 
     def read(self, *args, **kwargs):
         for file, mode in self.source.items():
@@ -112,8 +115,8 @@ class Saver(Consumer, title="Saved"):
         self.__destination = destination
 
     def execute(self, contents, *args, **kwargs):
-        query = contents[self.query]
-        self.write(contents, *args, query=query, **kwargs)
+        value = contents[self.query]
+        self.write(contents, *args, query=value, **kwargs)
 
     def write(self, contents, *args, **kwargs):
         for file, mode in self.destination.items():
@@ -166,21 +169,23 @@ class Dataframe(Data, datatype=pd.DataFrame):
 
     @load.register.value(csv_eager)
     def load_eager_csv(self, *args, file, **kwargs):
-        return pd.read_csv(file, iterator=False, index_col=None, header=0, dtype=self.types, converters=self.parsers, parse_dates=self.dates)
+        dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, dtype=self.types, converters=self.parsers, parse_dates=self.dates)
+        return dataframe
 
     @load.register.value(csv_lazy)
     def load_lazy_csv(self, *args, file, size, **kwargs):
-        return dk.read_csv(file, blocksize=size, index_col=None, header=0, dtype=self.types, converters=self.parsers, parse_dates=self.dates)
+        dataframe = dk.read_csv(file, blocksize=size, index_col=None, header=0, dtype=self.types, converters=self.parsers, parse_dates=self.dates)
+        return dataframe
 
     @save.register.value(csv_eager)
     def save_eager_csv(self, dataframe, *args, file, mode, **kwargs):
-        for column, function in self.types.items():
+        for column, function in self.header.items():
             dataframe[column] = dataframe[column].apply(function)
         dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
     @save.register.value(csv_lazy)
     def save_lazy_csv(self, dataframe, *args, file, mode, **kwargs):
-        for column, function in self.types.items():
+        for column, function in self.header.items():
             dataframe[column] = dataframe[column].apply(function)
         parameters = dict(compute=True, single_file=True, header_first_partition_only=True)
         dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)

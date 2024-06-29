@@ -30,9 +30,9 @@ class Dequeuer(Producer, title="Dequeued"):
 
     def execute(self, *args, **kwargs):
         while bool(self.source):
-            content = self.read(*args, **kwargs)
-            contents = {self.query: content}
-            yield contents
+            value = self.read(*args, **kwargs)
+            values = {self.query: value}
+            yield values
             self.source.complete()
 
     def read(self, *args, **kwargs):
@@ -54,12 +54,12 @@ class Requeuer(Consumer, title="Requeued"):
         self.__query = self.__class__.__query__
         self.__destination = destination
 
-    def execute(self, contents, *args, **kwargs):
-        content = contents[self.query]
-        self.write(content, *args, **kwargs)
+    def execute(self, values, *args, **kwargs):
+        value = values[self.query]
+        self.write(value, *args, **kwargs)
 
-    def write(self, content, *args, **kwargs):
-        self.destination.write(content, *args, **kwargs)
+    def write(self, value, *args, **kwargs):
+        self.destination.write(value, *args, **kwargs)
 
     @property
     def destination(self): return self.__destination
@@ -73,14 +73,14 @@ class QueueMeta(ABCMeta):
             return
         cls.__queuetype__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
 
-    def __call__(cls, *args, capacity=None, contents=[], **kwargs):
+    def __call__(cls, *args, capacity=None, values=[], **kwargs):
         assert cls.__queuetype__ is not None
-        assert isinstance(contents, list)
-        assert (len(contents) <= capacity) if bool(capacity) else True
+        assert isinstance(values, list)
+        assert (len(values) <= capacity) if bool(capacity) else True
         queuetype = cls.__queuetype__
         instance = queuetype(maxsize=capacity if capacity is not None else 0)
-        for content in contents:
-            instance.put(content)
+        for value in values:
+            instance.put(value)
         instance = super(QueueMeta, cls).__call__(instance, *args, **kwargs)
         return instance
 
@@ -97,7 +97,7 @@ class Queue(ABC, metaclass=QueueMeta):
         self.__queue = instance
 
     @abstractmethod
-    def write(self, content, *args, **kwargs): pass
+    def write(self, value, *args, **kwargs): pass
     @abstractmethod
     def read(self, *args, **kwargs): pass
 
@@ -116,12 +116,12 @@ class Queue(ABC, metaclass=QueueMeta):
 
 
 class StandardQueue(Queue):
-    def write(self, content, *args, **kwargs):
-        self.queue.put(content, timeout=self.timeout)
+    def write(self, value, *args, **kwargs):
+        self.queue.put(value, timeout=self.timeout)
 
     def read(self, *args, **kwargs):
-        content = self.queue.get(timeout=self.timeout)
-        return content
+        value = self.queue.get(timeout=self.timeout)
+        return value
 
 
 class PriorityQueue(Queue):
@@ -136,17 +136,17 @@ class PriorityQueue(Queue):
         self.__ascending = self.__class__.__ascending__
         self.__priority = priority
 
-    def write(self, content, *args, **kwargs):
-        priority = self.priority(content)
+    def write(self, value, *args, **kwargs):
+        priority = self.priority(value)
         assert isinstance(priority, int)
         multiplier = (int(not self.ascending) * 2) - 1
-        couple = (multiplier * priority, content)
+        couple = (multiplier * priority, value)
         self.queue.put(couple, timeout=self.timeout)
 
     def read(self, *args, **kwargs):
         couple = self.queue.get(timeout=self.timeout)
-        priority, content = couple
-        return content
+        priority, value = couple
+        return value
 
     @property
     def ascending(self): return self.__ascending
