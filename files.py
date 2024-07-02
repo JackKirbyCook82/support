@@ -23,7 +23,7 @@ from support.meta import SingletonMeta, RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Directory", "Saver", "Loader", "File", "FileTypes", "FileTimings"]
+__all__ = ["Saver", "Loader", "File", "FileTypes", "FileTimings"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -41,49 +41,46 @@ nc_eager = FileMethod(FileTypes.NC, FileTimings.EAGER)
 nc_lazy = FileMethod(FileTypes.NC, FileTimings.LAZY)
 
 
-class Directory(ABC):
-    def __init_subclass__(cls, *args, query, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        cls.__query__ = query
+class FileMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        if not any([type(base) is FileMeta for base in cls.__bases__]):
+            return
+        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
+        cls.__filename__ = kwargs.get("filename", getattr(cls, "__filename__", None))
+        cls.__parsers__ = kwargs.get("parsers", getattr(cls, "__parsers__", {}))
+        cls.__header__ = kwargs.get("header", getattr(cls, "__header__", {}))
 
-    def __init__(self, *args, repository, variable, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__query = self.__class__.__query__
-        self.__repository = repository
-        self.__variable = variable
-
-    def __iter__(self):
-        directory = os.path.join(self.repository, str(self.variable))
-        filenames = os.listdir(directory)
-        for filename in filenames:
-            filename, extension = str(filename).split(".")
-#            value = self.query(filename)
-            yield value
-
-    @property
-    def repository(self): return self.__repository
-    @property
-    def variable(self): return self.__variable
-    @property
-    def query(self): return self.__query
-    @property
-    def name(self): return self.__name
+    def __call__(cls, *args, **kwargs):
+        assert cls.__datatype__ is not None
+        assert cls.__variable__ is not None
+        assert cls.__filename__ is not None
+        assert cls.__parsers__ is not None
+        assert cls.__header__ is not None
+        datatype, variable, filename, header, parsers = cls.__datatype__, cls.__variable__, cls.__filename__, cls.__header__, cls.__parsers__
+        instance = Data[datatype](*args, header=header, parsers=parsers, **kwargs)
+        parameters = dict(variable=variable, filename=filename, mutex=Lock())
+        instance = super(FileMeta, cls).__call__(instance, *args, **parameters, **kwargs)
+        return instance
 
 
 class Loader(Producer, title="Loaded"):
-    def __init_subclass__(cls, *args, query, **kwargs):
+    def __init_subclass__(cls, *args, query, function, **kwargs):
         super().__init_subclass__(*args, **kwargs)
+        cls.__function__ = function
         cls.__query__ = query
 
     def __init__(self, *args, directory, source={}, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, dict) and all([isinstance(file, File) for file in source.keys()])
+        self.__function = self.__class__.__function__
         self.__query = self.__class__.__query__
         self.__directory = directory
         self.__source = source
 
     def execute(self, *args, **kwargs):
-        for value in iter(self.directory):
+        for filename in iter(self.directory):
+            value = self.function(filename)
             contents = ODict(list(self.read(*args, query=value, **kwargs)))
             values = {self.query: value}
             yield values | contents
@@ -99,6 +96,8 @@ class Loader(Producer, title="Loaded"):
     def directory(self): return self.__directory
     @property
     def source(self): return self.__source
+    @property
+    def function(self): return self.__function
     @property
     def query(self): return self.__query
 
@@ -179,13 +178,13 @@ class Dataframe(Data, datatype=pd.DataFrame):
 
     @save.register.value(csv_eager)
     def save_eager_csv(self, dataframe, *args, file, mode, **kwargs):
-        for column, function in self.header.items():
+        for column, function in self.types.items():
             dataframe[column] = dataframe[column].apply(function)
         dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
     @save.register.value(csv_lazy)
     def save_lazy_csv(self, dataframe, *args, file, mode, **kwargs):
-        for column, function in self.header.items():
+        for column, function in self.types.items():
             dataframe[column] = dataframe[column].apply(function)
         parameters = dict(compute=True, single_file=True, header_first_partition_only=True)
         dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
@@ -239,6 +238,14 @@ class File(ABC, metaclass=FileMeta):
         self.__mutex = mutex
         self.__data = instance
 
+    def __iter__(self):
+        directory = os.path.join(self.repository, str(self.variable))
+        filenames = os.listdir(directory)
+        for filename in filenames:
+            filename, extension = str(filename).split(".")
+            assert extension == str(self.filetype.name).lower()
+            yield filename
+
     def read(self, *args, mode, **kwargs):
         method = FileMethod(self.filetype, self.filetiming)
         file = self.file(*args, **kwargs)
@@ -259,8 +266,8 @@ class File(ABC, metaclass=FileMeta):
 
     def file(self, *args, query, **kwargs):
         directory = os.path.join(self.repository, str(self.variable))
-        filename = self.filename(query)
         extension = str(self.filetype.name).lower()
+        filename = self.filename(query)
         return os.path.join(directory, ".".join([filename, extension]))
 
     @property

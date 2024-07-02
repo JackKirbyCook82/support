@@ -90,17 +90,8 @@ class Independent(Variable):
         contents = list(sources) + list(constants)
         return execute(contents)
 
-    @property
-    def location(self):
-        def wrapper(*args, **kwargs):
-            results = self.locate(*args, **kwargs)
-            results = results.rename(self.name) if not isinstance(results, Number) else results
-            return results
-        wrapper.__name__ = "_".join([str(self.name), "location"])
-        return wrapper
-
     @abstractmethod
-    def locate(self, *args, **kwargs): pass
+    def locate(self, collection, *args, **kwargs): pass
 
     @property
     def parameters(self): return super().parameters | dict(position=self.position)
@@ -114,10 +105,22 @@ class Source(Independent):
         super().__init__(*args, **kwargs)
         self.__locator = locator
 
-    def locate(self, *args, **kwargs):
-        contents = args[int(self.position)] if isinstance(self.position, int) else kwargs[str(self.position)]
-        assert isinstance(contents, (xr.Dataset, pd.DataFrame))
-        return contents[str(self.locator)]
+    @typedispatcher
+    def locate(self, collection): raise TypeError(type(collection).__name__)
+    @locate.register(dict)
+    def mapping(self, mapping): return mapping[self.position][self.locator]
+    @locate.register(xr.Dataset, pd.DataFrame)
+    def collection(self, collection): return collection[self.locator]
+
+    @property
+    def location(self):
+        def wrapper(collection):
+            results = self.locate(collection)
+            assert isinstance(results, (xr.DataArray, pd.Series))
+            results = results.rename(self.name)
+            return results
+        wrapper.__name__ = "_".join([str(self.name), "location"])
+        return wrapper
 
     @property
     def parameters(self): return super().parameters | dict(locator=self.locator)
@@ -126,10 +129,7 @@ class Source(Independent):
 
 
 class Constant(Independent):
-    def locate(self, *args, **kwargs):
-        content = args[int(self.position)] if isinstance(self.position, int) else kwargs[str(self.position)]
-        assert isinstance(content, Number)
-        return content
+    def locate(self, *args, **kwargs): return kwargs[self.position]
 
 
 class Dependent(Variable):
@@ -164,8 +164,8 @@ class Dependent(Variable):
 
     @property
     def calculation(self):
-        def wrapper(*args, **kwargs):
-            sources = ODict([(stage, stage.locate(*args, **kwargs)) for stage in self.sources])
+        def wrapper(collections, *args, **kwargs):
+            sources = ODict([(stage, stage.locate(collections)) for stage in self.sources])
             constants = ODict([(stage, stage.locate(*args, **kwargs)) for stage in self.constants])
             order = list(sources.keys()) + list(constants.keys())
             execute = self.execute(order)
@@ -178,7 +178,8 @@ class Dependent(Variable):
             datatype = list(datatype)[0]
             parameters = dict(datatype=datatype, sources=sources, constants=constants)
             results = self.calculate(execute, *args, **parameters, **kwargs)
-            results = results.rename(self.name) if not isinstance(results, Number) else results
+            assert isinstance(results, (xr.DataArray, pd.Series))
+            results = results.rename(self.name)
             return results
         wrapper.__name__ = "_".join([str(self.name), "location"])
         return wrapper
