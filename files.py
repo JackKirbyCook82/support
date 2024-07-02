@@ -168,25 +168,28 @@ class Dataframe(Data, datatype=pd.DataFrame):
 
     @load.register.value(csv_eager)
     def load_eager_csv(self, *args, file, **kwargs):
-        dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, dtype=self.types, converters=self.parsers, parse_dates=self.dates)
+        parameters = dict(date_format="%Y%m%d", parse_dates=self.dates, converters=self.parsers, dtype=self.types)
+        dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
         return dataframe
 
     @load.register.value(csv_lazy)
     def load_lazy_csv(self, *args, file, size, **kwargs):
-        dataframe = dk.read_csv(file, blocksize=size, index_col=None, header=0, dtype=self.types, converters=self.parsers, parse_dates=self.dates)
+        parameters = dict(date_format="%Y%m%d", parse_dates=self.dates, converters=self.parsers, dtype=self.types)
+        dataframe = dk.read_csv(file, blocksize=size, index_col=None, header=0, **parameters)
         return dataframe
 
     @save.register.value(csv_eager)
     def save_eager_csv(self, dataframe, *args, file, mode, **kwargs):
         for column, function in self.types.items():
             dataframe[column] = dataframe[column].apply(function)
-        dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
+        parameters = dict(date_format="%Y%m%d")
+        dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
 
     @save.register.value(csv_lazy)
     def save_lazy_csv(self, dataframe, *args, file, mode, **kwargs):
         for column, function in self.types.items():
             dataframe[column] = dataframe[column].apply(function)
-        parameters = dict(compute=True, single_file=True, header_first_partition_only=True)
+        parameters = dict(date_format="%Y%m%d", compute=True, single_file=True, header_first_partition_only=True)
         dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
 
     @staticmethod
