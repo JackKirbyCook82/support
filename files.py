@@ -182,14 +182,14 @@ class Dataframe(Data, datatype=pd.DataFrame):
     def save_eager_csv(self, dataframe, *args, file, mode, **kwargs):
         for column, function in self.types.items():
             dataframe[column] = dataframe[column].apply(function)
-        parameters = dict(date_format="%Y%m%d")
+        parameters = dict()
         dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
 
     @save.register.value(csv_lazy)
     def save_lazy_csv(self, dataframe, *args, file, mode, **kwargs):
         for column, function in self.types.items():
             dataframe[column] = dataframe[column].apply(function)
-        parameters = dict(date_format="%Y%m%d", compute=True, single_file=True, header_first_partition_only=True)
+        parameters = dict(compute=True, single_file=True, header_first_partition_only=True)
         dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
 
     @staticmethod
