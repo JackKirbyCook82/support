@@ -154,12 +154,16 @@ class Data(ABC, metaclass=DataMeta):
 
 
 class Dataframe(Data, datatype=pd.DataFrame):
-    def __init__(self, *args, header={}, parsers={}, **kwargs):
-        assert isinstance(header, dict)
-        header = [(key, value) for key, value in header.items()]
-        self.__types = {key: value for (key, value) in iter(header) if not any([value is str, value is np.datetime64])}
-        self.__dates = [key for (key, value) in iter(header) if value is np.datetime64]
-        self.__parsers = {key: value for key, value in parsers.items()}
+    def __init__(self, *args, **kwargs):
+#        assert isinstance(header, dict)
+#        header = [(key, value) for key, value in header.items()]
+#        self.__types = {key: value for (key, value) in iter(header) if not any([value is str, value is np.datetime64])}
+#        self.__dates = [key for (key, value) in iter(header) if value is np.datetime64]
+#        self.__parsers = {key: value for key, value in parsers.items()}
+        self.__formatters =
+        self.__parsers =
+        self.__dates =
+        self.__types =
 
     @kwargsdispatcher("method")
     def load(self, *args, file, mode, method, **kwargs): raise ValueError(str(method.name).lower())
@@ -168,32 +172,35 @@ class Dataframe(Data, datatype=pd.DataFrame):
 
     @load.register.value(csv_eager)
     def load_eager_csv(self, *args, file, **kwargs):
-        parameters = dict(date_format="%Y%m%d", parse_dates=self.dates, converters=self.parsers, dtype=self.types)
-        dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
-        return dataframe
+        parameters = dict(infer_datetime_format=False, date_format=self.dates, dtype=self.types, converters=self.parsers)
+        fromfile = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
+        return fromfile
 
     @load.register.value(csv_lazy)
     def load_lazy_csv(self, *args, file, size, **kwargs):
-        parameters = dict(date_format="%Y%m%d", parse_dates=self.dates, converters=self.parsers, dtype=self.types)
-        dataframe = dk.read_csv(file, blocksize=size, index_col=None, header=0, **parameters)
-        return dataframe
+        parameters = dict(infer_datetime_format=False, date_format=self.dates, dtype=self.types, converters=self.parsers)
+        fromfile = dk.read_csv(file, blocksize=size, index_col=None, header=0, **parameters)
+        return fromfile
 
     @save.register.value(csv_eager)
     def save_eager_csv(self, dataframe, *args, file, mode, **kwargs):
-        for column, function in self.types.items():
-            dataframe[column] = dataframe[column].apply(function)
-        parameters = dict()
-        dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
+        tofile = pd.DataFrame()
+        for column, formatter in self.formatters.items():
+            tofile[column] = dataframe[column].apply(formatter)
+        tofile.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
     @save.register.value(csv_lazy)
     def save_lazy_csv(self, dataframe, *args, file, mode, **kwargs):
-        for column, function in self.types.items():
-            dataframe[column] = dataframe[column].apply(function)
+        tofile = pd.DataFrame()
+        for column, formatter in self.formatters.items():
+            tofile[column] = dataframe[column].apply(formatter)
         parameters = dict(compute=True, single_file=True, header_first_partition_only=True)
-        dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
+        tofile.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
 
     @staticmethod
     def empty(dataframe): return bool(dataframe.empty)
+    @property
+    def formatters(self): return self.__formatters
     @property
     def parsers(self): return self.__parsers
     @property
