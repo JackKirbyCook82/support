@@ -77,8 +77,7 @@ class QueueMeta(ABCMeta):
         assert cls.__queuetype__ is not None
         assert isinstance(values, list)
         assert (len(values) <= capacity) if bool(capacity) else True
-        queuetype = cls.__queuetype__
-        instance = queuetype(maxsize=capacity if capacity is not None else 0)
+        instance = cls.__queuetype__(maxsize=capacity if capacity is not None else 0)
         for value in values:
             instance.put(value)
         instance = super(QueueMeta, cls).__call__(instance, *args, **kwargs)

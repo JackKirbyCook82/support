@@ -37,9 +37,8 @@ class TableMeta(ABCMeta):
     def __call__(cls, *args, **kwargs):
         assert cls.__tabletype__ is not None
         assert cls.__options__ is not None
-        tabletype, options = cls.__tabletype__, cls.__options__
-        instance = tabletype()
-        parameters = dict(mutex=multiprocessing.RLock(), options=options)
+        instance = cls.__tabletype__()
+        parameters = dict(mutex=multiprocessing.RLock(), options=cls.__options__)
         instance = super(TableMeta, cls).__call__(instance, *args, **parameters, **kwargs)
         return instance
 

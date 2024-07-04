@@ -9,7 +9,6 @@ Created on Sun 14 2023
 import os
 import logging
 import multiprocessing
-import numpy as np
 import pandas as pd
 import dask.dataframe as dk
 from enum import Enum
@@ -39,29 +38,6 @@ hdf_eager = FileMethod(FileTypes.HDF, FileTimings.EAGER)
 hdf_lazy = FileMethod(FileTypes.HDF, FileTimings.LAZY)
 nc_eager = FileMethod(FileTypes.NC, FileTimings.EAGER)
 nc_lazy = FileMethod(FileTypes.NC, FileTimings.LAZY)
-
-
-class FileMeta(ABCMeta):
-    def __init__(cls, *args, **kwargs):
-        if not any([type(base) is FileMeta for base in cls.__bases__]):
-            return
-        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
-        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
-        cls.__filename__ = kwargs.get("filename", getattr(cls, "__filename__", None))
-        cls.__parsers__ = kwargs.get("parsers", getattr(cls, "__parsers__", {}))
-        cls.__header__ = kwargs.get("header", getattr(cls, "__header__", {}))
-
-    def __call__(cls, *args, **kwargs):
-        assert cls.__datatype__ is not None
-        assert cls.__variable__ is not None
-        assert cls.__filename__ is not None
-        assert cls.__parsers__ is not None
-        assert cls.__header__ is not None
-        datatype, variable, filename, header, parsers = cls.__datatype__, cls.__variable__, cls.__filename__, cls.__header__, cls.__parsers__
-        instance = Data[datatype](*args, header=header, parsers=parsers, **kwargs)
-        parameters = dict(variable=variable, filename=filename, mutex=Lock())
-        instance = super(FileMeta, cls).__call__(instance, *args, **parameters, **kwargs)
-        return instance
 
 
 class Loader(Producer, title="Loaded"):
@@ -154,16 +130,11 @@ class Data(ABC, metaclass=DataMeta):
 
 
 class Dataframe(Data, datatype=pd.DataFrame):
-    def __init__(self, *args, **kwargs):
-#        assert isinstance(header, dict)
-#        header = [(key, value) for key, value in header.items()]
-#        self.__types = {key: value for (key, value) in iter(header) if not any([value is str, value is np.datetime64])}
-#        self.__dates = [key for (key, value) in iter(header) if value is np.datetime64]
-#        self.__parsers = {key: value for key, value in parsers.items()}
-        self.__formatters =
-        self.__parsers =
-        self.__dates =
-        self.__types =
+    def __init__(self, *args, formatters, parsers, dates, types, **kwargs):
+        self.__formatters = formatters
+        self.__parsers = parsers
+        self.__dates = dates
+        self.__types = types
 
     @kwargsdispatcher("method")
     def load(self, *args, file, mode, method, **kwargs): raise ValueError(str(method.name).lower())
@@ -172,30 +143,34 @@ class Dataframe(Data, datatype=pd.DataFrame):
 
     @load.register.value(csv_eager)
     def load_eager_csv(self, *args, file, **kwargs):
-        parameters = dict(infer_datetime_format=False, date_format=self.dates, dtype=self.types, converters=self.parsers)
-        fromfile = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
-        return fromfile
+        parameters = dict(infer_datetime_format=False, parse_dates=list(self.dates.keys()), date_format=self.dates, dtype=self.types, converters=self.parsers)
+        dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
+        return dataframe
 
     @load.register.value(csv_lazy)
     def load_lazy_csv(self, *args, file, size, **kwargs):
-        parameters = dict(infer_datetime_format=False, date_format=self.dates, dtype=self.types, converters=self.parsers)
-        fromfile = dk.read_csv(file, blocksize=size, index_col=None, header=0, **parameters)
-        return fromfile
+        parameters = dict(infer_datetime_format=False, parse_dates=list(self.dates.keys()), date_format=self.dates, dtype=self.types, converters=self.parsers)
+        dataframe = dk.read_csv(file, blocksize=size, index_col=None, header=0, **parameters)
+        return dataframe
 
     @save.register.value(csv_eager)
     def save_eager_csv(self, dataframe, *args, file, mode, **kwargs):
-        tofile = pd.DataFrame()
+        dataframe = dataframe.copy()
         for column, formatter in self.formatters.items():
-            tofile[column] = dataframe[column].apply(formatter)
-        tofile.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
+            dataframe[column] = dataframe[column].apply(formatter)
+        for column, dateformat in self.dates.items():
+            dataframe[column] = dataframe[column].dt.strftime(dateformat)
+        dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
     @save.register.value(csv_lazy)
     def save_lazy_csv(self, dataframe, *args, file, mode, **kwargs):
-        tofile = pd.DataFrame()
+        dataframe = dataframe.copy()
         for column, formatter in self.formatters.items():
-            tofile[column] = dataframe[column].apply(formatter)
+            dataframe[column] = dataframe[column].apply(formatter)
+        for column, dateformat in self.dates.items():
+            dataframe[column] = dataframe[column].dt.strftime(dateformat)
         parameters = dict(compute=True, single_file=True, header_first_partition_only=True)
-        tofile.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
+        dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
 
     @staticmethod
     def empty(dataframe): return bool(dataframe.empty)
@@ -216,18 +191,25 @@ class FileMeta(ABCMeta):
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
         cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
         cls.__filename__ = kwargs.get("filename", getattr(cls, "__filename__", None))
+        cls.__header__ = kwargs.get("header", getattr(cls, "__header__", None))
+        cls.__types__ = kwargs.get("types", getattr(cls, "__types__", None))
+        cls.__dates__ = kwargs.get("dates", getattr(cls, "__dates__", None))
+        cls.__formatters__ = kwargs.get("formatters", getattr(cls, "__formatters__", {}))
         cls.__parsers__ = kwargs.get("parsers", getattr(cls, "__parsers__", {}))
-        cls.__header__ = kwargs.get("header", getattr(cls, "__header__", {}))
 
     def __call__(cls, *args, **kwargs):
         assert cls.__datatype__ is not None
         assert cls.__variable__ is not None
         assert cls.__filename__ is not None
-        assert cls.__parsers__ is not None
         assert cls.__header__ is not None
-        datatype, variable, filename, header, parsers = cls.__datatype__, cls.__variable__, cls.__filename__, cls.__header__, cls.__parsers__
-        instance = Data[datatype](*args, header=header, parsers=parsers, **kwargs)
-        parameters = dict(variable=variable, filename=filename, mutex=Lock())
+        assert cls.__types__ is not None
+        assert cls.__dates__ is not None
+        formatters = {key: value for key, value in cls.__formatters__.items() if key in cls.__header__}
+        parsers = {key: value for key, value in cls.__parsers__.items() if key in cls.__header__}
+        types = {key: value for key, value in cls.__types__.items() if key in cls.__header__}
+        dates = {key: value for key, value in cls.__dates__.items() if key in cls.__header__}
+        instance = Data[cls.__datatype__](*args, parsers=parsers, formatters=formatters, types=types, dates=dates, **kwargs)
+        parameters = dict(variable=cls.__variable__, filename=cls.__filename__, mutex=Lock())
         instance = super(FileMeta, cls).__call__(instance, *args, **parameters, **kwargs)
         return instance
 

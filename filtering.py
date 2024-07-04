@@ -60,20 +60,19 @@ class Criterion(object):
 
 
 class Filter(Processor, Sizing, title="Filtered"):
-    def __init_subclass__(cls, *args, variables, criterion={}, **kwargs):
+    def __init_subclass__(cls, *args, variables, **kwargs):
         assert isinstance(variables, list) and all([isinstance(variable, Enum) for variable in variables])
+        cls.__variables__ = variables
+
+    def __init__(self, *args, criterion={}, **kwargs):
         assert isinstance(criterion, dict)
         assert all([issubclass(criteria, Criteria) for criteria in criterion.keys()])
         assert all([isinstance(parameter, (list, dict)) for parameter in criterion.values()])
+        super().__init__(*args, **kwargs)
         criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
-        cls.__variables__ = variables
-        cls.__criterion__ = criterion
-
-    def __init__(self, *args,  **kwargs):
-        super().__init__(*args, **kwargs)
         self.__variables = self.__class__.__variables__
-        self.__criterion = self.__class__.__criterion__
+        self.__criterion = criterion
 
     def execute(self, contents, *args, **kwargs):
         variables = {variable: contents[variable] for variable in self.variables if variable in contents.keys()}
