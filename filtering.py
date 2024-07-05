@@ -28,7 +28,7 @@ __logger__ = logging.getLogger(__name__)
 
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
-    def __repr__(self): return f"{type(self).__name__}[{str(self.variable)}, {str(self.threshold)}]"
+    def __repr__(self): return f"{type(self).__name__}[{str(self.variable)}={str(self.threshold)})]"
     def __call__(self, content, *args, stack=None, **kwargs):
         assert isinstance(stack, (list, type(None)))
         variable = self.variable if stack is None else tuple([self.variable] + stack)
