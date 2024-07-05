@@ -262,7 +262,6 @@ class CalculationMeta(ABCMeta):
         if not any([type(subbase) is CalculationMeta for base in cls.__bases__ for subbase in base.__bases__]):
             cls.__fields__ = Fields(list(set(kwargs.get("fields", []))))
             cls.__registry__ = ODict()
-            return
         fields = cls.fields | {key: kwargs[key] for key in cls.fields.keys() if key in kwargs.keys()}
         if bool(fields):
             cls.registry[fields] = cls
