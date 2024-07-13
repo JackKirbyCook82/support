@@ -7,6 +7,7 @@ Created on Sun 14 2023
 """
 
 import os
+import time
 import logging
 import multiprocessing
 import pandas as pd
@@ -46,13 +47,14 @@ class Loader(Producer, title="Loaded"):
         cls.__function__ = function
         cls.__query__ = query
 
-    def __init__(self, *args, directory, source={}, **kwargs):
+    def __init__(self, *args, directory, source={}, wait=0, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, dict) and all([isinstance(file, File) for file in source.keys()])
         self.__function = self.__class__.__function__
         self.__query = self.__class__.__query__
         self.__directory = directory
         self.__source = source
+        self.__wait = int(wait)
 
     def execute(self, *args, **kwargs):
         for filename in iter(self.directory):
@@ -60,6 +62,7 @@ class Loader(Producer, title="Loaded"):
             contents = ODict(list(self.read(*args, query=value, **kwargs)))
             values = {self.query: value}
             yield values | contents
+            time.sleep(self.wait)
 
     def read(self, *args, **kwargs):
         for file, mode in self.source.items():
@@ -76,6 +79,8 @@ class Loader(Producer, title="Loaded"):
     def function(self): return self.__function
     @property
     def query(self): return self.__query
+    @property
+    def wait(self): return self.__wait
 
 
 class Saver(Consumer, title="Saved"):
