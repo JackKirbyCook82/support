@@ -11,6 +11,7 @@ import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.mixins import Fields
+from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -46,8 +47,8 @@ class TableMeta(ABCMeta):
 class Table(ABC, metaclass=TableMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __bool__(self): return not self.empty if self.table is not None else False
-    def __len__(self): return self.size
     def __str__(self): return self.string
+    def __len__(self): return self.size
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __init__(self, instance, *args, mutex, options, **kwargs):
@@ -60,15 +61,9 @@ class Table(ABC, metaclass=TableMeta):
     def __getitem__(self, locator): return self.read(locator)
 
     @abstractmethod
-    def write(self, locator, content, *args, **kwargs): pass
+    def write(self, locator, content): pass
     @abstractmethod
-    def read(self, locator, *args, **kwargs): pass
-    @abstractmethod
-    def remove(self, content, *args, **kwargs): pass
-    @abstractmethod
-    def concat(self, content, *args, **kwargs): pass
-    @abstractmethod
-    def update(self, content, *args, **kwargs): pass
+    def read(self, locator): pass
 
     @property
     @abstractmethod
@@ -94,45 +89,76 @@ class Table(ABC, metaclass=TableMeta):
 
 
 class DataframeTable(Table, tabletype=pd.DataFrame):
-    def write(self, locator, content, *args, **kwargs):
-        index, column = locator
-        assert isinstance(index, (int, slice)) and isinstance(column, int)
+    @typedispatcher
+    def write(self, locator, content): pass
+    @typedispatcher
+    def read(self, locator): pass
+
+    @write.register(str)
+    def write_column(self, column, content): self.table[column] = content
+    @write.register(tuple)
+    def write_section(self, locator, content):
+        index, column = self.locator(*locator)
         self.table.iloc[index, column] = content
 
-    def read(self, locator, **kwargs):
-        index, column = locator
-        assert isinstance(index, (int, slice)) and isinstance(column, int)
+    @read.register(str)
+    def read_column(self, column): return self.table[column]
+    @read.register(tuple)
+    def read_section(self, locator):
+        index, column = self.locator(*locator)
         return self.table.iloc[index, column]
 
-    def remove(self, dataframe, *args, **kwargs):
+    def locator(self, index, column):
+        assert isinstance(index, (int, slice))
+        if isinstance(index, slice):
+            assert index.step is None
+            length = len(list(range(index.start, index.stop)))
+            index = slice(length) if length > len(self.table.index) else index
+        if isinstance(column, str):
+            column = (column, "")
+            column = list(self.table.columns).index(column)
+        elif isinstance(column, tuple):
+            assert len(column) == 2
+            column = list(self.table.columns).index(column)
+        return index, column
+
+    def remove(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
-            self.table = self.table.drop(dataframe.index, inplace=False)
+            dataframe = self.table.drop(dataframe.index, inplace=False)
+            self.table = dataframe
 
-    def concat(self, dataframe, *args, **kwargs):
+    def where(self, mask):
+        assert isinstance(mask, pd.Series)
+        with self.mutex:
+            dataframe = self.table.where(mask)
+            dataframe = dataframe.dropna(how="all", inplace=False)
+            return dataframe
+
+    def concat(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
-            dataframes = [self.table, dataframe]
-            self.table = pd.concat(dataframes, axis=0)
+            dataframe = pd.concat([self.table, dataframe], axis=0)
+            self.table = dataframe
 
-    def update(self, dataframe, *args, **kwargs):
+    def update(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
-            self.table.update(dataframe)
+            dataframe = pd.concat([self.table, dataframe], axis=0)
+            dataframe = dataframe[~dataframe.index.duplicated(keep="last")]
+            self.table = dataframe
 
-    def sort(self, column, *args, reverse=False, **kwargs):
-        assert isinstance(column, str) and isinstance(reverse, bool)
+    def sort(self, column, reverse=False):
         assert column in self.table.columns
         with self.mutex:
             self.table.sort_values(column, axis=0, ascending=not bool(reverse), inplace=True, ignore_index=False)
 
-    def truncate(self, rows):
-        assert isinstance(rows, int)
-        with self.mutex:
-            self.table = self.table.head(rows)
-
     @property
-    def string(self): return self.table.to_string(**self.options.parameters, show_dimensions=True)
+    def string(self):
+        dataframe = self.table.reset_index(drop=False, inplace=False)
+        string = dataframe.to_string(**self.options.parameters, show_dimensions=True)
+        return string
+
     @property
     def empty(self): return bool(self.table.empty)
     @property
