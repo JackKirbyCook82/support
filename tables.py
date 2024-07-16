@@ -57,14 +57,6 @@ class Table(ABC, metaclass=TableMeta):
         self.__table = instance
         self.__mutex = mutex
 
-    def __setitem__(self, locator, content): self.write(locator, content)
-    def __getitem__(self, locator): return self.read(locator)
-
-    @abstractmethod
-    def write(self, locator, content): pass
-    @abstractmethod
-    def read(self, locator): pass
-
     @property
     @abstractmethod
     def string(self): pass
@@ -89,39 +81,6 @@ class Table(ABC, metaclass=TableMeta):
 
 
 class DataframeTable(Table, tabletype=pd.DataFrame):
-    @typedispatcher
-    def write(self, locator, content): pass
-    @typedispatcher
-    def read(self, locator): pass
-
-    @write.register(str)
-    def write_column(self, column, content): self.table[column] = content
-    @write.register(tuple)
-    def write_section(self, locator, content):
-        index, column = self.locator(*locator)
-        self.table.iloc[index, column] = content
-
-    @read.register(str)
-    def read_column(self, column): return self.table[column]
-    @read.register(tuple)
-    def read_section(self, locator):
-        index, column = self.locator(*locator)
-        return self.table.iloc[index, column]
-
-    def locator(self, index, column):
-        assert isinstance(index, (int, slice))
-        if isinstance(index, slice):
-            assert index.step is None
-            length = len(list(range(index.start, index.stop)))
-            index = slice(length) if length > len(self.table.index) else index
-        if isinstance(column, str):
-            column = (column, "")
-            column = list(self.table.columns).index(column)
-        elif isinstance(column, tuple):
-            assert len(column) == 2
-            column = list(self.table.columns).index(column)
-        return index, column
-
     def remove(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
