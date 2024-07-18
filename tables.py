@@ -50,6 +50,9 @@ class Table(ABC, metaclass=TableMeta):
     def __str__(self): return self.string
     def __len__(self): return self.size
 
+    def __setitem__(self, locator, content): self.set(locator, content)
+    def __getitem__(self, locator): return self.get(locator)
+
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __init__(self, instance, *args, mutex, options, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
@@ -67,6 +70,11 @@ class Table(ABC, metaclass=TableMeta):
     @abstractmethod
     def size(self): pass
 
+    @abstractmethod
+    def set(self, locator, content): pass
+    @abstractmethod
+    def get(self, locator): pass
+
     @property
     def table(self): return self.__table
     @table.setter
@@ -81,6 +89,32 @@ class Table(ABC, metaclass=TableMeta):
 
 
 class DataframeTable(Table, tabletype=pd.DataFrame):
+    def set(self, locator, content):
+        index, column = self.locator(locator)
+        self.table.iloc[index, column] = content
+
+    def get(self, locator):
+        index, column = self.locator(locator)
+        return self.table.iloc[index, column]
+
+    def locator(self, locator):
+        index, columns = locator
+        assert isinstance(index, (int, slice))
+        assert isinstance(columns, (str, list))
+        assert all([isinstance(column, str) for column in columns]) if isinstance(columns, list) else True
+        if isinstance(index, slice):
+            start = index.start if index.start is not None else 0
+            stop = index.stop if index.stop is not None else len(self.table.index)
+            index = slice(start, stop, index.step)
+        if isinstance(self.table.columns, pd.MultiIndex):
+            group = lambda column: tuple([column] if not isinstance(column, list) else column)
+            length = lambda column: self.table.columns.nlevels - len(group(column))
+            pad = lambda column: group(column) + tuple([""]) * length(column)
+            columns = [pad(column) for column in columns] if isinstance(columns, list) else pad(columns)
+        numerical = lambda column: list(self.table.columns).index(column)
+        columns = [numerical(column) for column in columns] if isinstance(columns, list) else numerical(columns)
+        return index, columns
+
     def remove(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
@@ -94,17 +128,18 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
             dataframe = dataframe.dropna(how="all", inplace=False)
             return dataframe
 
-    def concat(self, dataframe):
+    def concat(self, dataframe, duplicates=[]):
         assert isinstance(dataframe, pd.DataFrame)
+        if isinstance(self.table.columns, pd.MultiIndex):
+            group = lambda column: tuple([column] if not isinstance(column, list) else column)
+            length = lambda column: self.table.columns.nlevels - len(group(column))
+            pad = lambda column: group(column) + tuple([""]) * length(column)
+            duplicates = [pad(column) for column in duplicates] if isinstance(duplicates, list) else pad(duplicates)
         with self.mutex:
-            dataframe = pd.concat([self.table, dataframe], axis=0)
-            self.table = dataframe
-
-    def update(self, dataframe):
-        assert isinstance(dataframe, pd.DataFrame)
-        with self.mutex:
-            dataframe = pd.concat([self.table, dataframe], axis=0)
-            dataframe = dataframe[~dataframe.index.duplicated(keep="last")]
+            if not self.table.empty:
+                dataframe = pd.concat([self.table, dataframe], axis=0)
+                if bool(duplicates):
+                    dataframe = dataframe.drop_duplicates(duplicates, keep="last", inplace=False)
             self.table = dataframe
 
     def sort(self, column, reverse=False):
