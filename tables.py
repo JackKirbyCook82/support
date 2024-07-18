@@ -102,18 +102,26 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
         assert isinstance(index, (int, slice))
         assert isinstance(columns, (str, list))
         assert all([isinstance(column, str) for column in columns]) if isinstance(columns, list) else True
+        index = self.indexer(index)
+        columns = self.stacker(columns)
+        numerical = lambda column: list(self.table.columns).index(column)
+        columns = [numerical(column) for column in columns] if isinstance(columns, list) else numerical(columns)
+        return index, columns
+
+    def indexer(self, index):
         if isinstance(index, slice):
             start = index.start if index.start is not None else 0
             stop = index.stop if index.stop is not None else len(self.table.index)
             index = slice(start, stop, index.step)
+        return index
+
+    def stacker(self, columns):
         if isinstance(self.table.columns, pd.MultiIndex):
             group = lambda column: tuple([column] if not isinstance(column, list) else column)
             length = lambda column: self.table.columns.nlevels - len(group(column))
             pad = lambda column: group(column) + tuple([""]) * length(column)
             columns = [pad(column) for column in columns] if isinstance(columns, list) else pad(columns)
-        numerical = lambda column: list(self.table.columns).index(column)
-        columns = [numerical(column) for column in columns] if isinstance(columns, list) else numerical(columns)
-        return index, columns
+        return columns
 
     def remove(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
@@ -130,11 +138,8 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
 
     def concat(self, dataframe, duplicates=[]):
         assert isinstance(dataframe, pd.DataFrame)
-        if isinstance(self.table.columns, pd.MultiIndex):
-            group = lambda column: tuple([column] if not isinstance(column, list) else column)
-            length = lambda column: self.table.columns.nlevels - len(group(column))
-            pad = lambda column: group(column) + tuple([""]) * length(column)
-            duplicates = [pad(column) for column in duplicates] if isinstance(duplicates, list) else pad(duplicates)
+        assert isinstance(duplicates, list)
+        duplicates = self.stacker(duplicates)
         with self.mutex:
             if not self.table.empty:
                 dataframe = pd.concat([self.table, dataframe], axis=0)
