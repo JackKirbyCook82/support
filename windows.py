@@ -11,25 +11,42 @@ from tkinter import ttk
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Text", "Column", "Button", "Table", "Frame", "Window", "Application"]
+__all__ = ["Stencils"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
 class Text(object):
-    pass
+    def __init__(self, string, *args, font, justify, **kwargs):
+        pass
 
 
 class Column(object):
-    pass
+    def __init__(self, heading, *args, width, parser, **kwargs):
+        pass
 
 
 class Button(tk.Button):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
+        cls.__action__ = kwargs.get("action", getattr(cls, "__action__", None))
+
     def __init__(self, parent):
         super().__init__(parent)
 
 
-class Table(ttk.Treeview):
+class TableMeta(type):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        pass
+
+    def __call__(cls, parent):
+        pass
+
+
+class Table(ttk.Treeview, metaclass=TableMeta):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.__action__ = kwargs.get("action", getattr(cls, "__action__", None))
+
     def __init__(self, parent):
         super().__init__(parent)
 
@@ -40,6 +57,10 @@ class Frame(tk.Frame):
 
 
 class Window(tk.Frame):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
+        cls.__layout__ = kwargs.get("layout", getattr(cls, "__layout__", None))
+
     def __init__(self, parent, controller):
         super().__init__(parent)
 
@@ -68,6 +89,16 @@ class Application(tk.Tk):
 
     @property
     def windows(self): return self.__windows
+
+
+class Stencils:
+    Application = Application
+    Window = Window
+    Frame = Frame
+    Table = Table
+    Button = Button
+    Column = Column
+    Text = Text
 
 
 
