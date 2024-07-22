@@ -8,6 +8,8 @@ Created on Thurs Jul 18 2024
 
 import tkinter as tk
 from tkinter import ttk
+from abc import ABC, abstractmethod
+from collections import namedtuple as ntuple
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -16,53 +18,37 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Text(object):
-    def __init__(self, string, *args, font, justify, **kwargs):
-        pass
+class Text(ntuple("Text", "text font justify")):
+    def __new__(cls, string, *args, font, justify, **kwargs):
+        return super().__new__(cls, string, font, justify)
 
 
-class Column(object):
-    def __init__(self, heading, *args, width, parser, **kwargs):
-        pass
+class Column(ntuple("Column", "heading width parser")):
+    def __new__(cls, heading, *args, width, parser, **kwargs):
+        return super().__new__(cls, heading, width, parser)
 
 
-class Button(tk.Button):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
-        cls.__action__ = kwargs.get("action", getattr(cls, "__action__", None))
-
-    def __init__(self, parent):
-        super().__init__(parent)
+class Button(tk.Button, ABC):
+    @staticmethod
+    @abstractmethod
+    def click(application, window, *args, **kwargs): pass
 
 
 class TableMeta(type):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         pass
 
-    def __call__(cls, parent):
-        pass
-
 
 class Table(ttk.Treeview, metaclass=TableMeta):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.__action__ = kwargs.get("action", getattr(cls, "__action__", None))
-
-    def __init__(self, parent):
-        super().__init__(parent)
+    pass
 
 
 class Frame(tk.Frame):
-    def __init__(self, parent):
-        super().__init__(parent)
+    pass
 
 
 class Window(tk.Frame):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
-        cls.__layout__ = kwargs.get("layout", getattr(cls, "__layout__", None))
-
-    def __init__(self, parent, controller):
-        super().__init__(parent)
+    pass
 
 
 class Application(tk.Tk):
@@ -82,10 +68,6 @@ class Application(tk.Tk):
 
     def __call__(self, *args, **kwargs):
         self.mainloop()
-
-    def show(self, window):
-        window = self.windows[window]
-        window.tkraise()
 
     @property
     def windows(self): return self.__windows
