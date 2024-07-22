@@ -11,6 +11,8 @@ from tkinter import ttk
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 
+from support.meta import SingletonMeta
+
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Stencils"]
@@ -31,7 +33,7 @@ class Column(ntuple("Column", "heading width parser")):
 class Button(tk.Button, ABC):
     @staticmethod
     @abstractmethod
-    def click(application, window, *args, **kwargs): pass
+    def click(*args, **kwargs): pass
 
 
 class TableMeta(type):
@@ -44,33 +46,47 @@ class Table(ttk.Treeview, metaclass=TableMeta):
 
 
 class Frame(tk.Frame):
-    pass
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent)
+        self.grid(row=0, column=0, sticky="nsew")
 
 
 class Window(tk.Frame):
-    pass
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent)
+        self.grid(row=0, column=0, sticky="nsew")
 
 
-class Application(tk.Tk):
+class ApplicationMeta(SingletonMeta):
+    def __init__(cls, *args, **kwargs):
+        cls.Window = kwargs.get("window", getattr(cls, "window", None))
+
+    def __call__(cls, *args, **kwargs):
+        instance = super(ApplicationMeta, cls).__call__(*args, window=cls.Window, **kwargs)
+        instance.window.tkraise()
+        return instance
+
+
+class Application(tk.Tk, metaclass=SingletonMeta):
     def __init_subclass__(cls, *args, window, **kwargs):
-        assert isinstance(window, Window)
         cls.Window = window
 
-    def __init__(self, *args, **kwargs):
-        super().__init__()
-        container = tk.Frame(self)
-        container.pack(side="top", fill="both", expand=True)
-        container.grid_rowconfigure(0, weight=1)
-        container.grid_columnconfigure(0, weight=1)
-        key = type(self).Window
-        window = type(self).Window(container, self)
-        self.__windows = {key: window}
+    def __init__(self, *args, window, **kwargs):
+        parent = tk.Frame(self)
+        parent.pack(side="top", fill="both", expand=True)
+        parent.grid_rowconfigure(0, weight=1)
+        parent.grid_columnconfigure(0, weight=1)
+        window = window(parent, self, *args, **kwargs)
+        self.__window = type(self).Window()
+        self.__windows = dict()
 
     def __call__(self, *args, **kwargs):
         self.mainloop()
 
     @property
     def windows(self): return self.__windows
+    @property
+    def window(self): return self.__window
 
 
 class Stencils:
