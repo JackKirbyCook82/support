@@ -8,8 +8,8 @@ Created on Fri Aug 27 2021
 
 import time
 import multiprocessing
+from abc import ABCMeta
 from inspect import isclass
-from abc import ABC, ABCMeta
 from functools import update_wrapper
 from datetime import datetime as Datetime
 from collections import OrderedDict as ODict
