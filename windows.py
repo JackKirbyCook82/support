@@ -24,79 +24,80 @@ __license__ = "MIT License"
 class Locator(ntuple("Locator", "row column")): pass
 class Content(object):
     def __init__(self, element, locator=None, **parameters):
-        locator = locator if locator is not None else (0, 0)
-        assert isinstance(locator, tuple) and len(locator) == 2
-        self.locator = Locator(*locator)
         self.parameters = parameters
+        self.locator = locator
         self.element = element
 
     def __call__(self, parent, *args, **kwargs):
         parameters = {key: value for key, value in self.parameters.items()}
-        locator = dict(row=self.locator.row, column=self.locator.column)
-        instance = self.element(parent, **parameters, **locator)
+        instance = self.element(parent, locator=self.locator, **parameters)
         return instance
 
 
-class Element(tk.BaseWidget):
-    def __init__(self, parent, *args, **kwargs):
-        super().__init__(parent)
-
-
-class Action(tk.BaseWidget):
-    def __init__(self, parent, *args, **kwargs):
-        super().__init__(parent)
-
-
-class Label(tk.Label, Element):
-    def __init__(self, *args, text, font, justify, row, column, **kwargs):
-        super().__init__(*args, text=text, font=font, justify=justify, **kwargs)
-        self.grid(row=row, column=column, sticky=tk.NW, padx=5, pady=5)
-
-
-class Button(tk.Button, Action):
-    def __init__(self, *args, text, font, justify, row, column, **kwargs):
-        super().__init__(*args, text=text, font=font, justify=justify, **kwargs)
-        self.grid(row=row, column=column, sticky=tk.SW, padx=10, pady=5)
-
-
-class CollectionMeta(type):
+class ContainerMeta(type):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        exclude = [key for key, value in attrs.items() if isinstance(value, tuple)]
+        exclude = [key for key, value in attrs.items() if isinstance(value, Content)]
         attrs = {key: value for key, value in attrs.items() if key not in exclude}
-        cls = super(TableMeta, mcs).__new__(mcs, name, bases, attrs)
+        cls = super(ContainerMeta, mcs).__new__(mcs, name, bases, attrs)
         return cls
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        contents = [value[0] for value in attrs.values() if isinstance(value, tuple)]
-        locators = [value[1] for value in attrs.values() if isinstance(value, tuple)]
+        contents = {key: value for key, value in attrs.items() if isinstance(value, Content)}
+        cls.contents = getattr(cls, "contents", {}) | dict(contents)
         cls.title = kwargs.get("title", getattr(cls, "title", ""))
-        cls.contents = getattr(cls, "contents", []) + list(contents)
-        cls.locators = getattr(cls, "locator", []) + list(locators)
 
     def __call__(cls, *args, **kwargs):
-        instance = super(CollectionMeta, cls).__call__(*args, **kwargs)
-        for content, locator in zip(cls.contents, cls.locators):
-            content(instance, *args, row=locator.row, column=locator.column, **kwargs)
+        instance = super(ContainerMeta, cls).__call__(*args, **kwargs)
+        for key, content in cls.contents.items():
+            content(instance, *args, **kwargs)
         instance.title(cls.title)
         return instance
 
 
-class Frame(tk.Frame, Element, metaclass=CollectionMeta):
-    def __init__(self, *args, row, column, **kwargs):
-        super().__init__(*args, borderwidth=5, **kwargs)
-        self.grid(row=row, column=column, sticky=tk.NW, padx=10, pady=10)
+class Widget(tk.BaseWidget):
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent)
 
 
-class Window(tk.Frame, Element, metaclass=CollectionMeta):
+class Container(Widget, metaclass=ContainerMeta): pass
+class Element(Widget): pass
+class Action(Widget): pass
+
+
+class Window(tk.Frame, Container):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.grid(row=0, column=0, sticky=tk.NSEW)
 
 
-class Column(ntuple("Column", "name width parser locator")):
-    def __new__(cls, name, *args, width, parser, locator, **kwargs):
+class Notebook(ttk.Notebook, Container):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.pack(padx=10, pady=10, expand=True)
+
+
+class Frame(tk.Frame, Container):
+    def __init__(self, *args, locator, **kwargs):
+        super().__init__(*args, borderwidth=5, **kwargs)
+        self.grid(row=locator.row, column=locator.column, sticky=tk.NW, padx=10, pady=10)
+
+
+class Button(tk.Button, Action):
+    def __init__(self, *args, text, font, justify, locator, **kwargs):
+        super().__init__(*args, text=text, font=font, justify=justify, **kwargs)
+        self.grid(row=locator.row, column=locator.column, sticky=tk.SW, padx=10, pady=5)
+
+
+class Label(tk.Label, Element):
+    def __init__(self, *args, text, font, justify, locator, **kwargs):
+        super().__init__(*args, text=text, font=font, justify=justify, **kwargs)
+        self.grid(row=locator.row, column=locator.column, sticky=tk.NW, padx=5, pady=5)
+
+
+class Column(ntuple("Column", "text width parser locator")):
+    def __new__(cls, *args, text, width, parser, locator, **kwargs):
         assert callable(parser) and callable(locator)
-        return super().__new__(cls, name, width, parser, locator)
+        return super().__new__(cls, text, width, parser, locator)
 
     def __call__(self, row, *args, **kwargs):
         assert isinstance(row, pd.Series)
@@ -125,10 +126,17 @@ class TableMeta(type):
 
 
 class Table(ttk.Treeview, Element, metaclass=TableMeta):
+    def __new__(cls, parent, *args, locator, **kwargs):
+        instance = super().__new__(cls)
+        scrollbar = ttk.Scrollbar(parent, oritent=tk.VERTICAL, command=instance.yview)
+        instance.configure(yscroll=scrollbar.set)
+        scrollbar.grid(row=0, column=1, sticky=tk.NS)
+        return instance
+
     def __init__(self, *args, columns, **kwargs):
         super().__init__(*args, columns=list(columns.keys()), show="headings", **kwargs)
+        self.grid(row=0, column=0, sticky=tk.NSEW)
         self.columns = columns
-        self.pack()
 
     def __call__(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
@@ -150,6 +158,8 @@ class Application(tk.Tk, metaclass=SingletonMeta):
 
 
 class Stencils:
+    Window = Window
+    Notebook = Notebook
     Label = Label
     Button = Button
     Frame = Frame
