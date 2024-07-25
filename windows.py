@@ -23,9 +23,9 @@ __license__ = "MIT License"
 
 class Locator(ntuple("Locator", "row column")): pass
 class Content(object):
-    def __init__(self, element, locator=None, **parameters):
+    def __init__(self, element, **parameters):
+        self.locator = parameters.pop("locator")
         self.parameters = parameters
-        self.locator = locator
         self.element = element
 
     def __call__(self, parent, *args, **kwargs):
@@ -44,13 +44,11 @@ class ContainerMeta(type):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         contents = {key: value for key, value in attrs.items() if isinstance(value, Content)}
         cls.contents = getattr(cls, "contents", {}) | dict(contents)
-        cls.title = kwargs.get("title", getattr(cls, "title", ""))
 
     def __call__(cls, *args, **kwargs):
         instance = super(ContainerMeta, cls).__call__(*args, **kwargs)
         for key, content in cls.contents.items():
-            content(instance, *args, **kwargs)
-        instance.title(cls.title)
+            instance[key] = content(instance, *args, **kwargs)
         return instance
 
 
@@ -58,10 +56,16 @@ class Widget(tk.BaseWidget):
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent)
 
-
-class Container(Widget, metaclass=ContainerMeta): pass
 class Element(Widget): pass
 class Action(Widget): pass
+class Container(Widget, metaclass=ContainerMeta):
+    def __setitem__(self, key, value): self.instances[key] = value
+    def __getitem__(self, key): return self.instances[key]
+
+    def __iter__(self): return iter(list(self.instances.items()))
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.instances = {}
 
 
 class Window(tk.Frame, Container):
@@ -73,25 +77,33 @@ class Window(tk.Frame, Container):
 class Notebook(ttk.Notebook, Container):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.pack(padx=10, pady=10, expand=True)
+        self.pack(padx=5, pady=5, sticky=tk.NSEW)
+        for (key, value) in iter(self):
+            self.add(value, text=key)
 
 
 class Frame(tk.Frame, Container):
-    def __init__(self, *args, locator, **kwargs):
+    def __init__(self, *args, sticky=tk.NSEW, locator, **kwargs):
         super().__init__(*args, borderwidth=5, **kwargs)
-        self.grid(row=locator.row, column=locator.column, sticky=tk.NW, padx=10, pady=10)
+        self.grid(row=locator.row, column=locator.column, padx=10, pady=10, sticky=sticky)
 
 
 class Button(tk.Button, Action):
     def __init__(self, *args, text, font, justify, locator, **kwargs):
         super().__init__(*args, text=text, font=font, justify=justify, **kwargs)
-        self.grid(row=locator.row, column=locator.column, sticky=tk.SW, padx=10, pady=5)
+        self.grid(row=locator.row, column=locator.column, padx=10, pady=5)
 
 
 class Label(tk.Label, Element):
     def __init__(self, *args, text, font, justify, locator, **kwargs):
         super().__init__(*args, text=text, font=font, justify=justify, **kwargs)
-        self.grid(row=locator.row, column=locator.column, sticky=tk.NW, padx=5, pady=5)
+        self.grid(row=locator.row, column=locator.column, padx=5, pady=5)
+
+
+class Scroll(tk.Scrollbar, Action):
+    def __init__(self, *args, orientation, locator, **kwargs):
+        super().__init__(*args, oritent=orientation, **kwargs)
+        self.grid(row=locator.row, column=locator.column)
 
 
 class Column(ntuple("Column", "text width parser locator")):
@@ -126,16 +138,9 @@ class TableMeta(type):
 
 
 class Table(ttk.Treeview, Element, metaclass=TableMeta):
-    def __new__(cls, parent, *args, locator, **kwargs):
-        instance = super().__new__(cls)
-        scrollbar = ttk.Scrollbar(parent, oritent=tk.VERTICAL, command=instance.yview)
-        instance.configure(yscroll=scrollbar.set)
-        scrollbar.grid(row=0, column=1, sticky=tk.NS)
-        return instance
-
-    def __init__(self, *args, columns, **kwargs):
+    def __init__(self, *args, columns, locator, **kwargs):
         super().__init__(*args, columns=list(columns.keys()), show="headings", **kwargs)
-        self.grid(row=0, column=0, sticky=tk.NSEW)
+        self.grid(row=locator.row, column=locator.column)
         self.columns = columns
 
     def __call__(self, dataframe):
@@ -165,6 +170,7 @@ class Stencils:
     Frame = Frame
     Window = Window
     Table = Table
+    Scroll = Scroll
 
 
 
