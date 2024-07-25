@@ -6,151 +6,155 @@ Created on Thurs Jul 18 2024
 
 """
 
+import pandas as pd
 import tkinter as tk
 from tkinter import ttk
-from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
+from collections import OrderedDict as ODict
 
 from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Application", "Stencils"]
+__all__ = ["Application", "Stencils", "Content", "Column"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Element(ABC): pass
-class Action(ABC): pass
+class Locator(ntuple("Locator", "row column")): pass
+class Content(object):
+    def __init__(self, element, locator=None, **parameters):
+        locator = locator if locator is not None else (0, 0)
+        assert isinstance(locator, tuple) and len(locator) == 2
+        self.locator = Locator(*locator)
+        self.parameters = parameters
+        self.element = element
 
-
-class Text(ntuple("Text", "text font justify"), Element):
-    def __new__(cls, string, *args, font, justify, **kwargs):
-        return super().__new__(cls, string, font, justify)
-
-
-class Column(ntuple("Column", "heading width parser"), Element):
-    def __new__(cls, heading, *args, width, parser, **kwargs):
-        return super().__new__(cls, heading, width, parser)
-
-
-class CollectionMeta(ABCMeta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        exclude = [key for key, value in attrs.items() if isinstance(value, Element)]
-        attrs = {key: value for key, value in attrs.items() if key not in exclude}
-        cls = super(CollectionMeta, mcs).__new__(mcs, name, bases, attrs)
-        return cls
-
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        elements = {key: value for key, value in attrs.items() if isinstance(value, Element)}
-        cls.elements = getattr(cls, "elements", {}) | elements
-
-    def __call__(cls, parent, *args, **kwargs):
-        instance = super(CollectionMeta, cls).__call__(parent, *args, **kwargs)
-        for key, element in cls.elements.items():
-            content = element(instance, *args, **kwargs)
-            instance[key] = content
+    def __call__(self, parent, *args, **kwargs):
+        parameters = {key: value for key, value in self.parameters.items()}
+        locator = dict(row=self.locator.row, column=self.locator.column)
+        instance = self.element(parent, **parameters, **locator)
         return instance
 
 
-class Collection(tk.Frame, metaclass=CollectionMeta):
-    def __setitem__(self, key, value): self.contents[key] = value
-    def __getitem__(self, key): return self.contents[key]
-
+class Element(tk.BaseWidget):
     def __init__(self, parent, *args, **kwargs):
         super().__init__(parent)
-        self.__contents = dict()
-        self.__parent = parent
-
-    @property
-    def contents(self): return self.__contents
-    @property
-    def parent(self): return self.__parent
 
 
-class Table(Collection): pass
-class Layout(Collection): pass
+class Action(tk.BaseWidget):
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__(parent)
+
+
+class Label(tk.Label, Element):
+    def __init__(self, *args, text, font, justify, row, column, **kwargs):
+        super().__init__(*args, text=text, font=font, justify=justify, **kwargs)
+        self.grid(row=row, column=column, sticky=tk.NW, padx=5, pady=5)
 
 
 class Button(tk.Button, Action):
-    @staticmethod
-    @abstractmethod
-    def click(*args, **kwargs): pass
+    def __init__(self, *args, text, font, justify, row, column, **kwargs):
+        super().__init__(*args, text=text, font=font, justify=justify, **kwargs)
+        self.grid(row=row, column=column, sticky=tk.SW, padx=10, pady=5)
 
 
-class WindowMeta(ABCMeta):
-    def __init__(cls, *args, **kwargs):
-        cls.elements = getattr(cls, "elements", {}) | kwargs.get("elements", {})
-        cls.title = kwargs.get("title", getattr(cls, "__title__", cls.__name__))
+class CollectionMeta(type):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        exclude = [key for key, value in attrs.items() if isinstance(value, tuple)]
+        attrs = {key: value for key, value in attrs.items() if key not in exclude}
+        cls = super(TableMeta, mcs).__new__(mcs, name, bases, attrs)
+        return cls
 
-    def __call__(cls, parent, *args, **kwargs):
-        instance = super(WindowMeta, cls).__call__(parent, *args, **kwargs)
-        instance.title(cls.title)
-        for key, element in cls.elements.items():
-            content = element(instance, *args, **kwargs)
-            instance[key] = content
-
-
-class Window(tk.Frame):
-    def __setitem__(self, key, value): self.contents[key] = value
-    def __getitem__(self, key): return self.contents[key]
-
-    def __init__(self, parent, *args, **kwargs):
-        super().__init__(parent)
-        self.grid(row=0, column=0, sticky="nsew")
-        self.__contents = dict()
-        self.__parent = parent
-
-    @property
-    def contents(self): return self.__contents
-    @property
-    def parent(self): return self.__parent
-
-
-class ApplicationMeta(SingletonMeta):
-    def __init__(cls, *args, **kwargs):
-        cls.window = kwargs.get("window", getattr(cls, "__window__", None))
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        contents = [value[0] for value in attrs.values() if isinstance(value, tuple)]
+        locators = [value[1] for value in attrs.values() if isinstance(value, tuple)]
+        cls.title = kwargs.get("title", getattr(cls, "title", ""))
+        cls.contents = getattr(cls, "contents", []) + list(contents)
+        cls.locators = getattr(cls, "locator", []) + list(locators)
 
     def __call__(cls, *args, **kwargs):
-        instance = super(ApplicationMeta, cls).__call__(*args, **kwargs)
-        root = tk.Frame(instance)
-        root.pack(side="top", fill="both", expand=True)
-        root.grid_columnconfigure(0, weight=1)
-        root.grid_rowconfigure(0, weight=1)
-        window = cls.window(root, *args, **kwargs)
-        instance.window = window
+        instance = super(CollectionMeta, cls).__call__(*args, **kwargs)
+        for content, locator in zip(cls.contents, cls.locators):
+            content(instance, *args, row=locator.row, column=locator.column, **kwargs)
+        instance.title(cls.title)
         return instance
 
 
-class Application(tk.Tk, metaclass=SingletonMeta):
-    def __setitem__(self, key, value): self.windows[key] = value
-    def __getitem__(self, key): return self.windows[key]
+class Frame(tk.Frame, Element, metaclass=CollectionMeta):
+    def __init__(self, *args, row, column, **kwargs):
+        super().__init__(*args, borderwidth=5, **kwargs)
+        self.grid(row=row, column=column, sticky=tk.NW, padx=10, pady=10)
 
+
+class Window(tk.Frame, Element, metaclass=CollectionMeta):
     def __init__(self, *args, **kwargs):
-        super().__init__()
-        self.__windows = dict()
-        self.__window = None
+        super().__init__(*args, **kwargs)
+        self.grid(row=0, column=0, sticky=tk.NSEW)
+
+
+class Column(ntuple("Column", "name width parser locator")):
+    def __new__(cls, name, *args, width, parser, locator, **kwargs):
+        assert callable(parser) and callable(locator)
+        return super().__new__(cls, name, width, parser, locator)
+
+    def __call__(self, row, *args, **kwargs):
+        assert isinstance(row, pd.Series)
+        value = self.locator(row)
+        string = self.parser(value)
+        return string
+
+
+class TableMeta(type):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        exclude = [key for key, value in attrs.items() if isinstance(value, Column)]
+        attrs = {key: value for key, value in attrs.items() if key not in exclude}
+        cls = super(TableMeta, mcs).__new__(mcs, name, bases, attrs)
+        return cls
+
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        columns = ODict([(key, value) for key, value in attrs.items() if isinstance(value, Column)])
+        cls.columns = getattr(cls, "columns", ODict()) | columns
+
+    def __call__(cls, *args, **kwargs):
+        instance = super(TableMeta, cls).__call__(*args, columns=cls.columns, **kwargs)
+        for key, column in cls.columns.items():
+            instance.column(key, width=int(column.width), anchor=tk.CENTER)
+            instance.heading(key, text=str(column.name), anchor=tk.CENTER)
+        return instance
+
+
+class Table(ttk.Treeview, Element, metaclass=TableMeta):
+    def __init__(self, *args, columns, **kwargs):
+        super().__init__(*args, columns=list(columns.keys()), show="headings", **kwargs)
+        self.columns = columns
+        self.pack()
+
+    def __call__(self, dataframe):
+        assert isinstance(dataframe, pd.DataFrame)
+        for index, series in dataframe.iterrows():
+            row = [parser(series) for column, parser in self.columns.items()]
+            self.insert("", tk.END, iid=None, values=tuple(row))
+
+
+class Application(tk.Tk, metaclass=SingletonMeta):
+    def __init__(self, *args, **kwargs):
+        root = tk.Frame(self)
+        root.pack(side="top", fill="both", expand=True)
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(0, weight=1)
+        self.root = root
 
     def __call__(self, *args, **kwargs):
-#        self.execute(*args, **kwargs)
         self.mainloop()
-
-#    @abstractmethod
-#    def execute(self, *args, **kwargs): pass
-
-    @property
-    def window(self): return self.__window
-    @window.setter
-    def window(self, window): self.__window = window
 
 
 class Stencils:
-    Window = Window
-    Layout = Layout
-    Table = Table
+    Label = Label
     Button = Button
-    Column = Column
-    Text = Text
+    Frame = Frame
+    Window = Window
+    Table = Table
 
 
 
