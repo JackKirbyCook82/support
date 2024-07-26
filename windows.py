@@ -16,94 +16,102 @@ from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Application", "Stencils", "Content", "Column"]
+__all__ = ["Application", "Stencils", "Layouts"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Locator(ntuple("Locator", "row column")): pass
-class Content(object):
-    def __init__(self, element, **parameters):
-        self.locator = parameters.pop("locator")
+class Widget(object):
+    def __init__(self, stencil, **parameters):
+        Locator = ntuple("Locator", "row column")
+        parameters = {key: value for key, value in parameters.items()}
+        locator = parameters.get("locator", (0, 0))
+        assert isinstance(locator, tuple) and len(locator) == 2
+        parameters["locator"] = Locator(*locator)
         self.parameters = parameters
-        self.element = element
+        self.stencil = stencil
 
     def __call__(self, parent, *args, **kwargs):
-        parameters = {key: value for key, value in self.parameters.items()}
-        instance = self.element(parent, locator=self.locator, **parameters)
+        fields = list(self.parameters.keys())
+        values = list(self.parameters.values())
+        Parameters = ntuple("Parameters", fields)
+        parameters = Parameters(*values)
+        instance = self.stencil(parent, parameters, *args, **kwargs)
         return instance
 
 
 class ContainerMeta(type):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        exclude = [key for key, value in attrs.items() if isinstance(value, Content)]
+        exclude = [key for key, value in attrs.items() if isinstance(value, Widget)]
         attrs = {key: value for key, value in attrs.items() if key not in exclude}
         cls = super(ContainerMeta, mcs).__new__(mcs, name, bases, attrs)
         return cls
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        contents = {key: value for key, value in attrs.items() if isinstance(value, Content)}
-        cls.contents = getattr(cls, "contents", {}) | dict(contents)
+        super(ContainerMeta, cls).__init__(name, bases, attrs)
+        widgets = {key: value for key, value in attrs.items() if isinstance(value, Widget)}
+        cls.widgets = getattr(cls, "widgets", {}) | dict(widgets)
 
     def __call__(cls, *args, **kwargs):
         instance = super(ContainerMeta, cls).__call__(*args, **kwargs)
-        for key, content in cls.contents.items():
-            instance[key] = content(instance, *args, **kwargs)
+        for key, widget in cls.widgets.items():
+            content = widget(instance, *args, **kwargs)
+            instance[key] = content
         return instance
 
 
-class Widget(tk.BaseWidget):
+class Stencil(object):
+    def __init__(self, *args, **kwargs): pass
+
+class Element(Stencil): pass
+class Action(Stencil): pass
+class Container(Stencil, metaclass=ContainerMeta):
+    def __setitem__(self, key, value): pass
+
+
+class Window(Container, tk.Frame):
     def __init__(self, parent, *args, **kwargs):
-        super().__init__(parent)
-
-class Element(Widget): pass
-class Action(Widget): pass
-class Container(Widget, metaclass=ContainerMeta):
-    def __setitem__(self, key, value): self.instances[key] = value
-    def __getitem__(self, key): return self.instances[key]
-
-    def __iter__(self): return iter(list(self.instances.items()))
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.instances = {}
+        tk.Frame.__init__(self, parent)
+        Container.__init__(self, *args, **kwargs)
+        self.pack(fill=tk.BOTH, expand=True)
 
 
-class Window(tk.Frame, Container):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.grid(row=0, column=0, sticky=tk.NSEW)
+class Notebook(Container, ttk.Notebook):
+    def __init__(self, parent, *args, **kwargs):
+        ttk.Notebook.__init__(self, parent)
+        Container.__init__(self, *args, **kwargs)
+        self.pack(fill=tk.BOTH, expand=True)
+
+    def __setitem__(self, key, value):
+        self.add(value, text=str(key))
 
 
-class Notebook(ttk.Notebook, Container):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.pack(padx=5, pady=5, sticky=tk.NSEW)
-        for (key, value) in iter(self):
-            self.add(value, text=key)
+class Frame(Container, tk.Frame):
+    def __init__(self, parent, parameters, *args, **kwargs):
+        tk.Frame.__init__(self, parent, borderwidth=5)
+        Container.__init__(self, *args, **kwargs)
+        self.grid(row=parameters.locator.row, column=parameters.locator.column, padx=10, pady=10)
 
 
-class Frame(tk.Frame, Container):
-    def __init__(self, *args, sticky=tk.NSEW, locator, **kwargs):
-        super().__init__(*args, borderwidth=5, **kwargs)
-        self.grid(row=locator.row, column=locator.column, padx=10, pady=10, sticky=sticky)
+class Label(Element, tk.Label):
+    def __init__(self, parent, parameters, *args, **kwargs):
+        tk.Label.__init__(self, parent, text=parameters.text, font=parameters.font, justify=parameters.justify)
+        Element.__init__(self, *args, **kwargs)
+        self.grid(row=parameters.locator.row, column=parameters.locator.column, padx=5, pady=5)
 
 
-class Button(tk.Button, Action):
-    def __init__(self, *args, text, font, justify, locator, **kwargs):
-        super().__init__(*args, text=text, font=font, justify=justify, **kwargs)
-        self.grid(row=locator.row, column=locator.column, padx=10, pady=5)
+class Button(Action, tk.Button):
+    def __init__(self, parent, parameters, *args, **kwargs):
+        tk.Button.__init__(self, parent, text=parameters.text, font=parameters.font, justify=parameters.justify)
+        Action.__init__(self, *args, **kwargs)
+        self.grid(row=parameters.locator.row, column=parameters.locator.column, padx=10, pady=5)
 
 
-class Label(tk.Label, Element):
-    def __init__(self, *args, text, font, justify, locator, **kwargs):
-        super().__init__(*args, text=text, font=font, justify=justify, **kwargs)
-        self.grid(row=locator.row, column=locator.column, padx=5, pady=5)
-
-
-class Scroll(tk.Scrollbar, Action):
-    def __init__(self, *args, orientation, locator, **kwargs):
-        super().__init__(*args, oritent=orientation, **kwargs)
-        self.grid(row=locator.row, column=locator.column)
+class Scroll(Action, tk.Scrollbar):
+    def __init__(self, parent, parameters, *args, **kwargs):
+        tk.Scrollbar.__init__(self, parent, orient=parameters.orientation)
+        Action.__init__(self, *args, **kwargs)
+        self.grid(row=parameters.locator.row, column=parameters.locator.column)
 
 
 class Column(ntuple("Column", "text width parser locator")):
@@ -126,6 +134,7 @@ class TableMeta(type):
         return cls
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(TableMeta, cls).__init__(name, bases, attrs)
         columns = ODict([(key, value) for key, value in attrs.items() if isinstance(value, Column)])
         cls.columns = getattr(cls, "columns", ODict()) | columns
 
@@ -133,34 +142,53 @@ class TableMeta(type):
         instance = super(TableMeta, cls).__call__(*args, columns=cls.columns, **kwargs)
         for key, column in cls.columns.items():
             instance.column(key, width=int(column.width), anchor=tk.CENTER)
-            instance.heading(key, text=str(column.name), anchor=tk.CENTER)
+            instance.heading(key, text=str(column.text), anchor=tk.CENTER)
         return instance
 
 
-class Table(ttk.Treeview, Element, metaclass=TableMeta):
-    def __init__(self, *args, columns, locator, **kwargs):
-        super().__init__(*args, columns=list(columns.keys()), show="headings", **kwargs)
-        self.grid(row=locator.row, column=locator.column)
+class Table(Action, ttk.Treeview, metaclass=TableMeta):
+    def __init__(self, parent, parameters, *args, columns, **kwargs):
+        ttk.Treeview.__init__(self, parent, columns=list(columns.keys()), show="headings")
+        Action.__init__(self, *args, **kwargs)
+        self.grid(row=parameters.locator.row, column=parameters.locator.column)
         self.columns = columns
 
-    def __call__(self, dataframe):
-        assert isinstance(dataframe, pd.DataFrame)
-        for index, series in dataframe.iterrows():
-            row = [parser(series) for column, parser in self.columns.items()]
-            self.insert("", tk.END, iid=None, values=tuple(row))
+#    def __call__(self, dataframe):
+#        assert isinstance(dataframe, pd.DataFrame)
+#        for index, series in dataframe.iterrows():
+#            row = [parser(series) for column, parser in self.columns.items()]
+#            self.insert("", tk.END, iid=None, values=tuple(row))
 
 
-class Application(tk.Tk, metaclass=SingletonMeta):
+class ApplicationMeta(SingletonMeta):
+    def __init__(cls, *args, **kwargs):
+        super(ApplicationMeta, cls).__init__(*args, **kwargs)
+        cls.Window = kwargs.get("window", getattr(cls, "Window", None))
+        cls.Title = kwargs.get("title", getattr(cls, "title", None))
+
+    def __call__(cls, *args, **kwargs):
+        instance = super(ApplicationMeta, cls).__call__(*args, **kwargs)
+        instance.title(cls.Title)
+        return instance
+
+
+class Application(tk.Tk, metaclass=ApplicationMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
     def __init__(self, *args, **kwargs):
-        root = tk.Frame(self)
-        root.pack(side="top", fill="both", expand=True)
-        root.grid_columnconfigure(0, weight=1)
-        root.grid_rowconfigure(0, weight=1)
-        self.root = root
+        super().__init__()
+        parent = tk.Frame(self)
+        parent.pack(fill=tk.BOTH, expand=True)
+        parent.grid_columnconfigure(0, weight=1)
+        parent.grid_rowconfigure(0, weight=1)
+        type(self).Window(parent, *args, **kwargs)
 
     def __call__(self, *args, **kwargs):
         self.mainloop()
 
+
+class Layouts:
+    Widget = Widget
+    Column = Column
 
 class Stencils:
     Window = Window
