@@ -123,45 +123,66 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
             columns = [pad(column) for column in columns] if isinstance(columns, list) else pad(columns)
         return columns
 
-    def remove(self, dataframe):
+    def concat(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
-            dataframe = self.table.drop(dataframe.index, inplace=False)
+            dataframe = pd.concat([self.table, dataframe], axis=0) if bool(self) else dataframe
             self.table = dataframe
 
-    def where(self, mask):
-        assert isinstance(mask, pd.Series)
+    def unique(self, columns):
+        if not bool(self):
+            return
+        assert isinstance(columns, list)
+        assert all([column in self.columns for column in columns])
         with self.mutex:
+            columns = self.stacker(columns)
+            self.table.drop_duplicates(columns, keep="last", inplace=True)
+
+    def where(self, function):
+        if not bool(self):
+            return
+        assert callable(function)
+        with self.mutex:
+            mask = function(self.table)
+            self.table.where(mask).dropna(how="all", inplace=True)
+
+    def remove(self, function):
+        if not bool(self):
+            return
+        assert callable(function)
+        with self.mutex:
+            mask = function(self.table)
             dataframe = self.table.where(mask)
             dataframe = dataframe.dropna(how="all", inplace=False)
+            self.table.drop(dataframe.index, inplace=False)
             return dataframe
 
-    def concat(self, dataframe, duplicates=[]):
-        assert isinstance(dataframe, pd.DataFrame)
-        assert isinstance(duplicates, list)
-        duplicates = self.stacker(duplicates)
+    def change(self, function, columns, value):
+        if not bool(self):
+            return
+        assert callable(function) and isinstance(columns, list)
+        assert all([column in self.columns for column in columns])
         with self.mutex:
-            if not self.table.empty:
-                dataframe = pd.concat([self.table, dataframe], axis=0)
-                if bool(duplicates):
-                    dataframe = dataframe.drop_duplicates(duplicates, keep="last", inplace=False)
-            self.table = dataframe
+            mask = function(self.table)
+            self.table.loc[mask, columns] = value
 
-    def sort(self, column, reverse=False):
-        assert column in self.table.columns
+    def sort(self, column, reverse):
+        if not bool(self):
+            return
+        assert column in self.columns
         with self.mutex:
             self.table.sort_values(column, axis=0, ascending=not bool(reverse), inplace=True, ignore_index=False)
 
     @property
-    def string(self):
-        dataframe = self.table.reset_index(drop=False, inplace=False)
-        string = dataframe.to_string(**self.options.parameters, show_dimensions=True)
-        return string
-
+    def string(self): return self.table.to_string(**self.options.parameters, show_dimensions=True)
     @property
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
+    @property
+    def columns(self): return self.table.columns
+    @property
+    def index(self): return self.table.index
 
 
 class Tables(object):
