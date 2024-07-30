@@ -11,21 +11,37 @@ import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.mixins import Fields
-from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Options", "Tables"]
+__all__ = ["Tables", "Views"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class OptionsMeta(ABCMeta): pass
-class Options(Fields, metaclass=OptionsMeta): pass
-class DataframeOptions(Options, fields=["rows", "columns", "width", "formats", "numbers"]):
+class ViewMeta(ABCMeta): pass
+class View(Fields, metaclass=ViewMeta): pass
+class DataframeView(View, fields=["rows", "columns", "width", "formats", "numbers"]):
+    def __call__(self, *args, **kwargs):
+        table = self.table(*args, **kwargs)
+        contents = self.execute(*args, **kwargs)
+        assert isinstance(contents, list)
+        strings = [self.border, table] + list(contents) + [self.border]
+        string = "\n".join(strings)
+        return string
+
+    @staticmethod
+    def execute(*args, **kwargs): return []
+    def table(self, *args, table, heading, **kwargs):
+        assert isinstance(table, pd.DataFrame)
+        table.name = str(heading).lower()
+        table = table.to_string(**self.parameters, show_dimensions=True)
+        return table
+
     @property
-    def parameters(self):
-        return dict(max_rows=self.rows, max_cols=self.columns, line_width=self.width, formatters=self.formats, float_format=self.numbers)
+    def parameters(self): return dict(max_rows=self.rows, max_cols=self.columns, line_width=self.width, formatters=self.formats, float_format=self.numbers)
+    @property
+    def border(self): return str("-" * self.width)
 
 
 class TableMeta(ABCMeta):
@@ -33,36 +49,35 @@ class TableMeta(ABCMeta):
         if not any([type(base) is TableMeta for base in cls.__bases__]):
             return
         cls.__tabletype__ = kwargs.get("tabletype", getattr(cls, "__tabletype__", None))
-        cls.__options__ = kwargs.get("options", getattr(cls, "__options__", None))
+        cls.__tableview__ = kwargs.get("tableview", getattr(cls, "__tableview__", None))
 
     def __call__(cls, *args, **kwargs):
         assert cls.__tabletype__ is not None
-        assert cls.__options__ is not None
+        assert cls.__tableview__ is not None
         instance = cls.__tabletype__()
-        parameters = dict(mutex=multiprocessing.RLock(), options=cls.__options__)
+        view = cls.__tableview__()
+        parameters = dict(mutex=multiprocessing.RLock(), view=view)
         instance = super(TableMeta, cls).__call__(instance, *args, **parameters, **kwargs)
         return instance
 
 
 class Table(ABC, metaclass=TableMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
+
+    def __str__(self): return str(self.view(table=self.table, heading=str(self.name).lower().replace("table", "")))
     def __bool__(self): return not self.empty if self.table is not None else False
-    def __str__(self): return self.string
     def __len__(self): return self.size
 
     def __setitem__(self, locator, content): self.set(locator, content)
     def __getitem__(self, locator): return self.get(locator)
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, instance, *args, mutex, options, **kwargs):
+    def __init__(self, instance, *args, mutex, view, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__options = options
         self.__table = instance
         self.__mutex = mutex
+        self.__view = view
 
-    @property
-    @abstractmethod
-    def string(self): pass
     @property
     @abstractmethod
     def empty(self): pass
@@ -81,9 +96,9 @@ class Table(ABC, metaclass=TableMeta):
     def table(self, table): self.__table = table
 
     @property
-    def options(self): return self.__options
-    @property
     def mutex(self): return self.__mutex
+    @property
+    def view(self): return self.__view
     @property
     def name(self): return self.__name
 
@@ -174,8 +189,6 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
             self.table.sort_values(column, axis=0, ascending=not bool(reverse), inplace=True, ignore_index=False)
 
     @property
-    def string(self): return self.table.to_string(**self.options.parameters, show_dimensions=True)
-    @property
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
@@ -189,8 +202,8 @@ class Tables(object):
     Dataframe = DataframeTable
 
 
-class Options(object):
-    Dataframe = DataframeOptions
+class Views(object):
+    Dataframe = DataframeView
 
 
 
