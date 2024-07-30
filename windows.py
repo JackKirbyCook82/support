@@ -6,6 +6,7 @@ Created on Thurs Jul 18 2024
 
 """
 
+import multiprocessing
 import pandas as pd
 import tkinter as tk
 from tkinter import ttk
@@ -119,7 +120,17 @@ class Table(Container, ttk.Treeview):
         ttk.Treeview.__init__(self, parent, show="headings")
         Element.__init__(self, *args, **kwargs)
         self.grid(row=styling.locator.row, column=styling.locator.column)
-        self.functions = ODict()
+        self.__mutex = multiprocessing.RLock()
+        self.__dataframe = pd.DataFrame()
+        self.__functions = ODict()
+
+    def __call__(self, dataframe, *args, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame)
+        with self.mutex:
+            self.clear(*args, **kwargs)
+            self.erase(*args, **kwargs)
+            self.draw(dataframe, *args, **kwargs)
+            self.dataframe = dataframe
 
     def create(self, columns, *args, **kwargs):
         self["columns"] = list(columns.keys())
@@ -129,13 +140,27 @@ class Table(Container, ttk.Treeview):
             self.functions[key] = column.function
         return {}
 
+    def clear(self, *args, **kwargs):
+        indexes = list(self.selection())
+        self.selection_remove(*indexes)
+
+    def erase(self, *args, **kwargs):
+        for index in self.get_children():
+            self.delete(index)
+
     def draw(self, dataframe, *args, **kwargs):
-        assert isinstance(dataframe, pd.DataFrame)
-        for row in self.get_children():
-            self.delete(row)
         for index, series in dataframe.iterrows():
             row = [function(series) for key, function in self.functions.items()]
             self.insert("", tk.END, iid=index, values=tuple(row))
+
+    @property
+    def mutex(self): return self.__mutex
+    @property
+    def functions(self): return self.__functions
+    @property
+    def dataframe(self): return self.__dataframe
+    @dataframe.setter
+    def dataframe(self, dataframe): self.__dataframe = dataframe
 
 
 class ApplicationMeta(SingletonMeta):
