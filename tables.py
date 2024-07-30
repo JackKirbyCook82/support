@@ -10,8 +10,6 @@ import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.mixins import Fields
-
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Tables", "Views"]
@@ -19,29 +17,60 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class ViewMeta(ABCMeta): pass
-class View(Fields, metaclass=ViewMeta): pass
-class DataframeView(View, fields=["rows", "columns", "width", "formats", "numbers"]):
+class ViewMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        fields = getattr(cls, "__fields__", {}) | kwargs.get("fields", {})
+        values = getattr(cls, "__values__", {})
+        update = {key: kwargs.get(key, values.get(key, None)) for key in fields.keys()}
+        values = values | update
+        cls.__values__ = values
+        cls.__fields__ = fields
+
+    def __call__(cls, *args, **kwargs):
+        fields = {key: field for key, field in cls.__fields__.items()}
+        values = {key: value for key, value in cls.__values__.items()}
+        update = {key: kwargs.get(key, value) for key, value in values.items()}
+        values = values | update
+        instance = super(ViewMeta, cls).__call__(*args, fields=fields, values=values, **kwargs)
+        return instance
+
+
+class View(ABC, metaclass=ViewMeta):
+    def __init__(self, *args, fields={}, values={}, **kwargs):
+        assert set(fields.keys()) == set(values.keys())
+        self.__border = "-" * values.get("width", 250)
+        self.__values = values
+        self.__fields = fields
+
     def __call__(self, *args, **kwargs):
         table = self.table(*args, **kwargs)
         contents = self.execute(*args, **kwargs)
         assert isinstance(contents, list)
-        strings = [self.border, table] + list(contents) + [self.border]
-        string = "\n".join(strings)
+        string = "\n".join([table] + list(contents)).join([self.border] * 2)
         return string
 
-    @staticmethod
-    def execute(*args, **kwargs): return []
+    @abstractmethod
+    def contents(self, *args, **kwargs): pass
+    @abstractmethod
+    def table(self, *args, **kwargs): pass
+
+    @property
+    def parameters(self): return {field: self.values[key] for key, field in self.fields.items()}
+    @property
+    def values(self): return self.__values
+    @property
+    def fields(self): return self.__fields
+    @property
+    def border(self): return self.__border
+
+
+class DataframeView(View, fields={"rows": "max_rows", "columns": "max_cols", "width": "line_width", "formats": "formatters", "numbers": "float_format"}):
+    def contents(*args, **kwargs): return []
     def table(self, *args, table, heading, **kwargs):
         assert isinstance(table, pd.DataFrame)
         table.name = str(heading).lower()
         table = table.to_string(**self.parameters, show_dimensions=True)
         return table
-
-    @property
-    def parameters(self): return dict(max_rows=self.rows, max_cols=self.columns, line_width=self.width, formatters=self.formats, float_format=self.numbers)
-    @property
-    def border(self): return str("-" * self.width)
 
 
 class TableMeta(ABCMeta):
