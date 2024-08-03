@@ -36,6 +36,7 @@ class ViewMeta(ABCMeta):
 
 
 class View(ABC, metaclass=ViewMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
     def __init__(self, *args, fields={}, values={}, **kwargs):
         assert set(fields.keys()) == set(values.keys())
         self.__border = "-" * values.get("width", 250)
@@ -44,9 +45,9 @@ class View(ABC, metaclass=ViewMeta):
 
     def __call__(self, *args, **kwargs):
         table = self.table(*args, **kwargs)
-        contents = self.execute(*args, **kwargs)
-        assert isinstance(contents, list)
-        string = "\n".join([table] + list(contents)).join([self.border] * 2)
+        contents = self.contents(*args, **kwargs)
+        assert isinstance(table, str) and isinstance(contents, list)
+        string = "\n".join([self.border] + [table] + list(contents) + [self.border])
         return string
 
     @abstractmethod
@@ -66,11 +67,9 @@ class View(ABC, metaclass=ViewMeta):
 
 class DataframeView(View, fields={"rows": "max_rows", "columns": "max_cols", "width": "line_width", "formats": "formatters", "numbers": "float_format"}):
     def contents(*args, **kwargs): return []
-    def table(self, *args, table, heading, **kwargs):
+    def table(self, *args, table, **kwargs):
         assert isinstance(table, pd.DataFrame)
-        table.name = str(heading).lower()
-        table = table.to_string(**self.parameters, show_dimensions=True)
-        return table
+        return table.to_string(**self.parameters, show_dimensions=True)
 
 
 class TableMeta(ABCMeta):
@@ -93,7 +92,7 @@ class TableMeta(ABCMeta):
 class Table(ABC, metaclass=TableMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
-    def __str__(self): return str(self.view(table=self.table, heading=str(self.name).lower().replace("table", "")))
+    def __str__(self): return str(self.view(table=self.table))
     def __bool__(self): return not self.empty if self.table is not None else False
     def __len__(self): return self.size
 
@@ -213,9 +212,13 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
     def sort(self, column, reverse):
         if not bool(self):
             return
-        assert column in self.columns
+        assert column in self.columns and isinstance(reverse, bool)
         with self.mutex:
             self.table.sort_values(column, axis=0, ascending=not bool(reverse), inplace=True, ignore_index=False)
+
+    def reset(self):
+        with self.mutex:
+            self.table.reset_index(drop=True, inplace=True)
 
     @property
     def empty(self): return bool(self.table.empty)
@@ -225,6 +228,8 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
     def columns(self): return self.table.columns
     @property
     def index(self): return self.table.index
+    @property
+    def dataframe(self): return self.table
 
 
 class Tables(object):

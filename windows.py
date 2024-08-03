@@ -9,7 +9,9 @@ Created on Thurs Jul 18 2024
 import multiprocessing
 import pandas as pd
 import tkinter as tk
+from enum import StrEnum
 from tkinter import ttk
+from functools import update_wrapper
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
@@ -17,144 +19,225 @@ from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Application", "Stencils", "Layouts"]
+__all__ = ["Application", "Stencils", "Widget", "Events"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Containable(object): pass
-class Widget(ntuple("Widget", "element styling"), Containable):
-    def __new__(cls, element, *args, locator=(0, 0), **parameters):
-        assert isinstance(locator, tuple) and len(locator) == 2
-        Styling = ntuple("Styling", ["locator"] + list(parameters.keys()))
-        Locator = ntuple("Locator", ["row", "column"])
-        styling = Styling(Locator(*locator), *list(parameters.values()))
-        return super().__new__(cls, element, styling)
+MouseSingleClick = StrEnum("MouseSingleClick", {"LEFT": "<Button-1>", "RIGHT": "<Button-3>"})
+MouseDoubleClick = StrEnum("MouseDoubleClick", {"LEFT": "<Double-Button-1>", "RIGHT": "<Double-Button-3>"})
+KeyBoardPress = StrEnum("KeyBoardPress", {"RETURN": "<Return>"})
+TableVirtuals = StrEnum("TableVirtuals", {"SELECT": "<<TreeviewSelect>>"})
 
-class Column(ntuple("Column", "text width function"), Containable):
-    def __new__(cls, *args, text, width, parser, locator, **kwargs):
-        assert callable(parser) and callable(locator)
-        function = lambda series: parser(locator(series))
-        return super().__new__(cls, text, width, function)
+
+class Events:
+    class Mouse: Single = MouseSingleClick, Double = MouseDoubleClick
+    class Keyboard: Press = KeyBoardPress
+    class Table: Virtual = TableVirtuals
+
+    class Handler(object):
+        def __init__(self, *arguments, **parameters):
+            self.__parameters = dict(parameters)
+            self.__arguments = list(arguments)
+            self.__callback = None
+
+        def __call__(self, function):
+            def wrapper(event):
+                element = event.widget
+                function(element, element.controller, **self.parameters)
+            setattr(wrapper, "handler", self)
+            update_wrapper(wrapper, function)
+            self.callback = wrapper
+            return wrapper
+
+        def register(self, element):
+            for argument in self.arguments:
+                element.bind(str(argument), self.callback)
+
+        @property
+        def parameters(self): return self.__parameters
+        @property
+        def arguments(self): return self.__arguments
+        @property
+        def callback(self): return self.__callback
+        @callback.setter
+        def callback(self, callback): self.__callback = callback
+
+
+class Widget(ntuple("Widget", "element styling locator parser")):
+    def __new__(cls, element=None, locator=(0, 0), parser=None, **parameters):
+        assert isinstance(locator, tuple) and len(locator) == 2
+        Styling = ntuple("Styling", list(parameters.keys()))
+        styling = Styling(*list(parameters.values()))
+        return super().__new__(cls, element, styling, locator, parser)
+
+    def __call__(self, parent, identity, controller):
+        parameters = dict(styling=self.styling, locator=self.locator, parser=self.parser)
+        instance = self.element(parent, identity=identity, controller=controller, **parameters)
+        return instance
+
+
+class ActionMeta(type):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(ActionMeta, cls).__init__(name, bases, attrs)
+        events = [value for value in attrs.values() if hasattr(value, "handler")]
+        cls.events = getattr(cls, "events", []) | events
+
+    def __call__(cls, *args, **kwargs):
+        instance = super(ActionMeta, cls).__call__(*args, **kwargs)
+        for event in cls.events:
+            event.handler.register(instance)
+        return instance
 
 
 class ContainerMeta(type):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        exclude = [key for key, value in attrs.items() if isinstance(value, Containable)]
+        exclude = [key for key, value in attrs.items() if isinstance(value, Widget)]
         attrs = {key: value for key, value in attrs.items() if key not in exclude}
         cls = super(ContainerMeta, mcs).__new__(mcs, name, bases, attrs)
         return cls
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(ContainerMeta, cls).__init__(name, bases, attrs)
-        contents = ODict([(key, value) for key, value in attrs.items() if isinstance(value, Containable)])
-        cls.contents = getattr(cls, "contents", ODict()) | contents
+        widgets = ODict([(key, value) for key, value in attrs.items() if isinstance(value, type(cls).element)])
+        cls.widgets = getattr(cls, "widgets", ODict()) | widgets
 
-    def __call__(cls, *args, **kwargs):
-        instance = super(ContainerMeta, cls).__call__(*args, **kwargs)
-        contents = instance.create(cls.contents, *args, **kwargs)
-        assert isinstance(contents, dict)
+    def __call__(cls, *args, controller, **kwargs):
+        instance = super(ContainerMeta, cls).__call__(*args, controller=controller, **kwargs)
+        elements = instance.create(cls.widgets, controller)
+        assert isinstance(elements, dict)
+        for identity, element in elements.items():
+            instance[identity] = element
         return instance
 
 
 class Element(object):
-    def __init__(self, *args, **kwargs): pass
+    def __init__(self, parent, *args, identity, controller, **kwargs):
+        self.__mutex = multiprocessing.RLock()
+        self.__controller = controller
+        self.__identity = identity
+        self.__parent = parent
 
+    @property
+    def controller(self): return self.__controller
+    @property
+    def identity(self): return self.__identity
+    @property
+    def parent(self): return self.__parent
+    @property
+    def mutex(self): return self.__mutex
+
+
+class Action(Element, metaclass=ActionMeta): pass
 class Container(Element, metaclass=ContainerMeta):
-    def create(self, widgets, *args, **kwargs):
-        function = lambda element, styling: element(self, styling, *args, **kwargs)
-        contents = {key: function(widget.element, widget.styling) for key, widget in widgets.tiems()}
-        return contents
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.elements = {}
+
+    def __setitem__(self, key, value): self.elements[key] = value
+    def __getitem__(self, key): return self.elements[key]
+    def __iter__(self): return iter(list(self.elements.items()))
+
+    def create(self, widgets, controller):
+        function = lambda widget, identity: widget(self, identity, controller)
+        elements = {identity: function(widget, identity) for identity, widget in widgets.items()}
+        return elements
 
 
 class Label(Element, tk.Label):
-    def __init__(self, parent, styling, *args, **kwargs):
+    def __init__(self, parent, *args, styling, locator, **kwargs):
         tk.Label.__init__(self, parent, text=styling.text, font=styling.font, justify=styling.justify)
-        Element.__init__(self, *args, **kwargs)
-        self.grid(row=styling.locator.row, column=styling.locator.column, padx=5, pady=5)
+        Element.__init__(self, parent, *args, **kwargs)
+        self.grid(row=locator.row, column=locator.column, padx=5, pady=5)
+
+
+class Variable(Element, tk.Label):
+    def __init__(self, parent, *args, styling, locator, **kwargs):
+        variable = tk.StringVar()
+        tk.Label.__init__(self, parent, text=variable, font=styling.font, justify=styling.justify)
+        Element.__init__(self, parent, *args, **kwargs)
+        self.grid(row=locator.row, column=locator.column, padx=5, pady=5)
+        self.variable = variable
+
+    @property
+    def text(self): return self.variable.get()
+    @text.setter
+    def text(self, text): self.variable.set(text)
 
 
 class Button(Element, tk.Button):
-    def __init__(self, parent, styling, *args, **kwargs):
+    def __init__(self, parent, *args, styling, locator, **kwargs):
         tk.Button.__init__(self, parent, text=styling.text, font=styling.font, justify=styling.justify)
-        Element.__init__(self, *args, **kwargs)
-        self.grid(row=styling.locator.row, column=styling.locator.column, padx=10, pady=5)
+        Element.__init__(self, parent, *args, **kwargs)
+        self.grid(row=locator.row, column=locator.column, padx=10, pady=5)
+
+    @property
+    def state(self): return bool(self["state"] is tk.NORMAL)
+    @state.setter
+    def state(self, state):
+        assert isinstance(state, bool)
+        state = tk.NORMAL if bool(state) else tk.DISABLED
+        self["state"] = state
 
 
 class Scroll(Element, tk.Scrollbar):
-    def __init__(self, parent, styling, *args, **kwargs):
+    def __init__(self, parent, *args, styling, locator, **kwargs):
         tk.Scrollbar.__init__(self, parent, orient=styling.orientation)
-        Element.__init__(self, *args, **kwargs)
-        self.grid(row=styling.locator.row, column=styling.locator.column)
+        Element.__init__(self, parent, *args, **kwargs)
+        self.grid(row=locator.row, column=locator.column)
 
 
 class Window(Container, tk.Frame):
     def __init__(self, parent, *args, **kwargs):
         tk.Frame.__init__(self, parent)
-        Element.__init__(self, *args, **kwargs)
+        Container.__init__(self, parent, *args, **kwargs)
         self.pack(fill=tk.BOTH, expand=True)
 
 
 class Frame(Container, tk.Frame):
-    def __init__(self, parent, styling, *args, **kwargs):
+    def __init__(self, parent, *args, styling, **kwargs):
         tk.Frame.__init__(self, parent, borderwidth=5)
-        Element.__init__(self, *args, **kwargs)
+        Container.__init__(self, parent, *args, **kwargs)
         self.grid(row=styling.locator.row, column=styling.locator.column, padx=10, pady=10)
 
 
 class Notebook(Container, ttk.Notebook):
     def __init__(self, parent, *args, **kwargs):
         ttk.Notebook.__init__(self, parent)
-        Element.__init__(self, *args, **kwargs)
+        Container.__init__(self, parent, *args, **kwargs)
         self.pack(fill=tk.BOTH, expand=True)
 
-    def create(self, widgets, *args, **kwargs):
-        contents = Container.create(self, widgets, *args, **kwargs)
-        for key, content in contents.items():
-            self.add(content, text=str(key))
-        return contents
+    def create(self, widgets):
+        elements = Container.create(self, widgets)
+        for identity, element in elements.items():
+            self.add(element, text=str(identity))
+        return elements
 
 
 class Table(Container, ttk.Treeview):
-    def __init__(self, parent, styling, *args, **kwargs):
+    def __init__(self, parent, *args, styling, **kwargs):
         ttk.Treeview.__init__(self, parent, show="headings")
-        Element.__init__(self, *args, **kwargs)
+        Container.__init__(self, parent, *args, **kwargs)
         self.grid(row=styling.locator.row, column=styling.locator.column)
-        self.__mutex = multiprocessing.RLock()
-        self.__functions = ODict()
+        self.parsers = ODict()
 
-    def __call__(self, dataframe, *args, **kwargs):
-        assert isinstance(dataframe, pd.DataFrame)
-        with self.mutex:
-            self.clear(*args, **kwargs)
-            self.erase(*args, **kwargs)
-            self.draw(dataframe, *args, **kwargs)
-
-    def create(self, columns, *args, **kwargs):
-        self["columns"] = list(columns.keys())
-        for key, column in columns.items():
-            self.column(key, width=int(column.width), anchor=tk.CENTER)
-            self.heading(key, text=str(column.text), anchor=tk.CENTER)
-            self.functions[key] = column.function
+    def create(self, widgets):
+        self["columns"] = list(widgets.keys())
+        for identity, widget in widgets.items():
+            self.column(identity, width=int(widget.styling.width), anchor=tk.CENTER)
+            self.heading(identity, text=str(widget.styling.text), anchor=tk.CENTER)
+            self.parsers[identity] = widget.parser
         return {}
 
-#    def clear(self, *args, **kwargs):
-#        indexes = list(self.selection())
-#        self.selection_remove(*indexes)
+    def erase(self, *args, **kwargs):
+        for index in self.get_children():
+            self.delete(index)
 
-#    def erase(self, *args, **kwargs):
-#        for index in self.get_children():
-#            self.delete(index)
-
-#    def draw(self, dataframe, *args, **kwargs):
-#        for index, series in dataframe.iterrows():
-#            row = [function(series) for key, function in self.functions.items()]
-#            self.insert("", tk.END, iid=index, values=tuple(row))
-
-    @property
-    def mutex(self): return self.__mutex
-    @property
-    def functions(self): return self.__functions
+    def draw(self, *args, dataframe, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame)
+        for index, series in dataframe.iterrows():
+            row = [function(series) for key, function in self.parsers.items()]
+            self.insert("", tk.END, iid=index, values=tuple(row))
 
 
 class ApplicationMeta(SingletonMeta):
@@ -166,31 +249,48 @@ class ApplicationMeta(SingletonMeta):
     def __call__(cls, *args, **kwargs):
         instance = super(ApplicationMeta, cls).__call__(*args, **kwargs)
         instance.title(cls.heading)
-        cls.window(instance.parent, *args, **kwargs)
+        window = cls.window(instance.root, *args, controller=instance.controller, identifier=None, **kwargs)
+        instance.create(window, *args, **kwargs)
         return instance
 
 
 class Application(tk.Tk, metaclass=ApplicationMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, wait, **kwargs):
         super().__init__()
-        parent = tk.Frame(self)
-        parent.pack(fill=tk.BOTH, expand=True)
-        parent.grid_columnconfigure(0, weight=1)
-        parent.grid_rowconfigure(0, weight=1)
-        self.parent = parent
+        root = tk.Frame(self)
+        root.pack(fill=tk.BOTH, expand=True)
+        root.grid_columnconfigure(0, weight=1)
+        root.grid_rowconfigure(0, weight=1)
+        self.__controller = self
+        self.__models = dict()
+        self.__views = dict()
+        self.__wait = int(wait)
+        self.__root = root
 
     def __call__(self, *args, **kwargs):
+        self.execute(*args, **kwargs)
         self.mainloop()
 
+    def create(self, window, *args, **kwargs): pass
+    def execute(self, *args, **kwargs): pass
 
-class Layouts:
-    Widget = Widget
-    Column = Column
+    @property
+    def controller(self): return self.__controller
+    @property
+    def models(self): return self.__models
+    @property
+    def views(self): return self.__views
+    @property
+    def root(self): return self.__root
+    @property
+    def wait(self): return self.__wait
+
 
 class Stencils:
     Window = Window
     Notebook = Notebook
+    Variable = Variable
     Label = Label
     Button = Button
     Frame = Frame
