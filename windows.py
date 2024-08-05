@@ -24,16 +24,10 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-MouseSingleClick = StrEnum("MouseSingleClick", {"LEFT": "<Button-1>", "RIGHT": "<Button-3>"})
-MouseDoubleClick = StrEnum("MouseDoubleClick", {"LEFT": "<Double-Button-1>", "RIGHT": "<Double-Button-3>"})
-KeyBoardPress = StrEnum("KeyBoardPress", {"RETURN": "<Return>"})
-TableVirtuals = StrEnum("TableVirtuals", {"SELECT": "<<TreeviewSelect>>"})
-
-
 class Events:
-    class Mouse: Single = MouseSingleClick, Double = MouseDoubleClick
-    class Keyboard: Press = KeyBoardPress
-    class Table: Virtual = TableVirtuals
+    Mouse = StrEnum("MouseSingleClick", {"LEFT": "<Button-1>", "RIGHT": "<Button-3>", "SCROLL": "<MouseWheel>"})
+    KeyBoard = StrEnum("KeyBoardPress", {"RETURN": "<Return>"})
+    Virtuals = StrEnum("Virtuals", {"SELECT": "<<TreeviewSelect>>"})
 
     class Handler(object):
         def __init__(self, *arguments, **parameters):
@@ -195,10 +189,10 @@ class Window(Container, tk.Frame):
 
 
 class Frame(Container, tk.Frame):
-    def __init__(self, parent, *args, styling, **kwargs):
+    def __init__(self, parent, *args, locator, **kwargs):
         tk.Frame.__init__(self, parent, borderwidth=5)
         Container.__init__(self, parent, *args, **kwargs)
-        self.grid(row=styling.locator.row, column=styling.locator.column, padx=10, pady=10)
+        self.grid(row=locator.row, column=locator.column, padx=10, pady=10)
 
 
 class Notebook(Container, ttk.Notebook):
@@ -215,10 +209,18 @@ class Notebook(Container, ttk.Notebook):
 
 
 class Table(Container, ttk.Treeview):
-    def __init__(self, parent, *args, styling, **kwargs):
+    def __init__(self, parent, *args, styling, locator, **kwargs):
         ttk.Treeview.__init__(self, parent, show="headings")
         Container.__init__(self, parent, *args, **kwargs)
-        self.grid(row=styling.locator.row, column=styling.locator.column)
+        if getattr(styling, "vertical", False):
+            vertical = parent["vertical"]
+            vertical.configure(command=self.yview)
+            self.configure(yscrollcommand=vertical.set)
+        if getattr(styling, "horizontal", False):
+            horizontal = parent["horizontal"]
+            horizontal.configure(command=self.xview)
+            self.configure(xscrollcommand=horizontal.set)
+        self.grid(row=locator.row, column=locator.column)
         self.parsers = ODict()
 
     def create(self, widgets):
@@ -229,15 +231,20 @@ class Table(Container, ttk.Treeview):
             self.parsers[identity] = widget.parser
         return {}
 
-    def erase(self, *args, **kwargs):
+    def erase(self):
         for index in self.get_children():
             self.delete(index)
 
-    def draw(self, *args, dataframe, **kwargs):
+    def draw(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
         for index, series in dataframe.iterrows():
             row = [function(series) for key, function in self.parsers.items()]
             self.insert("", tk.END, iid=index, values=tuple(row))
+
+    @property
+    def index(self): return list(self.get_children())
+    @property
+    def columns(self): return list(self["columns"])
 
 
 class ApplicationMeta(SingletonMeta):
@@ -263,8 +270,6 @@ class Application(tk.Tk, metaclass=ApplicationMeta):
         root.grid_columnconfigure(0, weight=1)
         root.grid_rowconfigure(0, weight=1)
         self.__controller = self
-        self.__models = dict()
-        self.__views = dict()
         self.__wait = int(wait)
         self.__root = root
 
@@ -277,10 +282,6 @@ class Application(tk.Tk, metaclass=ApplicationMeta):
 
     @property
     def controller(self): return self.__controller
-    @property
-    def models(self): return self.__models
-    @property
-    def views(self): return self.__views
     @property
     def root(self): return self.__root
     @property

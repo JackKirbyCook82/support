@@ -42,26 +42,25 @@ nc_lazy = FileMethod(FileTypes.NC, FileTimings.LAZY)
 
 
 class Loader(Producer, title="Loaded"):
-    def __init_subclass__(cls, *args, query, function, **kwargs):
+    def __init_subclass__(cls, *args, query, create, **kwargs):
         super().__init_subclass__(*args, **kwargs)
-        cls.__function__ = function
+        cls.__create__ = create
         cls.__query__ = query
 
     def __init__(self, *args, directory, source={}, wait=0, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, dict) and all([isinstance(file, File) for file in source.keys()])
-        self.__function = self.__class__.__function__
+        self.__create = self.__class__.__create__
         self.__query = self.__class__.__query__
         self.__directory = directory
         self.__source = source
         self.__wait = int(wait)
 
-    def execute(self, *args, **kwargs):
+    def producer(self, *args, **kwargs):
         for filename in iter(self.directory):
-            value = self.function(filename)
-            contents = ODict(list(self.read(*args, query=value, **kwargs)))
-            values = {self.query: value}
-            yield values | contents
+            query = self.create(filename)
+            contents = ODict(list(self.read(*args, query=query, **kwargs)))
+            yield {self.query: query} | contents
             time.sleep(self.wait)
 
     def read(self, *args, **kwargs):
@@ -76,7 +75,7 @@ class Loader(Producer, title="Loaded"):
     @property
     def source(self): return self.__source
     @property
-    def function(self): return self.__function
+    def create(self): return self.__create
     @property
     def query(self): return self.__query
     @property
@@ -94,9 +93,9 @@ class Saver(Consumer, title="Saved"):
         self.__query = self.__class__.__query__
         self.__destination = destination
 
-    def execute(self, contents, *args, **kwargs):
-        value = contents[self.query]
-        self.write(contents, *args, query=value, **kwargs)
+    def consumer(self, contents, *args, **kwargs):
+        query = contents[self.query]
+        self.write(contents, *args, query=query, **kwargs)
 
     def write(self, contents, *args, **kwargs):
         for file, mode in self.destination.items():

@@ -10,6 +10,8 @@ import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
+from support.dispatchers import typedispatcher
+
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Tables", "Views"]
@@ -96,9 +98,6 @@ class Table(ABC, metaclass=TableMeta):
     def __bool__(self): return not self.empty if self.table is not None else False
     def __len__(self): return self.size
 
-    def __setitem__(self, locator, content): self.set(locator, content)
-    def __getitem__(self, locator): return self.get(locator)
-
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __init__(self, instance, *args, mutex, view, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
@@ -112,11 +111,6 @@ class Table(ABC, metaclass=TableMeta):
     @property
     @abstractmethod
     def size(self): pass
-
-    @abstractmethod
-    def set(self, locator, content): pass
-    @abstractmethod
-    def get(self, locator): pass
 
     @property
     def table(self): return self.__table
@@ -132,39 +126,28 @@ class Table(ABC, metaclass=TableMeta):
 
 
 class DataframeTable(Table, tabletype=pd.DataFrame):
-    def set(self, locator, content):
-        index, column = self.locator(locator)
-        self.table.iloc[index, column] = content
+    def get(self, index, columns):
+        index, columns = self.locator(index, columns)
+        return self.table.iloc[index, columns]
 
-    def get(self, locator):
-        index, column = self.locator(locator)
-        return self.table.iloc[index, column]
+    def set(self, index, columns, value):
+        index, columns = self.locator(index, columns)
+        self.table.iloc[index, columns] = value
 
-    def locator(self, locator):
-        index, columns = locator
-        assert isinstance(index, (int, slice))
-        assert isinstance(columns, (str, list))
-        assert all([isinstance(column, str) for column in columns]) if isinstance(columns, list) else True
-        index = self.indexer(index)
-        columns = self.stacker(columns)
-        numerical = lambda column: list(self.table.columns).index(column)
-        columns = [numerical(column) for column in columns] if isinstance(columns, list) else numerical(columns)
+    def locator(self, index, columns):
+        index = [index] if not isinstance(index, list) else index
+        index = [list(self.index).index(value) for value in index]
+        columns = [columns] if not isinstance(columns, list) else columns
+        columns = [list(self.columns).index(value) for value in columns]
+        columns = [self.stacker(column) for column in columns]
         return index, columns
 
-    def indexer(self, index):
-        if isinstance(index, slice):
-            start = index.start if index.start is not None else 0
-            stop = index.stop if index.stop is not None else len(self.table.index)
-            index = slice(start, stop, index.step)
-        return index
-
-    def stacker(self, columns):
+    def stacker(self, column):
         if isinstance(self.table.columns, pd.MultiIndex):
-            group = lambda column: tuple([column] if not isinstance(column, list) else column)
-            length = lambda column: self.table.columns.nlevels - len(group(column))
-            pad = lambda column: group(column) + tuple([""]) * length(column)
-            columns = [pad(column) for column in columns] if isinstance(columns, list) else pad(columns)
-        return columns
+            column = tuple([column]) if not isinstance(column, tuple) else column
+            length = self.columns.nlevels - len(column)
+            column = column + tuple([""]) * length
+        return column
 
     def concat(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
@@ -175,10 +158,9 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
     def unique(self, columns):
         if not bool(self):
             return
-        assert isinstance(columns, list)
-        assert all([column in self.columns for column in columns])
         with self.mutex:
-            columns = self.stacker(columns)
+            columns = [columns] if not isinstance(columns, list) else columns
+            columns = [self.stacker(column) for column in columns]
             self.table.drop_duplicates(columns, keep="last", inplace=True)
 
     def where(self, function):
@@ -197,24 +179,26 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
             mask = function(self.table)
             dataframe = self.table.where(mask)
             dataframe = dataframe.dropna(how="all", inplace=False)
-            self.table.drop(dataframe.index, inplace=False)
+            self.table.drop(dataframe.index, inplace=True)
             return dataframe
 
     def change(self, function, columns, value):
         if not bool(self):
             return
-        assert callable(function) and isinstance(columns, list)
-        assert all([column in self.columns for column in columns])
+        assert callable(function)
         with self.mutex:
+            columns = [columns] if not isinstance(columns, list) else columns
+            columns = [self.stacker(column) for column in columns]
             mask = function(self.table)
             self.table.loc[mask, columns] = value
 
     def sort(self, column, reverse):
         if not bool(self):
             return
-        assert column in self.columns and isinstance(reverse, bool)
         with self.mutex:
-            self.table.sort_values(column, axis=0, ascending=not bool(reverse), inplace=True, ignore_index=False)
+            column = self.stacker(column)
+            ascending = not bool(reverse)
+            self.table.sort_values(column, axis=0, ascending=ascending, inplace=True, ignore_index=False)
 
     def reset(self):
         with self.mutex:

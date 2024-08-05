@@ -61,6 +61,7 @@ class Criterion(object):
 
 class Filter(Processor, Sizing, title="Filtered"):
     def __init_subclass__(cls, *args, variables, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
         assert isinstance(variables, list) and all([isinstance(variable, Enum) for variable in variables])
         cls.__variables__ = variables
 
@@ -74,20 +75,21 @@ class Filter(Processor, Sizing, title="Filtered"):
         self.__variables = self.__class__.__variables__
         self.__criterion = criterion
 
-    def execute(self, contents, *args, **kwargs):
+    def processor(self, contents, *args, **kwargs):
         variables = {variable: contents[variable] for variable in self.variables if variable in contents.keys()}
         variables = ODict(list(self.calculate(variables, *args, **kwargs)))
         if not bool(variables):
             return
         yield contents | dict(variables)
 
-    def calculate(self, contents, *args, **kwargs):
-        assert isinstance(contents, dict)
-        for variable, content in contents.items():
+    def calculate(self, query, *args, **kwargs):
+        assert isinstance(query, dict)
+        for variable, content in query.items():
             prior = self.size(content)
             content = self.filter(content, *args, variable=variable, **kwargs)
             post = self.size(content)
-            self.notify(variable, prior, post)
+            string = f"{str(self.title)}: {repr(self)}[{prior:.0f}|{post:.0f}]"
+            __logger__.info(string)
             if self.empty(content):
                 return
             yield variable, content
@@ -101,10 +103,6 @@ class Filter(Processor, Sizing, title="Filtered"):
         criterion = [criteria(content, *args, **kwargs) for criteria in self.criterion]
         mask = reduce(lambda x, y: x & y, criterion) if bool(criterion) else None
         return mask
-
-    def notify(self, variable, prior, post):
-        title = str(variable).title()
-        __logger__.info(f"Filtered: {repr(self)}|{title}[{prior:.0f}|{post:.0f}]")
 
     @typedispatcher
     def where(self, content, *args, mask=None, **kwargs): raise TypeError(type(content).__name__)
