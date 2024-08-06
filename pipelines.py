@@ -20,42 +20,47 @@ __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-class Pipeline(object, ABC):
-    pass
-
-#    def __new__(cls, *stages):
-#        if issubclass(cls, Pipeline):
-#            return super().__new__(cls, stages)
-#        assert len(stages) >= 2
-#        producer, stages = stages[0], stages[1:]
-#        if not any([isinstance(stage, Consumer) for stage in stages]):
-#            assert all([isinstance(stage, Processor) for stage in stages])
-#            return OpenPipeline(producer, *stages)
-#        stages, consumer = stages[:-1], stages[-1]
-#        assert all([isinstance(stage, Processor) for stage in stages])
-#        return ClosedPipeline(producer, *stages, consumer)
-
-
+class Pipeline(ABC): pass
 class OpenPipeline(Pipeline, ABC):
-    pass
+    def __add__(self, other):
+        assert isinstance(other, (Processor, Consumer))
+        if not isinstance(other, Consumer):
+            parameters = dict(producer=self.producer, processors=list(self.processors) + [other])
+            return OpenPipeline(**parameters)
+        else:
+            parameters = dict(producer=self.producer, processors=list(self.processors), consumer=other)
+            return ClosedPipeline(**parameters)
 
-#    def __add__(self, stage):
-#        assert isinstance(stage, (Processor, Consumer))
-#        return Pipeline(*self, stage)
+    def __init__(self, *args, producer, processors=[], **kwargs):
+        assert isinstance(processors, list)
+        self.__producer = producer
+        self.__processors = processors
+
+    @property
+    def producer(self): return self.__producer
+    @property
+    def processors(self): return self.__processors
 
 
 class ClosedPipeline(Pipeline):
+    def __init__(self, *args, producer, processors=[], consumer, **kwargs):
+        assert isinstance(processors, list)
+        self.__producer = producer
+        self.__processors = processors
+        self.__consumer = consumer
+
     def __call__(self, *args, **kwargs):
         function = lambda lead, lag: lag(lead, *args, **kwargs)
-        generator = reduce(function, list(self.processors), self.producer)
+        generator = self.producer(*args, **kwargs)
+        generator = reduce(function, list(self.processors), generator)
         self.consumer(generator, *args, **kwargs)
 
     @property
-    def producer(self): pass
+    def producer(self): return self.__producer
     @property
-    def processors(self): pass
+    def processors(self): return self.__processors
     @property
-    def consumer(self): pass
+    def consumer(self): return self.__consumer
 
 
 class Stage(ABC):
@@ -78,22 +83,23 @@ class Stage(ABC):
 
 
 class Producer(Stage, title="Producer"):
-#    def __add__(self, stage):
-#        assert isinstance(stage, (Processor, Consumer))
-#        return Pipeline(self, stage)
+    def __add__(self, other):
+        assert isinstance(other, (Processor, Consumer))
+        if not isinstance(other, Consumer):
+            return OpenPipeline(producer=self, processors=[other])
+        else:
+            return ClosedPipeline(producer=self, consumer=other)
 
     def __call__(self, *args, **kwargs):
         assert not bool(args)
-        generator = self.producer(*args, **kwargs)
-        assert isinstance(generator, types.GeneratorType)
         start = time.time()
-        for contents in generator:
-            assert isinstance(contents, dict)
+        for results in self.producer(*args, **kwargs):
+            assert isinstance(results, dict)
             elapsed = time.time() - start
-            parameters = dict(contents=contents, elapsed=elapsed)
+            parameters = dict(query=results, elapsed=elapsed)
             string = self.formatter(self, **parameters)
             __logger__.info(string)
-            yield contents
+            yield results
             start = time.time()
 
     @abstractmethod
@@ -101,40 +107,38 @@ class Producer(Stage, title="Producer"):
 
 
 class Processor(Stage, title="Processed"):
-    def __call__(self, generator, *args, **kwargs):
+    def __call__(self, source, *args, **kwargs):
         assert not bool(args)
-        assert isinstance(generator, types.GeneratorType)
-        generator = self.processor(generator, *args, **kwargs)
-        assert isinstance(generator, types.GeneratorType)
-        start = time.time()
-        for contents in generator:
-            assert isinstance(contents, dict)
-            elapsed = time.time() - start
-            parameters = dict(contents=contents, elapsed=elapsed)
-            string = self.formatter(self, **parameters)
-            __logger__.info(string)
-            yield contents
+        assert isinstance(source, types.GeneratorType)
+        for contents in source:
             start = time.time()
+            for results in self.processor(contents, *args, **kwargs):
+                assert isinstance(results, dict)
+                elapsed = time.time() - start
+                parameters = dict(query=results, elapsed=elapsed)
+                string = self.formatter(self, **parameters)
+                __logger__.info(string)
+                yield results
+                start = time.time()
 
     @abstractmethod
-    def processor(self, generator, *args, **kwargs): pass
+    def processor(self, contents, *args, **kwargs): pass
 
 
 class Consumer(Stage, title="Consumed"):
-    def __call__(self, generator, *args, **kwargs):
+    def __call__(self, source, *args, **kwargs):
         assert not bool(args)
-        assert isinstance(generator, types.GeneratorType)
-        for contents in generator:
-            assert isinstance(contents, dict)
+        assert isinstance(source, types.GeneratorType)
+        for contents in source:
             start = time.time()
             self.consumer(contents, *args, **kwargs)
             elapsed = time.time() - start
-            parameters = dict(contents=contents, elapsed=elapsed)
+            parameters = dict(elapsed=elapsed)
             string = self.formatter(self, **parameters)
             __logger__.info(string)
 
     @abstractmethod
-    def consumer(self, generator, *args, **kwargs): pass
+    def consumer(self, contents, *args, **kwargs): pass
 
 
 
