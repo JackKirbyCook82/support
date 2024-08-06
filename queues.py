@@ -28,11 +28,11 @@ class Dequeuer(Producer, title="Dequeued"):
         self.__query = self.__class__.__query__
         self.__source = source
 
-    def execute(self, *args, **kwargs):
+    def producer(self, *args, **kwargs):
         while bool(self.source):
-            value = self.read(*args, **kwargs)
-            values = {self.query: value}
-            yield values
+            query = self.read(*args, **kwargs)
+            contents = {self.query: query}
+            yield contents
             self.source.complete()
 
     def read(self, *args, **kwargs):
@@ -54,9 +54,9 @@ class Requeuer(Consumer, title="Requeued"):
         self.__query = self.__class__.__query__
         self.__destination = destination
 
-    def execute(self, values, *args, **kwargs):
-        value = values[self.query]
-        self.write(value, *args, **kwargs)
+    def consumer(self, contents, *args, **kwargs):
+        query = contents[self.query]
+        self.write(query, *args, **kwargs)
 
     def write(self, value, *args, **kwargs):
         self.destination.write(value, *args, **kwargs)

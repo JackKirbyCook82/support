@@ -82,9 +82,9 @@ class Filter(Processor, Sizing, title="Filtered"):
             return
         yield contents | dict(variables)
 
-    def calculate(self, query, *args, **kwargs):
-        assert isinstance(query, dict)
-        for variable, content in query.items():
+    def calculate(self, variables, *args, **kwargs):
+        assert isinstance(variables, dict)
+        for variable, content in variables.items():
             prior = self.size(content)
             content = self.filter(content, *args, variable=variable, **kwargs)
             post = self.size(content)

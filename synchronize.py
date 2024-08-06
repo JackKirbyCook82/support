@@ -8,7 +8,6 @@ Created on Weds Jul 12 2023
 
 import sys
 import time
-import types
 import logging
 import traceback
 import threading
@@ -31,7 +30,6 @@ class Thread(object):
         self.__arguments = list()
         self.__parameters = dict()
         self.__active = False
-        self.__results = []
 
     def setup(self, *args, **kwargs):
         self.arguments.extend(list(args)) if args else False
@@ -53,11 +51,7 @@ class Thread(object):
 
     def process(self, *args, **kwargs):
         routine = self.routine.__call__ if hasattr(self.routine, "__call__") else self.routine
-        results = routine(*args, **kwargs)
-        generator = results if isinstance(results, types.GeneratorType) else iter([results])
-        results = list(filter(None, generator))
-        assert isinstance(results, list)
-        self.results.append(results)
+        routine(*args, **kwargs)
 
     @property
     def active(self): return self.__active
@@ -69,8 +63,6 @@ class Thread(object):
     def parameters(self): return self.__parameters
     @property
     def routine(self): return self.__routine
-    @property
-    def results(self): return self.__results
     @property
     def name(self): return self.__name
 
