@@ -20,7 +20,15 @@ __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-class Pipeline(ABC): pass
+class Pipeline(ABC):
+    def __repr__(self): return f"{type(self).__name__}[{','.join(list(map(lambda segment: segment.name, self.segments)))}]"
+    def __init__(self, segments): self.__segments = segments
+    def __getitem__(self, index): return self.segments[index]
+
+    @property
+    def segments(self): return self.__segments
+
+
 class OpenPipeline(Pipeline, ABC):
     def __add__(self, other):
         assert isinstance(other, (Processor, Consumer))
@@ -33,6 +41,7 @@ class OpenPipeline(Pipeline, ABC):
 
     def __init__(self, *args, producer, processors=[], **kwargs):
         assert isinstance(processors, list)
+        super().__init__([producer] + processors)
         self.__producer = producer
         self.__processors = processors
 
@@ -45,6 +54,7 @@ class OpenPipeline(Pipeline, ABC):
 class ClosedPipeline(Pipeline):
     def __init__(self, *args, producer, processors=[], consumer, **kwargs):
         assert isinstance(processors, list)
+        super().__init__([producer] + processors + [consumer])
         self.__producer = producer
         self.__processors = processors
         self.__consumer = consumer
