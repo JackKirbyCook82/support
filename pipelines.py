@@ -21,8 +21,9 @@ __logger__ = logging.getLogger(__name__)
 
 
 class Pipeline(ABC):
-    def __repr__(self): return f"{type(self).__name__}[{','.join(list(map(lambda segment: segment.name, self.segments)))}]"
     def __init__(self, segments): self.__segments = segments
+
+    def __repr__(self): return f"{type(self).__name__}[{','.join(list(map(lambda segment: segment.name, self.segments)))}]"
     def __getitem__(self, index): return self.segments[index]
 
     @property
@@ -60,10 +61,14 @@ class ClosedPipeline(Pipeline):
         self.__consumer = consumer
 
     def __call__(self, *args, **kwargs):
+        generator = self.generator(*args, **kwargs)
+        self.consumer(generator, *args, **kwargs)
+
+    def generator(self, *args, **kwargs):
         function = lambda lead, lag: lag(lead, *args, **kwargs)
         generator = self.producer(*args, **kwargs)
         generator = reduce(function, list(self.processors), generator)
-        self.consumer(generator, *args, **kwargs)
+        return generator
 
     @property
     def producer(self): return self.__producer
@@ -84,6 +89,12 @@ class Stage(ABC):
         self.__title = kwargs.get("title", self.__class__.__title__)
         self.__name = kwargs.get("name", self.__class__.__name__)
 
+    def __call__(self, *args, **kwargs):
+        return self.execute(*args, **kwargs)
+
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
+
     @property
     def formatter(self): return self.__formatter
     @property
@@ -100,13 +111,13 @@ class Producer(Stage, title="Producer"):
         else:
             return ClosedPipeline(producer=self, consumer=other)
 
-    def __call__(self, *args, **kwargs):
+    def execute(self, *args, **kwargs):
         assert not bool(args)
         start = time.time()
         for results in self.producer(*args, **kwargs):
             assert isinstance(results, dict)
             elapsed = time.time() - start
-            parameters = dict(query=results, elapsed=elapsed)
+            parameters = dict(results=results, elapsed=elapsed)
             string = self.formatter(self, **parameters)
             __logger__.info(string)
             yield results
@@ -117,7 +128,7 @@ class Producer(Stage, title="Producer"):
 
 
 class Processor(Stage, title="Processed"):
-    def __call__(self, source, *args, **kwargs):
+    def execute(self, source, *args, **kwargs):
         assert not bool(args)
         assert isinstance(source, types.GeneratorType)
         for contents in source:
@@ -125,7 +136,7 @@ class Processor(Stage, title="Processed"):
             for results in self.processor(contents, *args, **kwargs):
                 assert isinstance(results, dict)
                 elapsed = time.time() - start
-                parameters = dict(query=results, elapsed=elapsed)
+                parameters = dict(results=results, elapsed=elapsed)
                 string = self.formatter(self, **parameters)
                 __logger__.info(string)
                 yield results
@@ -136,7 +147,7 @@ class Processor(Stage, title="Processed"):
 
 
 class Consumer(Stage, title="Consumed"):
-    def __call__(self, source, *args, **kwargs):
+    def execute(self, source, *args, **kwargs):
         assert not bool(args)
         assert isinstance(source, types.GeneratorType)
         for contents in source:
