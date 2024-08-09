@@ -11,6 +11,7 @@ import pandas as pd
 import tkinter as tk
 from enum import StrEnum
 from tkinter import ttk
+from abc import ABC, abstractmethod
 from functools import update_wrapper
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
@@ -19,43 +20,18 @@ from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Application", "Stencils", "Widget", "Events"]
+__all__ = ["MVC", "Application", "Stencils", "Widget", "Events"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Events:
-    Mouse = StrEnum("MouseSingleClick", {"LEFT": "<Button-1>", "RIGHT": "<Button-3>", "SCROLL": "<MouseWheel>"})
-    KeyBoard = StrEnum("KeyBoardPress", {"RETURN": "<Return>"})
-    Virtuals = StrEnum("Virtuals", {"SELECT": "<<TreeviewSelect>>"})
-
-    class Handler(object):
-        def __init__(self, *arguments, **parameters):
-            self.__parameters = dict(parameters)
-            self.__arguments = list(arguments)
-            self.__callback = None
-
-        def __call__(self, function):
-            def wrapper(event):
-                element = event.widget
-                function(element, element.controller, **self.parameters)
-            setattr(wrapper, "handler", self)
-            update_wrapper(wrapper, function)
-            self.callback = wrapper
-            return wrapper
-
-        def register(self, element):
-            for argument in self.arguments:
-                element.bind(str(argument), self.callback)
-
-        @property
-        def parameters(self): return self.__parameters
-        @property
-        def arguments(self): return self.__arguments
-        @property
-        def callback(self): return self.__callback
-        @callback.setter
-        def callback(self, callback): self.__callback = callback
+Status = StrEnum("Status", {"ACTIVE": "<Activate>", "INACTIVE": "<Deactivate>", "DESTROY": "<Destroy>", "VISIBLE": "<Visibility>"})
+MouseClickSingle = StrEnum("MouseSingleClick", {"LEFT": "<Button-1>", "MIDDLE": "<Button-2>", "RIGHT": "<Button-3>"})
+MouseClickDouble = StrEnum("MouseSingleClick", {"LEFT": "<Double-Button-1>", "MIDDLE": "<Double-Button-2>", "RIGHT": "<Double-Button-3>"})
+MouseMovement = StrEnum("MouseMovement", {"ENTER": "<Enter>", "EXIT": "<Leave>"})
+MouseWheel = StrEnum("MouseWheel", {"SCROLL": "<MouseWheel>"})
+Keyboard = StrEnum("Keyboard", {"RETURN": "<Return>", "PRESS": "<Key>"})
+Table = StrEnum("Table", {"SELECT": "<<TreeviewSelect>>"})
 
 
 class Widget(ntuple("Widget", "element styling locator parser")):
@@ -65,22 +41,9 @@ class Widget(ntuple("Widget", "element styling locator parser")):
         styling = Styling(*list(parameters.values()))
         return super().__new__(cls, element, styling, locator, parser)
 
-    def __call__(self, parent, identity, controller):
+    def __call__(self, parent, identity):
         parameters = dict(styling=self.styling, locator=self.locator, parser=self.parser)
-        instance = self.element(parent, identity=identity, controller=controller, **parameters)
-        return instance
-
-
-class ActionMeta(type):
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(ActionMeta, cls).__init__(name, bases, attrs)
-        events = [value for value in attrs.values() if hasattr(value, "handler")]
-        cls.events = getattr(cls, "events", []) | events
-
-    def __call__(cls, *args, **kwargs):
-        instance = super(ActionMeta, cls).__call__(*args, **kwargs)
-        for event in cls.events:
-            event.handler.register(instance)
+        instance = self.element(parent, identity=identity, **parameters)
         return instance
 
 
@@ -96,24 +59,22 @@ class ContainerMeta(type):
         widgets = ODict([(key, value) for key, value in attrs.items() if isinstance(value, type(cls).element)])
         cls.widgets = getattr(cls, "widgets", ODict()) | widgets
 
-    def __call__(cls, *args, controller, **kwargs):
-        instance = super(ContainerMeta, cls).__call__(*args, controller=controller, **kwargs)
-        elements = instance.create(cls.widgets, controller)
+    def __call__(cls, *args, **kwargs):
+        instance = super(ContainerMeta, cls).__call__(*args, **kwargs)
+        elements = instance.create(cls.widgets)
         assert isinstance(elements, dict)
         for identity, element in elements.items():
-            instance[identity] = element
+            assert not hasattr(instance, identity)
+            setattr(instance, identity)
         return instance
 
 
 class Element(object):
-    def __init__(self, parent, *args, identity, controller, **kwargs):
+    def __init__(self, parent, *args, identity, **kwargs):
         self.__mutex = multiprocessing.RLock()
-        self.__controller = controller
         self.__identity = identity
         self.__parent = parent
 
-    @property
-    def controller(self): return self.__controller
     @property
     def identity(self): return self.__identity
     @property
@@ -122,18 +83,14 @@ class Element(object):
     def mutex(self): return self.__mutex
 
 
-class Action(Element, metaclass=ActionMeta): pass
 class Container(Element, metaclass=ContainerMeta):
+    def __iter__(self): return iter(list(self.elements.items()))
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.elements = {}
 
-    def __setitem__(self, key, value): self.elements[key] = value
-    def __getitem__(self, key): return self.elements[key]
-    def __iter__(self): return iter(list(self.elements.items()))
-
-    def create(self, widgets, controller):
-        function = lambda widget, identity: widget(self, identity, controller)
+    def create(self, widgets):
+        function = lambda widget, identity: widget(self, identity)
         elements = {identity: function(widget, identity) for identity, widget in widgets.items()}
         return elements
 
@@ -146,17 +103,20 @@ class Label(Element, tk.Label):
 
 
 class Variable(Element, tk.Label):
-    def __init__(self, parent, *args, styling, locator, **kwargs):
+    def __init__(self, parent, *args, styling, locator, parser, **kwargs):
         variable = tk.StringVar()
         tk.Label.__init__(self, parent, text=variable, font=styling.font, justify=styling.justify)
         Element.__init__(self, parent, *args, **kwargs)
         self.grid(row=locator.row, column=locator.column, padx=5, pady=5)
         self.variable = variable
+        self.parser = parser
 
     @property
-    def text(self): return self.variable.get()
-    @text.setter
-    def text(self, text): self.variable.set(text)
+    def value(self): return self.variable.get()
+    @value.setter
+    def value(self, value):
+        string = self.parser(value) if value is not None else ""
+        self.variable.set(string)
 
 
 class Button(Element, tk.Button):
@@ -208,7 +168,7 @@ class Notebook(Container, ttk.Notebook):
         return elements
 
 
-class Table(Container, ttk.Treeview):
+class Table(Element, ttk.Treeview):
     def __init__(self, parent, *args, styling, locator, **kwargs):
         ttk.Treeview.__init__(self, parent, show="headings")
         Container.__init__(self, parent, *args, **kwargs)
@@ -242,9 +202,11 @@ class Table(Container, ttk.Treeview):
             self.insert("", tk.END, iid=index, values=tuple(row))
 
     @property
-    def index(self): return list(self.get_children())
+    def selected(self): return super().selection()
     @property
     def columns(self): return list(self["columns"])
+    @property
+    def index(self): return list(self.get_children())
 
 
 class ApplicationMeta(SingletonMeta):
@@ -256,37 +218,136 @@ class ApplicationMeta(SingletonMeta):
     def __call__(cls, *args, **kwargs):
         instance = super(ApplicationMeta, cls).__call__(*args, **kwargs)
         instance.title(cls.heading)
-        window = cls.window(instance.root, *args, controller=instance.controller, identifier=None, **kwargs)
-        instance.create(window, *args, **kwargs)
+        cls.window(instance.root, *args, identity=None, **kwargs)
         return instance
 
 
 class Application(tk.Tk, metaclass=ApplicationMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, wait, **kwargs):
+    def __init__(self, *args, **kwargs):
         super().__init__()
         root = tk.Frame(self)
         root.pack(fill=tk.BOTH, expand=True)
         root.grid_columnconfigure(0, weight=1)
         root.grid_rowconfigure(0, weight=1)
-        self.__controller = self
-        self.__wait = int(wait)
+        self.__controllers = dict()
         self.__root = root
 
+    def __setitem__(self, key, value): self.controllers[key] = value
+    def __getitem__(self, key): return self.controllers[key]
     def __call__(self, *args, **kwargs):
-        self.execute(*args, **kwargs)
         self.mainloop()
+        for controller in self.controllers.values():
+            controller(*args, **kwargs)
 
-    def create(self, window, *args, **kwargs): pass
-    def execute(self, *args, **kwargs): pass
+    @property
+    def controllers(self): return self.__controllers
+    @property
+    def root(self): return self.__root
+
+
+class Model(ABC):
+    def __init__(self, *args, **kwargs):
+        self.__controller = None
 
     @property
     def controller(self): return self.__controller
+    @controller.setter
+    def controller(self, controller): self.__controller = controller
+
+
+class View(ABC):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__controller = None
+
     @property
-    def root(self): return self.__root
+    def controller(self): return self.__controller
+    @controller.setter
+    def controller(self, controller): self.__controller = controller
+
+
+class Controller(ABC):
+    def __init_subclass__(cls, *args, model, view, **kwargs):
+        cls.Model = Model
+        cls.View = View
+
+    def __new__(cls, model, view, *args, **kwargs):
+        assert isinstance(model, cls.Model)
+        assert isinstance(view, cls.View)
+        instance = super().__new__(cls)
+        model.controller = instance
+        view.controller = instance
+        return instance
+
+    def __init__(self, model, view, *args, wait, **kwargs):
+        self.__wait = int(wait)
+        self.__model = model
+        self.__view = view
+
+    def __call__(self, *args, **kwargs):
+        self.execute(*args, **kwargs)
+        callback = lambda: self(*args, **kwargs)
+        self.after(self.wait, callback)
+
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
+
+    @property
+    def model(self): return self.__model
+    @property
+    def view(self): return self.__view
     @property
     def wait(self): return self.__wait
 
+
+class Events:
+    Keyboard = Keyboard
+    Status = Status
+    Table = Table
+
+    class Mouse:
+        class Click: Single = MouseClickSingle, Double = MouseClickDouble
+        Movement = MouseMovement
+        Wheel = MouseWheel
+
+    class Handler(object):
+        def __init__(self, *events):
+            self.__events = list(events)
+            self.__callback = None
+
+        def __call__(self, function):
+            def wrapper(event):
+                element = event.widget
+                controller = self.controller(element)
+                function(element, controller)
+
+            setattr(wrapper, "handler", self)
+            update_wrapper(wrapper, function)
+            self.callback = wrapper
+            return wrapper
+
+        def register(self, element):
+            for event in self.events:
+                element.bind(str(event), self.callback)
+
+        def controller(self, element):
+            if isinstance(element, View):
+                return element.controller
+            return self.controller(element.parent)
+
+        @property
+        def events(self): return self.__events
+        @property
+        def callback(self): return self.__callback
+        @callback.setter
+        def callback(self, callback): self.__callback = callback
+
+
+class MVC:
+    Controller = Controller
+    Model = Model
+    View = View
 
 class Stencils:
     Window = Window
