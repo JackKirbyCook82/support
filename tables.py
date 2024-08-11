@@ -9,8 +9,7 @@ Created on Weds Jul 12 2023
 import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
-
-from support.dispatchers import typedispatcher
+from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -41,21 +40,18 @@ class View(ABC, metaclass=ViewMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __init__(self, *args, fields={}, values={}, **kwargs):
         assert set(fields.keys()) == set(values.keys())
-        self.__border = "-" * values.get("width", 250)
+        self.__border = "=" * values.get("width", 250)
         self.__values = values
         self.__fields = fields
 
-    def __call__(self, *args, **kwargs):
-        table = self.table(*args, **kwargs)
-        contents = self.contents(*args, **kwargs)
-        assert isinstance(table, str) and isinstance(contents, list)
-        string = "\n".join([self.border] + [table] + list(contents) + [self.border])
-        return string
+    def __call__(self, table, *args, **kwargs):
+        table = self.execute(table, *args, **kwargs)
+        assert isinstance(table, (str, type(None)))
+        string = "\n".join([self.border, table, self.border]) if table is not None else ""
+        return string + "\n" if bool(string) else string
 
     @abstractmethod
-    def contents(self, *args, **kwargs): pass
-    @abstractmethod
-    def table(self, *args, **kwargs): pass
+    def execute(self, table, *args, **kwargs): pass
 
     @property
     def parameters(self): return {field: self.values[key] for key, field in self.fields.items()}
@@ -68,10 +64,37 @@ class View(ABC, metaclass=ViewMeta):
 
 
 class DataframeView(View, fields={"rows": "max_rows", "columns": "max_cols", "width": "line_width", "formats": "formatters", "numbers": "float_format"}):
-    def contents(*args, **kwargs): return []
-    def table(self, *args, table, **kwargs):
-        assert isinstance(table, pd.DataFrame)
-        return table.to_string(**self.parameters, show_dimensions=True)
+    def __init_subclass__(cls, *args, order=[], **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        assert isinstance(order, list)
+        cls.__order__ = order
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__order = self.__class__.__order__
+
+    def execute(self, dataframe, *args, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame)
+        if bool(dataframe.empty):
+            return
+        columns = self.order if bool(self.order) else list(dataframe.columns)
+        length = dataframe.columns.nlevels if isinstance(dataframe.columns, pd.MultiIndex) else 1
+        columns = list(self.generator(columns, length)) if length > 1 else list(columns)
+        parameters = {key: value for key, value in self.parameters.items()}
+        formatters = parameters.pop("formatters", {})
+        formatters = zip(self.generator(formatters.keys(), length), formatters.values())
+        parameters = parameters | {"formatters": ODict(list(formatters))}
+        return dataframe[columns].to_string(**parameters, show_dimensions=True)
+
+    @staticmethod
+    def generator(columns, length):
+        for column in columns:
+            column = tuple([column]) if not isinstance(column, tuple) else column
+            column = column + tuple([""]) * (length - len(column))
+            yield column if len(column) > 1 else column[0]
+
+    @property
+    def order(self): return self.__order
 
 
 class TableMeta(ABCMeta):
@@ -94,7 +117,7 @@ class TableMeta(ABCMeta):
 class Table(ABC, metaclass=TableMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
-    def __str__(self): return str(self.view(table=self.table))
+    def __str__(self): return str(self.view(self.table))
     def __bool__(self): return not self.empty if self.table is not None else False
     def __len__(self): return self.size
 
