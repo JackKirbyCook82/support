@@ -8,16 +8,16 @@ Created on Weds Jul 12 2023
 
 import time
 import types
-import logging
 from functools import reduce
 from abc import ABC, abstractmethod
+
+from support.mixins import Mixin
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Stage", "Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-__logger__ = logging.getLogger(__name__)
 
 
 class Pipeline(ABC):
@@ -78,14 +78,12 @@ class ClosedPipeline(Pipeline):
     def consumer(self): return self.__consumer
 
 
-class Stage(ABC):
+class Stage(Mixin, ABC):
     def __init_subclass__(cls, *args, **kwargs):
-        cls.__formatter__ = kwargs.get("formatter", getattr(cls, "__formatter__", None))
         cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
 
     def __repr__(self): return self.name
     def __init__(self, *args, **kwargs):
-        self.__formatter = kwargs.get("formatter", self.__class__.__formatter__)
         self.__title = kwargs.get("title", self.__class__.__title__)
         self.__name = kwargs.get("name", self.__class__.__name__)
 
@@ -94,16 +92,16 @@ class Stage(ABC):
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
+    @abstractmethod
+    def report(self, *args, consumed, produced, elapsed, **kwargs): pass
 
-    @property
-    def formatter(self): return self.__formatter
     @property
     def title(self): return self.__title
     @property
     def name(self): return self.__name
 
 
-class Producer(Stage, title="Producer"):
+class Producer(Stage, ABC, title="Producer"):
     def __add__(self, other):
         assert isinstance(other, (Processor, Consumer))
         if not isinstance(other, Consumer):
@@ -114,49 +112,46 @@ class Producer(Stage, title="Producer"):
     def execute(self, *args, **kwargs):
         assert not bool(args)
         start = time.time()
-        for results in self.producer(*args, **kwargs):
-            assert isinstance(results, dict)
+        for produced in self.producer(*args, **kwargs):
+            assert isinstance(produced, dict)
             elapsed = time.time() - start
-            parameters = dict(results=results, elapsed=elapsed)
-            string = self.formatter(self, **parameters)
-            __logger__.info(string)
-            yield results
+            parameters = dict(produced=produced, elapsed=elapsed)
+            self.report(*args, **parameters, **kwargs)
+            yield produced
             start = time.time()
 
     @abstractmethod
     def producer(self, *args, **kwargs): pass
 
 
-class Processor(Stage, title="Processed"):
+class Processor(Stage, ABC, title="Processed"):
     def execute(self, source, *args, **kwargs):
         assert not bool(args)
         assert isinstance(source, types.GeneratorType)
-        for contents in source:
+        for consumed in source:
             start = time.time()
-            for results in self.processor(contents, *args, **kwargs):
-                assert isinstance(results, dict)
+            for produced in self.processor(consumed, *args, **kwargs):
+                assert isinstance(produced, dict)
                 elapsed = time.time() - start
-                parameters = dict(results=results, elapsed=elapsed)
-                string = self.formatter(self, **parameters)
-                __logger__.info(string)
-                yield results
+                parameters = dict(consumed=consumed, produced=produced, elapsed=elapsed)
+                self.report(*args, **parameters, **kwargs)
+                yield produced
                 start = time.time()
 
     @abstractmethod
     def processor(self, contents, *args, **kwargs): pass
 
 
-class Consumer(Stage, title="Consumed"):
+class Consumer(Stage, ABC, title="Consumed"):
     def execute(self, source, *args, **kwargs):
         assert not bool(args)
         assert isinstance(source, types.GeneratorType)
-        for contents in source:
+        for consumed in source:
             start = time.time()
-            self.consumer(contents, *args, **kwargs)
+            self.consumer(consumed, *args, **kwargs)
             elapsed = time.time() - start
-            parameters = dict(elapsed=elapsed)
-            string = self.formatter(self, **parameters)
-            __logger__.info(string)
+            parameters = dict(consumed=consumed, elapsed=elapsed)
+            self.report(*args, **parameters, **kwargs)
 
     @abstractmethod
     def consumer(self, contents, *args, **kwargs): pass

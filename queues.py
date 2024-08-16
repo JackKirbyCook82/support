@@ -35,6 +35,7 @@ class Dequeuer(Producer, title="Dequeued"):
             yield contents
             self.source.complete()
 
+    def report(self, *args, **kwargs): pass
     def read(self, *args, **kwargs):
         return self.source.read(*args, **kwargs)
 
@@ -58,6 +59,7 @@ class Requeuer(Consumer, title="Requeued"):
         query = contents[self.query]
         self.write(query, *args, **kwargs)
 
+    def report(self, *args, **kwargs): pass
     def write(self, value, *args, **kwargs):
         self.destination.write(value, *args, **kwargs)
 

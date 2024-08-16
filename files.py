@@ -41,7 +41,7 @@ nc_eager = FileMethod(FileTypes.NC, FileTimings.EAGER)
 nc_lazy = FileMethod(FileTypes.NC, FileTimings.LAZY)
 
 
-class Loader(Producer, title="Loaded"):
+class Loader(Producer, ABC, title="Loaded"):
     def __init_subclass__(cls, *args, query, create, **kwargs):
         super().__init_subclass__(*args, **kwargs)
         cls.__create__ = create
@@ -63,6 +63,7 @@ class Loader(Producer, title="Loaded"):
             yield {self.query: query} | contents
             time.sleep(self.wait)
 
+    def report(self, *args, **kwargs): pass
     def read(self, *args, **kwargs):
         for file, mode in self.source.items():
             content = file.read(*args, mode=mode, **kwargs)
@@ -82,7 +83,7 @@ class Loader(Producer, title="Loaded"):
     def wait(self): return self.__wait
 
 
-class Saver(Consumer, title="Saved"):
+class Saver(Consumer, ABC, title="Saved"):
     def __init_subclass__(cls, *args, query, **kwargs):
         super().__init_subclass__(*args, **kwargs)
         cls.__query__ = query
@@ -97,6 +98,7 @@ class Saver(Consumer, title="Saved"):
         query = contents[self.query]
         self.write(contents, *args, query=query, **kwargs)
 
+    def report(self, *args, **kwargs): pass
     def write(self, contents, *args, **kwargs):
         for file, mode in self.destination.items():
             content = contents.get(file.variable, None)

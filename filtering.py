@@ -9,14 +9,11 @@ Created on Weds Jul 12 2023
 import logging
 import pandas as pd
 import xarray as xr
-from enum import Enum
 from functools import reduce
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
-from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher
-from support.pipelines import Processor
 from support.mixins import Sizing
 
 __version__ = "1.0.0"
@@ -59,10 +56,10 @@ class Criterion(object):
     NULL = Null
 
 
-class Filter(Processor, Sizing, title="Filtered"):
-    def __init_subclass__(cls, *args, variables, **kwargs):
+class Filter(Sizing, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
         super().__init_subclass__(*args, **kwargs)
-        assert isinstance(variables, list) and all([isinstance(variable, Enum) for variable in variables])
+        variables = kwargs.get("variables", getattr(cls, "__variables__", []))
         cls.__variables__ = variables
 
     def __init__(self, *args, criterion={}, **kwargs):
@@ -75,23 +72,18 @@ class Filter(Processor, Sizing, title="Filtered"):
         self.__variables = self.__class__.__variables__
         self.__criterion = criterion
 
-    def processor(self, contents, *args, **kwargs):
-        variables = {variable: contents[variable] for variable in self.variables if variable in contents.keys()}
-        variables = ODict(list(self.calculate(variables, *args, **kwargs)))
-        if not bool(variables):
-            return
-        yield contents | dict(variables)
-
-    def calculate(self, variables, *args, **kwargs):
-        assert isinstance(variables, dict)
-        for variable, content in variables.items():
+    def calculate(self, contents, *args, **kwargs):
+        assert isinstance(contents, dict)
+        for variable in self.variables:
+            content = contents.get(variable, None)
+            if content is None:
+                continue
             prior = self.size(content)
             content = self.filter(content, *args, variable=variable, **kwargs)
             post = self.size(content)
-            string = f"{str(self.title)}: {repr(self)}[{prior:.0f}|{post:.0f}]"
-            __logger__.info(string)
+            self.inform(*args, variable=variable, prior=prior, post=post, **kwargs)
             if self.empty(content):
-                return
+                continue
             yield variable, content
 
     def filter(self, content, *args, **kwargs):
@@ -110,6 +102,9 @@ class Filter(Processor, Sizing, title="Filtered"):
     def where_dataset(self, dataset, *args, mask=None, **kwargs): return dataset.where(mask, drop=True) if bool(mask is not None) else dataset
     @where.register(pd.DataFrame)
     def where_dataframe(self, dataframe, *args, mask=None, **kwargs): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
+
+    @abstractmethod
+    def inform(self, *args, prior, post, **kwargs): pass
 
     @property
     def criterion(self): return self.__criterion
