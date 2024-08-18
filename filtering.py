@@ -72,16 +72,12 @@ class Filter(Sizing, ABC):
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
         self.__criterion = criterion
 
-    def calculate(self, content, *args, **kwargs):
-        prior = self.size(content)
-        content = self.filter(content, *args, **kwargs)
-        post = self.size(content)
-        self.inform(*args, prior=prior, post=post, **kwargs)
-        return content
-
     def filter(self, content, *args, **kwargs):
+        prior = self.size(content)
         mask = self.mask(content, *args, **kwargs)
         content = self.where(content, *args, mask=mask, **kwargs)
+        post = self.size(content)
+        self.inform(*args, prior=prior, post=post, **kwargs)
         return content
 
     def mask(self, content, *args, **kwargs):
