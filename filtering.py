@@ -25,29 +25,35 @@ __logger__ = logging.getLogger(__name__)
 
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
-    def __repr__(self): return f"{type(self).__name__}[{str(self.variable)}={str(self.threshold)})]"
-    def __call__(self, content, *args, stack=None, **kwargs):
-        assert isinstance(stack, (list, type(None)))
-        variable = self.variable if stack is None else tuple([self.variable] + stack)
-        return self.execute(content, variable)
+    def __call__(self, content, *args, **kwargs):
+        column = self.column(content)
+        return self.execute(content, column)
+
+    def column(self, content):
+        column = self.variable
+        if isinstance(content.columns, pd.MultiIndex):
+            column = tuple([column]) if not isinstance(column, tuple) else column
+            length = content.columns.nlevels - len(column)
+            column = column + tuple([""]) * length
+        return column
 
     @abstractmethod
     def execute(self, content, column): pass
 
 
 class Floor(Criteria):
-    def execute(self, content, variable): return content[variable] >= self.threshold
+    def execute(self, content, column): return content[column] >= self.threshold
 
 class Ceiling(Criteria):
-    def execute(self, content, variable): return content[variable] <= self.threshold
+    def execute(self, content, column): return content[column] <= self.threshold
 
 class Null(Criteria):
     @typedispatcher
-    def execute(self, content, variable): raise TypeError(type(content).__name__)
+    def execute(self, content, column): raise TypeError(type(content).__name__)
     @execute.register(pd.DataFrame)
-    def dataframe(self, content, variable): return content[variable].notna()
+    def dataframe(self, content, column): return content[column].notna()
     @execute.register(xr.Dataset)
-    def dataset(self, content, variable): return content[variable].notnull()
+    def dataset(self, content, column): return content[column].notnull()
 
 
 class Criterion(object):
@@ -57,11 +63,6 @@ class Criterion(object):
 
 
 class Filter(Sizing, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        variables = kwargs.get("variables", getattr(cls, "__variables__", []))
-        cls.__variables__ = variables
-
     def __init__(self, *args, criterion={}, **kwargs):
         assert isinstance(criterion, dict)
         assert all([issubclass(criteria, Criteria) for criteria in criterion.keys()])
@@ -69,22 +70,14 @@ class Filter(Sizing, ABC):
         super().__init__(*args, **kwargs)
         criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
-        self.__variables = self.__class__.__variables__
         self.__criterion = criterion
 
-    def calculate(self, contents, *args, **kwargs):
-        assert isinstance(contents, dict)
-        for variable in self.variables:
-            content = contents.get(variable, None)
-            if content is None:
-                continue
-            prior = self.size(content)
-            content = self.filter(content, *args, variable=variable, **kwargs)
-            post = self.size(content)
-            self.inform(*args, variable=variable, prior=prior, post=post, **kwargs)
-            if self.empty(content):
-                continue
-            yield variable, content
+    def calculate(self, content, *args, **kwargs):
+        prior = self.size(content)
+        content = self.filter(content, *args, **kwargs)
+        post = self.size(content)
+        self.inform(*args, prior=prior, post=post, **kwargs)
+        return content
 
     def filter(self, content, *args, **kwargs):
         mask = self.mask(content, *args, **kwargs)
@@ -105,11 +98,9 @@ class Filter(Sizing, ABC):
 
     @abstractmethod
     def inform(self, *args, prior, post, **kwargs): pass
-
     @property
     def criterion(self): return self.__criterion
-    @property
-    def variables(self): return self.__variables
+
 
 
 

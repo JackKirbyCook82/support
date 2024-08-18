@@ -252,6 +252,7 @@ class File(ABC, metaclass=FileMeta):
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
             content = self.data.load(*args, **parameters, **kwargs)
+            content = self.parse(content, *args, **kwargs)
         return content
 
     def write(self, content, *args, mode, **kwargs):
@@ -259,6 +260,7 @@ class File(ABC, metaclass=FileMeta):
         file = self.file(*args, **kwargs)
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
+            content = self.format(content, *args, **kwargs)
             self.data.save(content, *args, **parameters, **kwargs)
         __logger__.info("Saved: {}".format(str(file)))
 
@@ -267,6 +269,11 @@ class File(ABC, metaclass=FileMeta):
         extension = str(self.filetype.name).lower()
         filename = self.filename(query)
         return os.path.join(directory, ".".join([filename, extension]))
+
+    @staticmethod
+    def parse(content, *args, **kwargs): return content
+    @staticmethod
+    def format(content, *args, **kwargs): return content
 
     @property
     def repository(self): return self.__repository
