@@ -16,7 +16,7 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["VariantMeta", "DelayerMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta"]
+__all__ = ["VariantMeta", "DelayerMeta", "SingletonMeta", "ParametersMeta", "AttributeMeta", "RegistryMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -144,6 +144,18 @@ class SingletonMeta(Meta):
             instance = super(SingletonMeta, cls).__call__(*args, **kwargs)
             SingletonMeta.__instances__[cls] = instance
         return SingletonMeta.__instances__[cls]
+
+
+class ParametersMeta(Meta):
+    def __iter__(cls): return iter(cls.parameters.items())
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(ParametersMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        parameters = getattr(cls, "__parameters__", {})
+        update = {key: value for key, value in attrs.items()}
+        cls.__parameters__ = parameters | update
+
+    @property
+    def parameters(cls): return cls.__parameters__
 
 
 class RegistryMeta(Meta):
