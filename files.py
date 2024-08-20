@@ -42,25 +42,23 @@ nc_lazy = FileMethod(FileTypes.NC, FileTimings.LAZY)
 
 
 class Loader(Producer, ABC, title="Loaded"):
-    def __init_subclass__(cls, *args, query, create, **kwargs):
+    def __init_subclass__(cls, *args, create, **kwargs):
         super().__init_subclass__(*args, **kwargs)
         cls.__create__ = create
-        cls.__query__ = query
 
     def __init__(self, *args, directory, source={}, wait=0, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(source, dict) and all([isinstance(file, File) for file in source.keys()])
         self.__create = self.__class__.__create__
-        self.__query = self.__class__.__query__
         self.__directory = directory
         self.__source = source
         self.__wait = int(wait)
 
     def producer(self, *args, **kwargs):
         for filename in iter(self.directory):
-            query = self.create(filename)
-            contents = ODict(list(self.read(*args, query=query, **kwargs)))
-            yield {self.query: query} | contents
+            variable = self.create(filename)
+            contents = ODict(list(self.read(*args, variable=variable, **kwargs)))
+            yield {self.variable: variable} | contents
             time.sleep(self.wait)
 
     def report(self, *args, **kwargs): pass
@@ -78,25 +76,18 @@ class Loader(Producer, ABC, title="Loaded"):
     @property
     def create(self): return self.__create
     @property
-    def query(self): return self.__query
-    @property
     def wait(self): return self.__wait
 
 
 class Saver(Consumer, ABC, title="Saved"):
-    def __init_subclass__(cls, *args, query, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        cls.__query__ = query
-
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(destination, dict) and all([isinstance(file, File) for file in destination.keys()])
-        self.__query = self.__class__.__query__
         self.__destination = destination
 
     def consumer(self, contents, *args, **kwargs):
-        query = contents[self.query]
-        self.write(contents, *args, query=query, **kwargs)
+        variable = contents[self.variable]
+        self.write(contents, *args, variable=variable, **kwargs)
 
     def report(self, *args, **kwargs): pass
     def write(self, contents, *args, **kwargs):
@@ -108,8 +99,6 @@ class Saver(Consumer, ABC, title="Saved"):
 
     @property
     def destination(self): return self.__destination
-    @property
-    def query(self): return self.__query
 
 
 class Lock(dict, metaclass=SingletonMeta):
@@ -264,10 +253,10 @@ class File(ABC, metaclass=FileMeta):
             self.data.save(content, *args, **parameters, **kwargs)
         __logger__.info("Saved: {}".format(str(file)))
 
-    def file(self, *args, query, **kwargs):
+    def file(self, *args, variable, **kwargs):
         directory = os.path.join(self.repository, str(self.variable))
         extension = str(self.filetype.name).lower()
-        filename = self.filename(query)
+        filename = self.filename(variable)
         return os.path.join(directory, ".".join([filename, extension]))
 
     @staticmethod

@@ -14,6 +14,7 @@ from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 
 from support.dispatchers import typedispatcher
+from support.pipelines import Processor
 from support.mixins import Sizing
 
 __version__ = "1.0.0"
@@ -62,7 +63,7 @@ class Criterion(object):
     NULL = Null
 
 
-class Filter(Sizing, ABC):
+class Filter(Processor, Sizing, ABC):
     def __init__(self, *args, criterion={}, **kwargs):
         assert isinstance(criterion, dict)
         assert all([issubclass(criteria, Criteria) for criteria in criterion.keys()])
@@ -72,12 +73,13 @@ class Filter(Sizing, ABC):
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
         self.__criterion = criterion
 
-    def filter(self, content, *args, **kwargs):
+    def filter(self, content, *args, variable, **kwargs):
         prior = self.size(content)
         mask = self.mask(content, *args, **kwargs)
         content = self.where(content, *args, mask=mask, **kwargs)
         post = self.size(content)
-        self.inform(*args, prior=prior, post=post, **kwargs)
+        string = f"{str(self.title)}: {repr(self)}|{str(variable)}[{prior:.0f}|{post:.0f}]"
+        __logger__.info(string)
         return content
 
     def mask(self, content, *args, **kwargs):
@@ -92,8 +94,6 @@ class Filter(Sizing, ABC):
     @where.register(pd.DataFrame)
     def where_dataframe(self, dataframe, *args, mask=None, **kwargs): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
 
-    @abstractmethod
-    def inform(self, *args, prior, post, **kwargs): pass
     @property
     def criterion(self): return self.__criterion
 

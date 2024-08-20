@@ -19,19 +19,14 @@ __license__ = "MIT License"
 
 
 class Dequeuer(Producer, title="Dequeued"):
-    def __init_subclass__(cls, *args, query, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        cls.__query__ = query
-
     def __init__(self, *args, source, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__query = self.__class__.__query__
         self.__source = source
 
     def producer(self, *args, **kwargs):
         while bool(self.source):
-            query = self.read(*args, **kwargs)
-            contents = {self.query: query}
+            variable = self.read(*args, **kwargs)
+            contents = {self.variable: variable}
             yield contents
             self.source.complete()
 
@@ -41,23 +36,16 @@ class Dequeuer(Producer, title="Dequeued"):
 
     @property
     def source(self): return self.__source
-    @property
-    def query(self): return self.__query
 
 
 class Requeuer(Consumer, title="Requeued"):
-    def __init_subclass__(cls, *args, query, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        cls.__query__ = query
-
     def __init__(self, *args, destination, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__query = self.__class__.__query__
         self.__destination = destination
 
     def consumer(self, contents, *args, **kwargs):
-        query = contents[self.query]
-        self.write(query, *args, **kwargs)
+        variable = contents[self.variable]
+        self.write(variable, *args, **kwargs)
 
     def report(self, *args, **kwargs): pass
     def write(self, value, *args, **kwargs):
@@ -65,8 +53,6 @@ class Requeuer(Consumer, title="Requeued"):
 
     @property
     def destination(self): return self.__destination
-    @property
-    def query(self): return self.__query
 
 
 class QueueMeta(ABCMeta):

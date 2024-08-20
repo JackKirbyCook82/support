@@ -172,7 +172,6 @@ class Dependent(Variable):
             sources = list(sources.values())
             constants = list(constants.values())
             assert isinstance(sources, list) and isinstance(constants, list)
-            assert all([isinstance(constant, Number) for constant in constants])
             datatype = set([type(content) for content in sources])
             assert len(datatype) == 1
             datatype = list(datatype)[0]

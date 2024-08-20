@@ -8,16 +8,16 @@ Created on Weds Jul 12 2023
 
 import time
 import types
+import logging
 from functools import reduce
 from abc import ABC, abstractmethod
-
-from support.mixins import Mixin
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Stage", "Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
+__logger__ = logging.getLogger(__name__)
 
 
 class Pipeline(ABC):
@@ -78,23 +78,29 @@ class ClosedPipeline(Pipeline):
     def consumer(self): return self.__consumer
 
 
-class Stage(Mixin, ABC):
+class Stage(ABC):
     def __init_subclass__(cls, *args, **kwargs):
         cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
 
     def __repr__(self): return self.name
     def __init__(self, *args, **kwargs):
+        self.__variable = kwargs.get("variable", self.__class__.__variable__)
         self.__title = kwargs.get("title", self.__class__.__title__)
         self.__name = kwargs.get("name", self.__class__.__name__)
 
     def __call__(self, *args, **kwargs):
         return self.execute(*args, **kwargs)
 
+    def report(self, variable, elapsed):
+        string = f"{str(self.title)}: {repr(self)}|{str(variable)}[{elapsed:.02f}s]"
+        __logger__.info(string)
+
     @abstractmethod
     def execute(self, *args, **kwargs): pass
-    @abstractmethod
-    def report(self, *args, consumed, produced, elapsed, **kwargs): pass
 
+    @property
+    def variable(self): return self.__variable
     @property
     def title(self): return self.__title
     @property
@@ -115,8 +121,9 @@ class Producer(Stage, ABC, title="Producer"):
         for produced in self.producer(*args, **kwargs):
             assert isinstance(produced, dict)
             elapsed = time.time() - start
-            parameters = dict(produced=produced, elapsed=elapsed)
-            self.report(*args, **parameters, **kwargs)
+            if bool(self.variable):
+                variable = produced[self.variable]
+                self.report(variable, elapsed)
             yield produced
             start = time.time()
 
@@ -133,8 +140,9 @@ class Processor(Stage, ABC, title="Processed"):
             for produced in self.processor(consumed, *args, **kwargs):
                 assert isinstance(produced, dict)
                 elapsed = time.time() - start
-                parameters = dict(consumed=consumed, produced=produced, elapsed=elapsed)
-                self.report(*args, **parameters, **kwargs)
+                if bool(self.variable):
+                    variable = produced[self.variable]
+                    self.report(variable, elapsed)
                 yield produced
                 start = time.time()
 
@@ -150,8 +158,9 @@ class Consumer(Stage, ABC, title="Consumed"):
             start = time.time()
             self.consumer(consumed, *args, **kwargs)
             elapsed = time.time() - start
-            parameters = dict(consumed=consumed, elapsed=elapsed)
-            self.report(*args, **parameters, **kwargs)
+            if bool(self.variable):
+                variable = consumed[self.variable]
+                self.report(variable, elapsed)
 
     @abstractmethod
     def consumer(self, contents, *args, **kwargs): pass
