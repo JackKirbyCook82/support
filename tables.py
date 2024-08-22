@@ -149,23 +149,7 @@ class Table(ABC, metaclass=TableMeta):
 
 
 class DataframeTable(Table, tabletype=pd.DataFrame):
-    def get(self, index, columns):
-        index, columns = self.locator(index, columns)
-        return self.table.iloc[index, columns]
-
-    def set(self, index, columns, value):
-        index, columns = self.locator(index, columns)
-        self.table.iloc[index, columns] = value
-
-    def locator(self, index, columns):
-        index = [index] if not isinstance(index, list) else index
-        index = [list(self.index).index(value) for value in index]
-        columns = [columns] if not isinstance(columns, list) else columns
-        columns = [list(self.columns).index(value) for value in columns]
-        columns = [self.stacker(column) for column in columns]
-        return index, columns
-
-    def stacker(self, column):
+    def column(self, column):
         if isinstance(self.table.columns, pd.MultiIndex):
             column = tuple([column]) if not isinstance(column, tuple) else column
             length = self.columns.nlevels - len(column)
@@ -183,7 +167,7 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
             return
         with self.mutex:
             columns = [columns] if not isinstance(columns, list) else columns
-            columns = [self.stacker(column) for column in columns]
+            columns = [self.column(column) for column in columns]
             self.table.drop_duplicates(columns, keep="last", inplace=True)
 
     def where(self, function):
@@ -203,7 +187,6 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
             dataframe = self.table.where(mask)
             dataframe = dataframe.dropna(how="all", inplace=False)
             self.table.drop(dataframe.index, inplace=True)
-            return dataframe
 
     def change(self, function, columns, value):
         if not bool(self):
@@ -211,7 +194,7 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
         assert callable(function)
         with self.mutex:
             columns = [columns] if not isinstance(columns, list) else columns
-            columns = [self.stacker(column) for column in columns]
+            columns = [self.column(column) for column in columns]
             mask = function(self.table)
             self.table.loc[mask, columns] = value
 
@@ -219,9 +202,10 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
         if not bool(self):
             return
         with self.mutex:
-            column = self.stacker(column)
+            column = self.column(column)
             ascending = not bool(reverse)
-            self.table.sort_values(column, axis=0, ascending=ascending, inplace=True, ignore_index=False)
+            parameters = dict(ascending=ascending, inplace=True, ignore_index=False)
+            self.table.sort_values(column, axis=0, **parameters)
 
     def reset(self):
         with self.mutex:
