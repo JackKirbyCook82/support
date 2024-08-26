@@ -149,7 +149,7 @@ class Table(ABC, metaclass=TableMeta):
 
 
 class DataframeTable(Table, tabletype=pd.DataFrame):
-    def column(self, column):
+    def stack(self, column):
         if isinstance(self.table.columns, pd.MultiIndex):
             column = tuple([column]) if not isinstance(column, tuple) else column
             length = self.columns.nlevels - len(column)
@@ -167,7 +167,7 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
             return
         with self.mutex:
             columns = [columns] if not isinstance(columns, list) else columns
-            columns = [self.column(column) for column in columns]
+            columns = [self.stack(column) for column in columns]
             self.table.drop_duplicates(columns, keep="last", inplace=True)
 
     def where(self, function):
@@ -194,7 +194,7 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
         assert callable(function)
         with self.mutex:
             columns = [columns] if not isinstance(columns, list) else columns
-            columns = [self.column(column) for column in columns]
+            columns = [self.stack(column) for column in columns]
             mask = function(self.table)
             self.table.loc[mask, columns] = value
 
@@ -202,7 +202,7 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
         if not bool(self):
             return
         with self.mutex:
-            column = self.column(column)
+            column = self.stack(column)
             ascending = not bool(reverse)
             parameters = dict(ascending=ascending, inplace=True, ignore_index=False)
             self.table.sort_values(column, axis=0, **parameters)
@@ -216,11 +216,16 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
     @property
     def size(self): return len(self.table.index)
     @property
-    def columns(self): return self.table.columns
+    def dataframe(self): return self.table
+
     @property
     def index(self): return self.table.index
     @property
-    def dataframe(self): return self.table
+    def columns(self): return self.table.columns
+    @columns.setter
+    def columns(self, columns):
+        dataframe = pd.DataFrame(columns=columns)
+        self.table = dataframe
 
 
 class Tables(object):

@@ -10,6 +10,7 @@ import queue
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.pipelines import Producer, Consumer
+from support.mixins import Mixin
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -18,41 +19,35 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Dequeuer(Producer, title="Dequeued"):
-    def __init__(self, *args, source, **kwargs):
+class QueueMixin(Mixin):
+    def __init__(self, *args, datastack, **kwargs):
+        assert isinstance(datastack, Queue)
         super().__init__(*args, **kwargs)
-        self.__source = source
+        self.__datastack = datastack
 
+    @property
+    def datastack(self): return self.__datastack
+
+
+class Dequeuer(QueueMixin, Producer, title="Dequeued"):
     def producer(self, *args, **kwargs):
-        while bool(self.source):
+        while bool(self.datastack):
             variable = self.read(*args, **kwargs)
             contents = {self.variable: variable}
             yield contents
-            self.source.complete()
+            self.datastack.complete()
 
-    def report(self, *args, **kwargs): pass
     def read(self, *args, **kwargs):
-        return self.source.read(*args, **kwargs)
-
-    @property
-    def source(self): return self.__source
+        return self.datastack.read(*args, **kwargs)
 
 
-class Requeuer(Consumer, title="Requeued"):
-    def __init__(self, *args, destination, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__destination = destination
-
+class Requeuer(QueueMixin, Consumer, title="Requeued"):
     def consumer(self, contents, *args, **kwargs):
         variable = contents[self.variable]
         self.write(variable, *args, **kwargs)
 
-    def report(self, *args, **kwargs): pass
     def write(self, value, *args, **kwargs):
-        self.destination.write(value, *args, **kwargs)
-
-    @property
-    def destination(self): return self.__destination
+        self.datastack.write(value, *args, **kwargs)
 
 
 class QueueMeta(ABCMeta):

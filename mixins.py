@@ -17,7 +17,7 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Node", "Fields", "Sizing", "Publisher", "Subscriber"]
+__all__ = ["Node", "Fields", "Sizing", "Publisher", "Subscriber", "Mixin"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 

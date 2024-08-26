@@ -20,6 +20,7 @@ from collections import OrderedDict as ODict
 from support.pipelines import Producer, Consumer
 from support.dispatchers import kwargsdispatcher
 from support.meta import SingletonMeta, RegistryMeta
+from support.mixins import Mixin
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -41,17 +42,25 @@ nc_eager = FileMethod(FileTypes.NC, FileTimings.EAGER)
 nc_lazy = FileMethod(FileTypes.NC, FileTimings.LAZY)
 
 
-class Loader(Producer, ABC, title="Loaded"):
+class FileMixin(Mixin):
+    def __init__(self, *args, datafile, **kwargs):
+        assert isinstance(datafile, dict) and all([isinstance(file, File) for file in datafile.keys()])
+        super().__init__(*args, **kwargs)
+        self.__datafile = datafile
+
+    @property
+    def datafile(self): return self.__datafile
+
+
+class Loader(FileMixin, Producer, ABC, title="Loaded"):
     def __init_subclass__(cls, *args, create, **kwargs):
         super().__init_subclass__(*args, **kwargs)
         cls.__create__ = create
 
-    def __init__(self, *args, directory, source={}, wait=0, **kwargs):
+    def __init__(self, *args, directory, wait=0, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(source, dict) and all([isinstance(file, File) for file in source.keys()])
         self.__create = self.__class__.__create__
         self.__directory = directory
-        self.__source = source
         self.__wait = int(wait)
 
     def producer(self, *args, **kwargs):
@@ -61,9 +70,8 @@ class Loader(Producer, ABC, title="Loaded"):
             yield {self.variable: variable} | contents
             time.sleep(self.wait)
 
-    def report(self, *args, **kwargs): pass
     def read(self, *args, **kwargs):
-        for file, mode in self.source.items():
+        for file, mode in self.datafile.items():
             content = file.read(*args, mode=mode, **kwargs)
             if content is None:
                 continue
@@ -72,33 +80,22 @@ class Loader(Producer, ABC, title="Loaded"):
     @property
     def directory(self): return self.__directory
     @property
-    def source(self): return self.__source
-    @property
     def create(self): return self.__create
     @property
     def wait(self): return self.__wait
 
 
-class Saver(Consumer, ABC, title="Saved"):
-    def __init__(self, *args, destination, **kwargs):
-        super().__init__(*args, **kwargs)
-        assert isinstance(destination, dict) and all([isinstance(file, File) for file in destination.keys()])
-        self.__destination = destination
-
+class Saver(FileMixin, Consumer, ABC, title="Saved"):
     def consumer(self, contents, *args, **kwargs):
         variable = contents[self.variable]
         self.write(contents, *args, variable=variable, **kwargs)
 
-    def report(self, *args, **kwargs): pass
     def write(self, contents, *args, **kwargs):
-        for file, mode in self.destination.items():
+        for file, mode in self.datafile.items():
             content = contents.get(file.variable, None)
             if content is None:
                 continue
             file.write(content, *args, mode=mode, **kwargs)
-
-    @property
-    def destination(self): return self.__destination
 
 
 class Lock(dict, metaclass=SingletonMeta):

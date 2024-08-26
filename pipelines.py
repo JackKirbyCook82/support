@@ -12,6 +12,8 @@ import logging
 from functools import reduce
 from abc import ABC, abstractmethod
 
+from support.mixins import Mixin
+
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Stage", "Producer", "Processor", "Consumer"]
@@ -78,13 +80,15 @@ class ClosedPipeline(Pipeline):
     def consumer(self): return self.__consumer
 
 
-class Stage(ABC):
+class Stage(Mixin, ABC):
     def __init_subclass__(cls, *args, **kwargs):
-        cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
+        cls.__reporting__ = kwargs.get("reporting", getattr(cls, "__reporting__", False))
         cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
+        cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
 
     def __repr__(self): return self.name
     def __init__(self, *args, **kwargs):
+        self.__reporting = kwargs.get("reporting", self.__class__.__reporting__)
         self.__variable = kwargs.get("variable", self.__class__.__variable__)
         self.__title = kwargs.get("title", self.__class__.__title__)
         self.__name = kwargs.get("name", self.__class__.__name__)
@@ -92,13 +96,16 @@ class Stage(ABC):
     def __call__(self, *args, **kwargs):
         return self.execute(*args, **kwargs)
 
-    def report(self, variable, elapsed):
+    def report(self, *args, variable, elapsed, **kwargs):
+        if not bool(self.reporting): return
         string = f"{str(self.title)}: {repr(self)}|{str(variable)}[{elapsed:.02f}s]"
         __logger__.info(string)
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
+    @property
+    def reporting(self): return self.__reporting
     @property
     def variable(self): return self.__variable
     @property
@@ -107,7 +114,7 @@ class Stage(ABC):
     def name(self): return self.__name
 
 
-class Producer(Stage, ABC, title="Producer"):
+class Producer(Stage, ABC, title="Produced"):
     def __add__(self, other):
         assert isinstance(other, (Processor, Consumer))
         if not isinstance(other, Consumer):
@@ -121,9 +128,8 @@ class Producer(Stage, ABC, title="Producer"):
         for produced in self.producer(*args, **kwargs):
             assert isinstance(produced, dict)
             elapsed = time.time() - start
-            if bool(self.variable):
-                variable = produced[self.variable]
-                self.report(variable, elapsed)
+            variable = produced[self.variable]
+            self.report(variable=variable, elapsed=elapsed)
             yield produced
             start = time.time()
 
@@ -140,9 +146,9 @@ class Processor(Stage, ABC, title="Processed"):
             for produced in self.processor(consumed, *args, **kwargs):
                 assert isinstance(produced, dict)
                 elapsed = time.time() - start
-                if bool(self.variable):
-                    variable = produced[self.variable]
-                    self.report(variable, elapsed)
+                assert produced[self.variable] == consumed[self.variable]
+                variable = produced[self.variable]
+                self.report(variable=variable, elapsed=elapsed)
                 yield produced
                 start = time.time()
 
@@ -158,12 +164,10 @@ class Consumer(Stage, ABC, title="Consumed"):
             start = time.time()
             self.consumer(consumed, *args, **kwargs)
             elapsed = time.time() - start
-            if bool(self.variable):
-                variable = consumed[self.variable]
-                self.report(variable, elapsed)
+            variable = consumed[self.variable]
+            self.report(variable=variable, elapsed=elapsed)
 
     @abstractmethod
     def consumer(self, contents, *args, **kwargs): pass
-
 
 
