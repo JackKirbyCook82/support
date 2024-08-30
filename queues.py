@@ -56,14 +56,14 @@ class QueueMeta(ABCMeta):
             return
         cls.__queuetype__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
 
-    def __call__(cls, *args, capacity=None, values=[], **kwargs):
+    def __call__(cls, *args, contents=[], capacity=None, **kwargs):
         assert cls.__queuetype__ is not None
-        assert isinstance(values, list)
-        assert (len(values) <= capacity) if bool(capacity) else True
-        instance = cls.__queuetype__(maxsize=capacity if capacity is not None else 0)
-        for value in values:
-            instance.put(value)
-        instance = super(QueueMeta, cls).__call__(instance, *args, **kwargs)
+        assert isinstance(contents, list)
+        assert (len(contents) <= capacity) if bool(capacity) else True
+        container = cls.__queuetype__(maxsize=capacity if capacity is not None else 0)
+        for content in contents:
+            container.put(content)
+        instance = super(QueueMeta, cls).__call__(container, *args, **kwargs)
         return instance
 
 
@@ -73,10 +73,10 @@ class Queue(ABC, metaclass=QueueMeta):
     def __len__(self): return self.size
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, instance, *args, timeout=None, **kwargs):
+    def __init__(self, queueable, *args, timeout=None, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__timeout = timeout
-        self.__queue = instance
+        self.__queue = queueable
 
     @abstractmethod
     def write(self, value, *args, **kwargs): pass

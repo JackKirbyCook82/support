@@ -200,9 +200,9 @@ class FileMeta(ABCMeta):
         parsers = {key: value for key, value in cls.__parsers__.items() if key in cls.__header__}
         types = {key: value for key, value in cls.__types__.items() if key in cls.__header__}
         dates = {key: value for key, value in cls.__dates__.items() if key in cls.__header__}
-        instance = Data[cls.__datatype__](*args, parsers=parsers, formatters=formatters, types=types, dates=dates, **kwargs)
+        data = Data[cls.__datatype__](*args, parsers=parsers, formatters=formatters, types=types, dates=dates, **kwargs)
         parameters = dict(variable=cls.__variable__, filename=cls.__filename__, mutex=Lock())
-        instance = super(FileMeta, cls).__call__(instance, *args, **parameters, **kwargs)
+        instance = super(FileMeta, cls).__call__(data, *args, **parameters, **kwargs)
         return instance
 
 
@@ -210,7 +210,7 @@ class File(ABC, metaclass=FileMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
     def __repr__(self): return self.name
-    def __init__(self, instance, *args, repository, mutex, variable, filename, filetype, filetiming, **kwargs):
+    def __init__(self, data, *args, repository, mutex, variable, filename, filetype, filetiming, **kwargs):
         if not os.path.exists(repository):
             os.mkdir(repository)
         self.__name = kwargs.get("name", self.__class__.__name__)
@@ -220,7 +220,7 @@ class File(ABC, metaclass=FileMeta):
         self.__filetype = filetype
         self.__variable = variable
         self.__mutex = mutex
-        self.__data = instance
+        self.__data = data
 
     def __iter__(self):
         directory = os.path.join(self.repository, str(self.variable))

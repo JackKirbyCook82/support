@@ -9,6 +9,7 @@ Created on Weds Jul 12 2023
 import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
+from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
@@ -107,27 +108,31 @@ class TableMeta(ABCMeta):
     def __call__(cls, *args, **kwargs):
         assert cls.__tabletype__ is not None
         assert cls.__tableview__ is not None
-        instance = cls.__tabletype__()
+        table = cls.__tabletype__()
         view = cls.__tableview__()
         parameters = dict(mutex=multiprocessing.RLock(), view=view)
-        instance = super(TableMeta, cls).__call__(instance, *args, **parameters, **kwargs)
+        instance = super(TableMeta, cls).__call__(table, *args, **parameters, **kwargs)
         return instance
 
 
 class Table(ABC, metaclass=TableMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
-    def __str__(self): return str(self.view(self.table))
     def __bool__(self): return not self.empty if self.table is not None else False
+    def __str__(self): return self.string
     def __len__(self): return self.size
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, instance, *args, mutex, view, **kwargs):
+    def __init__(self, table, *args, mutex, view, axes, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__table = instance
         self.__mutex = mutex
+        self.__table = table
         self.__view = view
+        self.__axes = axes
 
+    @property
+    @abstractmethod
+    def string(self): pass
     @property
     @abstractmethod
     def empty(self): pass
@@ -139,93 +144,119 @@ class Table(ABC, metaclass=TableMeta):
     def table(self): return self.__table
     @table.setter
     def table(self, table): self.__table = table
-
     @property
     def mutex(self): return self.__mutex
     @property
     def view(self): return self.__view
     @property
+    def axes(self): return self.__axes
+    @property
     def name(self): return self.__name
 
 
+class DataframeMask(ntuple("Mask", "positive negative")):
+    def __new__(cls, dataframe, *args, function, **kwargs):
+        assert callable(function)
+        mask = function(dataframe)
+        positive = dataframe.where(mask).dropna(how="all", inplace=False)
+        negative = dataframe.where(~mask).dropna(how="all", inplace=False)
+        return super().__new__(cls, positive, negative)
+
+
+class DataframeMerge(ntuple("Merge", "left right")):
+    def __new__(cls, left, right, *args, how, on, **kwargs):
+        assert isinstance(left, pd.DataFrame) and isinstance(right, pd.DataFrame) and isinstance(on, list)
+        length = lambda cols: int(cols.nlevels) if isinstance(cols, pd.MultiIndex) else 0
+        assert length(left.columns) == length(right.columns)
+        merge = lambda suffix: lambda col: f"{str(col)}|{suffix}" if col not in on else str(col)
+        unmerge = lambda suffix: lambda col: str(col).rstrip(f"|{suffix}") if col not in on else str(col)
+        columns = set(left.columns) | set(right.columns)
+        left = left.rename(columns=merge("left"), inplace=False, level=0)
+        right = right.rename(columns=merge("right"), inplace=False, level=0)
+        dataframe = pd.merge(left, right, how=how, on=on)
+        left = dataframe.rename(columns=unmerge("left"), inplace=False, level=0)
+        right = dataframe.rename(columns=unmerge("right"), inplace=False, level=0)
+        left = left[[column for column in columns if column in left.columns]]
+        right = right[[column for column in columns if column in right.columns]]
+        return super().__new__(cls, left, right)
+
+
 class DataframeTable(Table, tabletype=pd.DataFrame):
-    def stack(self, column):
-        if isinstance(self.table.columns, pd.MultiIndex):
-            column = tuple([column]) if not isinstance(column, tuple) else column
-            length = self.columns.nlevels - len(column)
-            column = column + tuple([""]) * length
-        return column
+#    def __init__(self, *args, contents=None, **kwargs):
+#        super().__init__(*args, **kwargs)
+#        assert isinstance(contents, (pd.DataFrame, type(None)))
+#        assert contents.columns == self.axes if contents is not None else True
+#        if contents is None: self.table.columns = self.axes
+#        else: self.table = contents
 
-    def concat(self, dataframe):
-        assert isinstance(dataframe, pd.DataFrame)
-        with self.mutex:
-            dataframe = pd.concat([self.table, dataframe], axis=0) if bool(self) else dataframe
-            self.table = dataframe
+#    def stack(self, column):
+#        if not isinstance(self.table.columns, pd.MultiIndex): return column
+#        column = tuple([column]) if not isinstance(column, tuple) else column
+#        length = self.columns.nlevels - len(column)
+#        column = column + tuple([""]) * length
+#        return column
 
-    def unique(self, columns):
-        if not bool(self):
-            return
-        with self.mutex:
-            columns = [columns] if not isinstance(columns, list) else columns
-            columns = [self.stack(column) for column in columns]
-            self.table.drop_duplicates(columns, keep="last", inplace=True)
+#    def combine(self, other):
+#        assert isinstance(other, type(self))
+#        assert self.columns == other.columns
+#        with self.mutex:
+#            dataframes = [self.dataframe, other.dataframe]
+#            self.table = pd.concat(dataframes, axis=0)
 
-    def where(self, function):
-        if not bool(self):
-            return
-        assert callable(function)
-        with self.mutex:
-            mask = function(self.table)
-            self.table.where(mask).dropna(how="all", inplace=True)
+#    def where(self, function):
+#        if not bool(self): return
+#        with self.mutex:
+#            pass
+#            self.table = self.separate(function).positive
 
-    def remove(self, function):
-        if not bool(self):
-            return
-        assert callable(function)
-        with self.mutex:
-            mask = function(self.table)
-            dataframe = self.table.where(mask)
-            dataframe = dataframe.dropna(how="all", inplace=False)
-            self.table.drop(dataframe.index, inplace=True)
+#    def remove(self, function):
+#        if not bool(self): return
+#        with self.mutex:
+#            pass
+#            self.table = self.separate(function).negative
 
-    def change(self, function, columns, value):
-        if not bool(self):
-            return
-        assert callable(function)
-        with self.mutex:
-            columns = [columns] if not isinstance(columns, list) else columns
-            columns = [self.stack(column) for column in columns]
-            mask = function(self.table)
-            self.table.loc[mask, columns] = value
+#    def change(self, function, column, value):
+#        if not bool(self): return
+#        assert callable(function)
+#        column = self.stack(column)
+#        with self.mutex:
+#            mask = function(self.dataframe)
+#            self.table.loc[mask, column] = value
 
-    def sort(self, column, reverse):
-        if not bool(self):
-            return
-        with self.mutex:
-            column = self.stack(column)
-            ascending = not bool(reverse)
-            parameters = dict(ascending=ascending, inplace=True, ignore_index=False)
-            self.table.sort_values(column, axis=0, **parameters)
+#    def reset(self):
+#        if not bool(self): return
+#        with self.mutex:
+#            self.table.reset_index(drop=True, inplace=True)
 
-    def reset(self):
-        with self.mutex:
-            self.table.reset_index(drop=True, inplace=True)
+#    def unique(self, columns):
+#        if not bool(self): return
+#        assert isinstance(columns, list)
+#        columns = list(map(self.stack, columns))
+#        with self.mutex:
+#            self.table.drop_duplicates(columns, keep="last", inplace=True)
 
+#    def sort(self, column, reverse):
+#        if not bool(self): return
+#        assert not isinstance(column, list) and isinstance(reverse, bool)
+#        column = self.stack(column)
+#        ascending = not bool(reverse)
+#        with self.mutex:
+#            parameters = dict(ascending=ascending, inplace=True, ignore_index=False)
+#            self.table.sort_values(column, axis=0, **parameters)
+
+    @property
+    def string(self): return str(self.view(self.table))
     @property
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
+
     @property
     def dataframe(self): return self.table
-
     @property
     def index(self): return self.table.index
     @property
     def columns(self): return self.table.columns
-    @columns.setter
-    def columns(self, columns):
-        dataframe = pd.DataFrame(columns=columns)
-        self.table = dataframe
 
 
 class Tables(object):
