@@ -21,29 +21,34 @@ __license__ = "MIT License"
 
 class ViewMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
+        order = kwargs.get("order", getattr(cls, "__order__", []))
         fields = getattr(cls, "__fields__", {}) | kwargs.get("fields", {})
         values = getattr(cls, "__values__", {})
         update = {key: kwargs.get(key, values.get(key, None)) for key in fields.keys()}
         values = values | update
         cls.__values__ = values
         cls.__fields__ = fields
+        cls.__order__ = order
 
     def __call__(cls, *args, **kwargs):
         fields = {key: field for key, field in cls.__fields__.items()}
         values = {key: value for key, value in cls.__values__.items()}
+        order = list(cls.__order__)
         update = {key: kwargs.get(key, value) for key, value in values.items()}
         values = values | update
-        instance = super(ViewMeta, cls).__call__(*args, fields=fields, values=values, **kwargs)
+        parameters = dict(fields=fields, values=values, order=order)
+        instance = super(ViewMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
 
 class View(ABC, metaclass=ViewMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, fields={}, values={}, **kwargs):
-        assert set(fields.keys()) == set(values.keys())
+    def __init__(self, *args, fields={}, values={}, order=[], **kwargs):
+        assert set(fields.keys()) == set(values.keys()) and isinstance(order, list)
         self.__border = "=" * values.get("width", 250)
         self.__values = values
         self.__fields = fields
+        self.__order = order
 
     def __call__(self, table, *args, **kwargs):
         table = self.execute(table, *args, **kwargs)
@@ -57,23 +62,16 @@ class View(ABC, metaclass=ViewMeta):
     @property
     def parameters(self): return {field: self.values[key] for key, field in self.fields.items()}
     @property
+    def border(self): return self.__border
+    @property
     def values(self): return self.__values
     @property
     def fields(self): return self.__fields
     @property
-    def border(self): return self.__border
+    def order(self): return self.__order
 
 
 class DataframeView(View, fields={"rows": "max_rows", "columns": "max_cols", "width": "line_width", "formats": "formatters", "numbers": "float_format"}):
-    def __init_subclass__(cls, *args, order=[], **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        assert isinstance(order, list)
-        cls.__order__ = order
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__order = self.__class__.__order__
-
     def execute(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
         if bool(dataframe.empty):
@@ -94,41 +92,22 @@ class DataframeView(View, fields={"rows": "max_rows", "columns": "max_cols", "wi
             column = column + tuple([""]) * (length - len(column))
             yield column if len(column) > 1 else column[0]
 
-    @property
-    def order(self): return self.__order
 
-
-class TableMeta(ABCMeta):
-    def __init__(cls, *args, **kwargs):
-        if not any([type(base) is TableMeta for base in cls.__bases__]):
-            return
+class Table(ABC):
+    def __init_subclass__(cls, *args, **kwargs):
         cls.__tabletype__ = kwargs.get("tabletype", getattr(cls, "__tabletype__", None))
         cls.__tableview__ = kwargs.get("tableview", getattr(cls, "__tableview__", None))
-
-    def __call__(cls, *args, **kwargs):
-        assert cls.__tabletype__ is not None
-        assert cls.__tableview__ is not None
-        table = cls.__tabletype__()
-        view = cls.__tableview__()
-        parameters = dict(mutex=multiprocessing.RLock(), view=view)
-        instance = super(TableMeta, cls).__call__(table, *args, **parameters, **kwargs)
-        return instance
-
-
-class Table(ABC, metaclass=TableMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
 
     def __bool__(self): return not self.empty if self.table is not None else False
     def __str__(self): return self.string
     def __len__(self): return self.size
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, table, *args, mutex, view, axes, **kwargs):
+    def __init__(self, *args, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__mutex = mutex
-        self.__table = table
-        self.__view = view
-        self.__axes = axes
+        self.__table = self.__class__.__tabletype__()
+        self.__view = self.__class__.__tableview__()
+        self.__mutex = multiprocessing.RLock()
 
     @property
     @abstractmethod
@@ -141,15 +120,11 @@ class Table(ABC, metaclass=TableMeta):
     def size(self): pass
 
     @property
-    def table(self): return self.__table
-    @table.setter
-    def table(self, table): self.__table = table
-    @property
     def mutex(self): return self.__mutex
     @property
-    def view(self): return self.__view
+    def table(self): return self.__table
     @property
-    def axes(self): return self.__axes
+    def view(self): return self.__view
     @property
     def name(self): return self.__name
 

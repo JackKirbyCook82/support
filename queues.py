@@ -7,7 +7,7 @@ Created on Weds Jul 12 2023
 """
 
 import queue
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 
 from support.pipelines import Producer, Consumer
 from support.mixins import Mixin
@@ -50,33 +50,24 @@ class Requeuer(QueueMixin, Consumer, title="Requeued"):
         self.datastack.write(value, *args, **kwargs)
 
 
-class QueueMeta(ABCMeta):
-    def __init__(cls, *args, **kwargs):
-        if not any([type(base) is QueueMeta for base in cls.__bases__]):
-            return
-        cls.__queuetype__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
+class Queue(ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.__queue__ = kwargs.get("queue", getattr(cls, "__queue__", None))
 
-    def __call__(cls, *args, contents=[], capacity=None, **kwargs):
-        assert cls.__queuetype__ is not None
-        assert isinstance(contents, list)
-        assert (len(contents) <= capacity) if bool(capacity) else True
-        container = cls.__queuetype__(maxsize=capacity if capacity is not None else 0)
-        for content in contents:
-            container.put(content)
-        instance = super(QueueMeta, cls).__call__(container, *args, **kwargs)
-        return instance
-
-
-class Queue(ABC, metaclass=QueueMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
+    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __bool__(self): return not self.empty
     def __len__(self): return self.size
 
-    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, queueable, *args, timeout=None, **kwargs):
+    def __init__(self, *args, contents=[], capacity=None, timeout=None, **kwargs):
+        assert isinstance(contents, list) and (len(contents) <= capacity if bool(capacity) else True)
+        capacity = capacity if capacity is not None else 0
+        container = self.__class__.__queue__
+        assert container is not None
         self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__queue = container(maxsize=capacity)
         self.__timeout = timeout
-        self.__queue = queueable
+        for content in contents:
+            self.put(content)
 
     @abstractmethod
     def write(self, value, *args, **kwargs): pass
@@ -108,6 +99,7 @@ class StandardQueue(Queue):
 
 class PriorityQueue(Queue):
     def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
         ascending = kwargs.get("ascending", getattr(cls, "__ascending__", True))
         assert isinstance(ascending, bool)
         cls.__ascending__ = ascending
@@ -136,10 +128,10 @@ class PriorityQueue(Queue):
     def priority(self): return self.__priority
 
 
-class FIFOQueue(StandardQueue, queuetype=queue.Queue): pass
-class LIFOQueue(StandardQueue, queuetype=queue.LifoQueue): pass
-class HIPOQueue(PriorityQueue, queuetype=queue.PriorityQueue, ascending=True): pass
-class LIPOQueue(PriorityQueue, queuetype=queue.PriorityQueue, ascending=False): pass
+class FIFOQueue(StandardQueue, queue=queue.Queue): pass
+class LIFOQueue(StandardQueue, queue=queue.LifoQueue): pass
+class HIPOQueue(PriorityQueue, queue=queue.PriorityQueue, ascending=True): pass
+class LIPOQueue(PriorityQueue, queue=queue.PriorityQueue, ascending=False): pass
 
 
 class Queues(object):
