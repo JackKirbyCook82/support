@@ -144,24 +144,6 @@ class Table(ABC):
     def name(self): return self.__name
 
 
-class DataframeMerge(ntuple("Merge", "left right")):
-    def __new__(cls, left, right, *args, how, on, **kwargs):
-        assert isinstance(left, pd.DataFrame) and isinstance(right, pd.DataFrame) and isinstance(on, list)
-        length = lambda cols: int(cols.nlevels) if isinstance(cols, pd.MultiIndex) else 0
-        assert length(left.columns) == length(right.columns)
-        merge = lambda suffix: lambda col: f"{str(col)}|{suffix}" if col not in on else str(col)
-        unmerge = lambda suffix: lambda col: str(col).rstrip(f"|{suffix}") if col not in on else str(col)
-        columns = set(left.columns) | set(right.columns)
-        left = left.rename(columns=merge("left"), inplace=False, level=0)
-        right = right.rename(columns=merge("right"), inplace=False, level=0)
-        dataframe = pd.merge(left, right, how=how, on=on)
-        left = dataframe.rename(columns=unmerge("left"), inplace=False, level=0)
-        right = dataframe.rename(columns=unmerge("right"), inplace=False, level=0)
-        left = left[[column for column in columns if column in left.columns]]
-        right = right[[column for column in columns if column in right.columns]]
-        return super().__new__(cls, left, right)
-
-
 class DataframeTable(Table, tabletype=pd.DataFrame):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
