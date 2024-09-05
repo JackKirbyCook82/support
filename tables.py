@@ -8,9 +8,12 @@ Created on Weds Jul 12 2023
 
 import multiprocessing
 import pandas as pd
+from itertools import product
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
+
+from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -97,6 +100,7 @@ class Table(ABC):
     def __init_subclass__(cls, *args, **kwargs):
         cls.__tabletype__ = kwargs.get("tabletype", getattr(cls, "__tabletype__", None))
         cls.__tableview__ = kwargs.get("tableview", getattr(cls, "__tableview__", None))
+        cls.__tableaxes__ = kwargs.get("tableaxes", getattr(cls, "__tableaxes__", None))
 
     def __bool__(self): return not self.empty if self.table is not None else False
     def __str__(self): return self.string
@@ -107,7 +111,16 @@ class Table(ABC):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__table = self.__class__.__tabletype__()
         self.__view = self.__class__.__tableview__()
+        self.__axes = self.__class__.__tableaxes__
         self.__mutex = multiprocessing.RLock()
+
+    def __setitem__(self, locator, value): self.set(locator, value)
+    def __getitem__(self, locator): return self.get(locator)
+
+    @abstractmethod
+    def get(self, locator): pass
+    @abstractmethod
+    def set(self, locator, value): pass
 
     @property
     @abstractmethod
@@ -126,16 +139,9 @@ class Table(ABC):
     @property
     def view(self): return self.__view
     @property
+    def axes(self): return self.__axes
+    @property
     def name(self): return self.__name
-
-
-class DataframeMask(ntuple("Mask", "positive negative")):
-    def __new__(cls, dataframe, *args, function, **kwargs):
-        assert callable(function)
-        mask = function(dataframe)
-        positive = dataframe.where(mask).dropna(how="all", inplace=False)
-        negative = dataframe.where(~mask).dropna(how="all", inplace=False)
-        return super().__new__(cls, positive, negative)
 
 
 class DataframeMerge(ntuple("Merge", "left right")):
@@ -157,67 +163,96 @@ class DataframeMerge(ntuple("Merge", "left right")):
 
 
 class DataframeTable(Table, tabletype=pd.DataFrame):
-#    def __init__(self, *args, contents=None, **kwargs):
-#        super().__init__(*args, **kwargs)
-#        assert isinstance(contents, (pd.DataFrame, type(None)))
-#        assert contents.columns == self.axes if contents is not None else True
-#        if contents is None: self.table.columns = self.axes
-#        else: self.table = contents
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.table.columns = self.header
 
-#    def stack(self, column):
-#        if not isinstance(self.table.columns, pd.MultiIndex): return column
-#        column = tuple([column]) if not isinstance(column, tuple) else column
-#        length = self.columns.nlevels - len(column)
-#        column = column + tuple([""]) * length
-#        return column
+    def get(self, locator):
+        index, columns = self.locator(locator)
+        return self.table.iloc[index, columns]
 
-#    def combine(self, other):
-#        assert isinstance(other, type(self))
-#        assert self.columns == other.columns
-#        with self.mutex:
-#            dataframes = [self.dataframe, other.dataframe]
-#            self.table = pd.concat(dataframes, axis=0)
+    def set(self, locator, value):
+        index, columns = self.locator(locator)
+        self.table.iloc[index, columns] = value
 
-#    def where(self, function):
-#        if not bool(self): return
-#        with self.mutex:
-#            pass
-#            self.table = self.separate(function).positive
+    def locator(self, locator):
+        default = slice(None, None, None)
+        locator = locator if isinstance(locator, tuple) else (default, locator)
+        index, columns = locator
+        assert isinstance(index, slice) and isinstance(columns, (str, list))
+        columns = [columns] if isinstance(columns, str) else columns
+        columns = [self.stacker(column) for column in columns]
+        columns = [list(self.columns).index(value) for value in columns]
+        return index, columns
 
-#    def remove(self, function):
-#        if not bool(self): return
-#        with self.mutex:
-#            pass
-#            self.table = self.separate(function).negative
+    def stacker(self, column):
+        if isinstance(self.columns, pd.MultiIndex):
+            column = tuple([column]) if isinstance(column, tuple) else column
+            length = self.columns.nlevels - len(column)
+            column = column + tuple([""]) * length
+        return column
 
-#    def change(self, function, column, value):
-#        if not bool(self): return
-#        assert callable(function)
-#        column = self.stack(column)
-#        with self.mutex:
-#            mask = function(self.dataframe)
-#            self.table.loc[mask, column] = value
+    def combine(self, other):
+        assert isinstance(other, pd.dataframe)
+        with self.mutex:
+            dataframes = [self.dataframe, other.dataframe]
+            self.table = pd.concat(dataframes, axis=0)
 
-#    def reset(self):
-#        if not bool(self): return
-#        with self.mutex:
-#            self.table.reset_index(drop=True, inplace=True)
+    def where(self, function):
+        if not bool(self): return
+        with self.mutex:
+            assert callable(function)
+            mask = function(self)
+            self.table.where(mask, inplace=True)
+            self.table.dropna(how="all", inplace=True)
 
-#    def unique(self, columns):
-#        if not bool(self): return
-#        assert isinstance(columns, list)
-#        columns = list(map(self.stack, columns))
-#        with self.mutex:
-#            self.table.drop_duplicates(columns, keep="last", inplace=True)
+    def remove(self, function):
+        if not bool(self): return
+        with self.mutex:
+            assert callable(function)
+            mask = ~ function(self)
+            self.table.where(mask, inplace=True)
+            self.table.dropna(how="all", inplace=True)
 
-#    def sort(self, column, reverse):
-#        if not bool(self): return
-#        assert not isinstance(column, list) and isinstance(reverse, bool)
-#        column = self.stack(column)
-#        ascending = not bool(reverse)
-#        with self.mutex:
-#            parameters = dict(ascending=ascending, inplace=True, ignore_index=False)
-#            self.table.sort_values(column, axis=0, **parameters)
+    def change(self, function, column, value):
+        if not bool(self): return
+        with self.mutex:
+            assert callable(function)
+            column = self.stacker(column)
+            mask = function(self)
+            self.table.loc[mask, column] = value
+
+    def unique(self, columns, reverse=True):
+        if not bool(self): return
+        with self.mutex:
+            columns = [self.stacker(column) for column in columns]
+            keep = ("last" if bool(reverse) else "first")
+            parameters = dict(keep=keep, inplace=True)
+            self.table.drop_duplicates(columns, **parameters)
+
+    def sort(self, column, reverse=True):
+        if not bool(self): return
+        with self.mutex:
+            column = self.stacker(column)
+            ascending = not bool(reverse)
+            parameters = dict(ascending=ascending, axis=0, ignore_index=False, inplace=True)
+            self.table.sort_values(column, **parameters)
+
+    def reset(self):
+        if not bool(self): return
+        with self.mutex:
+            self.table.reset_index(drop=True, inplace=True)
+
+    @property
+    def header(self):
+        assert all([isinstance(axis, (str, tuple)) for axis in self.axes])
+        length = lambda axis: len(axis) if isinstance(axis, tuple) else 0
+        length = max(list(map(length, self.axes)))
+        difference = lambda axis: length - len(axis)
+        astuple = lambda axis: tuple([axis]) if isinstance(axis, str) else tuple(axis)
+        pad = lambda axis: astuple(axis) + tuple([""]) * difference(axis)
+        header = list(map(pad, self.axes)) if length > 0 else list(self.axes)
+        return header
 
     @property
     def string(self): return str(self.view(self.table))
