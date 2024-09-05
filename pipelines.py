@@ -16,7 +16,7 @@ from support.mixins import Mixin
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Stage", "Producer", "Processor", "Consumer"]
+__all__ = ["Stage", "Routine", "Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -96,9 +96,10 @@ class Stage(Mixin, ABC):
     def __call__(self, *args, **kwargs):
         return self.execute(*args, **kwargs)
 
-    def report(self, *args, variable, elapsed, **kwargs):
+    def report(self, *args, variable=None, elapsed, **kwargs):
         if not bool(self.reporting): return
-        string = f"{str(self.title)}: {repr(self)}|{str(variable)}[{elapsed:.02f}s]"
+        if variable is None: string = f"{str(self.title)}: {repr(self)}[{elapsed:.02f}s]"
+        else: string = f"{str(self.title)}: {repr(self)}|{str(variable)}[{elapsed:.02f}s]"
         __logger__.info(string)
 
     @abstractmethod
@@ -112,6 +113,18 @@ class Stage(Mixin, ABC):
     def title(self): return self.__title
     @property
     def name(self): return self.__name
+
+
+class Routine(Stage, ABC, title="Routined"):
+    def execute(self, *args, **kwargs):
+        assert not bool(args)
+        start = time.time()
+        self.routine(*args, **kwargs)
+        elapsed = time.time() - start
+        self.report(elapsed=elapsed)
+
+    @abstractmethod
+    def routine(self, *args, **kwargs): pass
 
 
 class Producer(Stage, ABC, title="Produced"):

@@ -14,7 +14,7 @@ import threading
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["MainThread", "SideThread", "CycleThread"]
+__all__ = ["RoutineThread", "RepeatingThread"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -67,11 +67,7 @@ class Thread(object):
     def name(self): return self.__name
 
 
-class MainThread(Thread):
-    pass
-
-
-class SideThread(Thread, threading.Thread):
+class RoutineThread(Thread, threading.Thread):
     def __init__(self, *args, **kwargs):
         Thread.__init__(self, *args, **kwargs)
         threading.Thread.__init__(self, name=self.name, daemon=False)
@@ -86,9 +82,9 @@ class SideThread(Thread, threading.Thread):
         __logger__.info(f"Stopped: {repr(self)}")
 
 
-class CycleThread(SideThread):
+class RepeatingThread(Thread, threading.Thread):
     def __init__(self, *args, wait=None, **kwargs):
-        SideThread.__init__(self, *args, **kwargs)
+        Thread.__init__(self, *args, **kwargs)
         self.__cycling = True
         self.__wait = wait
 
