@@ -8,12 +8,9 @@ Created on Weds Jul 12 2023
 
 import multiprocessing
 import pandas as pd
-from itertools import product
 from abc import ABC, ABCMeta, abstractmethod
-from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
-from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -96,23 +93,34 @@ class DataframeView(View, fields={"rows": "max_rows", "columns": "max_cols", "wi
             yield column if len(column) > 1 else column[0]
 
 
-class Table(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
+class TableMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        if not any([type(base) is TableMeta for base in cls.__bases__]):
+            return
         cls.__tabletype__ = kwargs.get("tabletype", getattr(cls, "__tabletype__", None))
         cls.__tableview__ = kwargs.get("tableview", getattr(cls, "__tableview__", None))
         cls.__tableaxes__ = kwargs.get("tableaxes", getattr(cls, "__tableaxes__", None))
+
+    def __call__(cls, *args, **kwargs):
+        parameters = dict(tabledata=cls.__tabletype__(), tableview=cls.__tableview__(), tableaxes=cls.__tableaxes__())
+        instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
+        return instance
+
+
+class Table(ABC, metaclass=TableMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
 
     def __bool__(self): return not self.empty if self.table is not None else False
     def __str__(self): return self.string
     def __len__(self): return self.size
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, tabledata, tableview, tableaxes, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__table = self.__class__.__tabletype__()
-        self.__view = self.__class__.__tableview__()
-        self.__axes = self.__class__.__tableaxes__
         self.__mutex = multiprocessing.RLock()
+        self.__table = tabledata
+        self.__view = tableview
+        self.__axes = tableaxes
 
     def __setitem__(self, locator, value): self.set(locator, value)
     def __getitem__(self, locator): return self.get(locator)
@@ -133,9 +141,11 @@ class Table(ABC):
     def size(self): pass
 
     @property
-    def mutex(self): return self.__mutex
-    @property
     def table(self): return self.__table
+    @table.setter
+    def table(self, table): self.__table = table
+    @property
+    def mutex(self): return self.__mutex
     @property
     def view(self): return self.__view
     @property
@@ -145,10 +155,6 @@ class Table(ABC):
 
 
 class DataframeTable(Table, tabletype=pd.DataFrame):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.table.columns = self.header
-
     def get(self, locator):
         index, columns = self.locator(locator)
         return self.table.iloc[index, columns]
@@ -169,16 +175,15 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
 
     def stacker(self, column):
         if isinstance(self.columns, pd.MultiIndex):
-            column = tuple([column]) if isinstance(column, tuple) else column
+            column = tuple([column]) if not isinstance(column, tuple) else column
             length = self.columns.nlevels - len(column)
             column = column + tuple([""]) * length
         return column
 
-    def combine(self, other):
-        assert isinstance(other, pd.dataframe)
+    def combine(self, dataframe):
+        assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
-            dataframes = [self.dataframe, other.dataframe]
-            self.table = pd.concat(dataframes, axis=0)
+            self.table = pd.concat([self.dataframe, dataframe], axis=0) if bool(self) else dataframe
 
     def where(self, function):
         if not bool(self): return
@@ -192,9 +197,19 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
         if not bool(self): return
         with self.mutex:
             assert callable(function)
-            mask = ~ function(self)
-            self.table.where(mask, inplace=True)
+            mask = function(self)
+            self.table.where(~mask, inplace=True)
             self.table.dropna(how="all", inplace=True)
+
+    def extract(self, function):
+        if not bool(self): return
+        with self.mutex:
+            assert callable(function)
+            mask = function(self)
+            dataframe = self.table.where(mask, inplace=False)
+            self.table.where(~mask, inplace=True)
+            self.table.dropna(how="all", inplace=True)
+            return dataframe
 
     def change(self, function, column, value):
         if not bool(self): return
@@ -224,17 +239,6 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
         if not bool(self): return
         with self.mutex:
             self.table.reset_index(drop=True, inplace=True)
-
-    @property
-    def header(self):
-        assert all([isinstance(axis, (str, tuple)) for axis in self.axes])
-        length = lambda axis: len(axis) if isinstance(axis, tuple) else 0
-        length = max(list(map(length, self.axes)))
-        difference = lambda axis: length - len(axis)
-        astuple = lambda axis: tuple([axis]) if isinstance(axis, str) else tuple(axis)
-        pad = lambda axis: astuple(axis) + tuple([""]) * difference(axis)
-        header = list(map(pad, self.axes)) if length > 0 else list(self.axes)
-        return header
 
     @property
     def string(self): return str(self.view(self.table))

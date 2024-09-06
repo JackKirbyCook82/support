@@ -85,6 +85,7 @@ class RoutineThread(Thread, threading.Thread):
 class RepeatingThread(Thread, threading.Thread):
     def __init__(self, *args, wait=None, **kwargs):
         Thread.__init__(self, *args, **kwargs)
+        threading.Thread.__init__(self, name=self.name, daemon=False)
         self.__cycling = True
         self.__wait = wait
 

@@ -7,10 +7,9 @@ Created on Weds Jul 12 2023
 """
 
 import queue
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 
 from support.pipelines import Producer, Consumer
-from support.mixins import Mixin
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -19,17 +18,13 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class QueueMixin(Mixin):
+class Dequeuer(Producer, title="Dequeued"):
     def __init__(self, *args, datastack, **kwargs):
         assert isinstance(datastack, Queue)
         super().__init__(*args, **kwargs)
         self.__datastack = datastack
 
-    @property
-    def datastack(self): return self.__datastack
-
-
-class Dequeuer(QueueMixin, Producer, title="Dequeued"):
+    def read(self, *args, **kwargs): return self.datastack.read(*args, **kwargs)
     def producer(self, *args, **kwargs):
         while bool(self.datastack):
             variable = self.read(*args, **kwargs)
@@ -37,37 +32,53 @@ class Dequeuer(QueueMixin, Producer, title="Dequeued"):
             yield contents
             self.datastack.complete()
 
-    def read(self, *args, **kwargs):
-        return self.datastack.read(*args, **kwargs)
+    @property
+    def datastack(self): return self.__datastack
 
 
-class Requeuer(QueueMixin, Consumer, title="Requeued"):
+class Requeuer(Consumer, title="Requeued"):
+    def __init__(self, *args, datastack, **kwargs):
+        assert isinstance(datastack, Queue)
+        super().__init__(*args, **kwargs)
+        self.__datastack = datastack
+
+    def write(self, value, *args, **kwargs): self.datastack.write(value, *args, **kwargs)
     def consumer(self, contents, *args, **kwargs):
         variable = contents[self.variable]
         self.write(variable, *args, **kwargs)
 
-    def write(self, value, *args, **kwargs):
-        self.datastack.write(value, *args, **kwargs)
+    @property
+    def datastack(self): return self.__datastack
 
 
-class Queue(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.__queue__ = kwargs.get("queue", getattr(cls, "__queue__", None))
+class QueueMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        if not any([type(base) is QueueMeta for base in cls.__bases__]):
+            return
+        cls.__queuetype__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
+
+    def __call__(cls, *args, contents=[], capacity=None, **kwargs):
+        assert isinstance(contents, list) and (len(contents) <= capacity if bool(capacity) else True)
+        capacity = capacity if capacity is not None else 0
+        queuedata = cls.__queuetype__(maxsize=capacity)
+        parameters = dict(queuedata=queuedata)
+        instance = super(QueueMeta, cls).__call__(*args, **parameters, **kwargs)
+        for content in contents:
+            instance.put(content)
+        return instance
+
+
+class Queue(ABC, metaclass=QueueMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __bool__(self): return not self.empty
     def __len__(self): return self.size
 
-    def __init__(self, *args, contents=[], capacity=None, timeout=None, **kwargs):
-        assert isinstance(contents, list) and (len(contents) <= capacity if bool(capacity) else True)
-        capacity = capacity if capacity is not None else 0
-        container = self.__class__.__queue__
-        assert container is not None
+    def __init__(self, *args, queuedata, timeout=None, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__queue = container(maxsize=capacity)
         self.__timeout = timeout
-        for content in contents:
-            self.put(content)
+        self.__queue = queuedata
 
     @abstractmethod
     def write(self, value, *args, **kwargs): pass
@@ -128,10 +139,10 @@ class PriorityQueue(Queue):
     def priority(self): return self.__priority
 
 
-class FIFOQueue(StandardQueue, queue=queue.Queue): pass
-class LIFOQueue(StandardQueue, queue=queue.LifoQueue): pass
-class HIPOQueue(PriorityQueue, queue=queue.PriorityQueue, ascending=True): pass
-class LIPOQueue(PriorityQueue, queue=queue.PriorityQueue, ascending=False): pass
+class FIFOQueue(StandardQueue, queuetype=queue.Queue): pass
+class LIFOQueue(StandardQueue, queuetype=queue.LifoQueue): pass
+class HIPOQueue(PriorityQueue, queuetype=queue.PriorityQueue, ascending=True): pass
+class LIPOQueue(PriorityQueue, queuetype=queue.PriorityQueue, ascending=False): pass
 
 
 class Queues(object):

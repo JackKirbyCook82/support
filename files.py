@@ -20,7 +20,6 @@ from collections import OrderedDict as ODict
 from support.pipelines import Producer, Consumer
 from support.dispatchers import kwargsdispatcher
 from support.meta import SingletonMeta, RegistryMeta
-from support.mixins import Mixin
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -42,27 +41,17 @@ nc_eager = FileMethod(FileTypes.NC, FileTimings.EAGER)
 nc_lazy = FileMethod(FileTypes.NC, FileTimings.LAZY)
 
 
-class StreamMixin(Mixin):
+class Loader(Producer, ABC, title="Loaded"):
     def __init_subclass__(cls, *args, **kwargs):
         super().__init_subclass__(*args, **kwargs)
         cls.__function__ = kwargs.get("function", getattr(cls, "__function__", None))
 
-    def __init__(self, *args, datafile, **kwargs):
+    def __init__(self, *args, datafile, directory, wait=0, **kwargs):
         assert isinstance(datafile, dict) and all([isinstance(file, File) for file in datafile.keys()])
         super().__init__(*args, **kwargs)
         self.__function = self.__class__.__function__
-        self.__datafile = datafile
-
-    @property
-    def datafile(self): return self.__datafile
-    @property
-    def function(self): return self.__function
-
-
-class Loader(StreamMixin, Producer, ABC, title="Loaded"):
-    def __init__(self, *args, directory, wait=0, **kwargs):
-        super().__init__(*args, **kwargs)
         self.__directory = directory
+        self.__datafile = datafile
         self.__wait = int(wait)
 
     def producer(self, *args, **kwargs):
@@ -82,12 +71,19 @@ class Loader(StreamMixin, Producer, ABC, title="Loaded"):
     @property
     def directory(self): return self.__directory
     @property
-    def function(self): return self.__funciton
+    def datafile(self): return self.__datafile
+    @property
+    def function(self): return self.__function
     @property
     def wait(self): return self.__wait
 
 
-class Saver(StreamMixin, Consumer, ABC, title="Saved"):
+class Saver(Consumer, ABC, title="Saved"):
+    def __init__(self, *args, datafile, **kwargs):
+        assert isinstance(datafile, dict) and all([isinstance(file, File) for file in datafile.keys()])
+        super().__init__(*args, **kwargs)
+        self.__datafile = datafile
+
     def consumer(self, contents, *args, **kwargs):
         variable = contents[self.variable]
         self.write(contents, *args, variable=variable, **kwargs)
@@ -98,6 +94,9 @@ class Saver(StreamMixin, Consumer, ABC, title="Saved"):
             if content is None:
                 continue
             file.write(content, *args, mode=mode, **kwargs)
+
+    @property
+    def datafile(self): return self.__datafile
 
 
 class FileLock(dict, metaclass=SingletonMeta):
@@ -118,7 +117,7 @@ class FileData(ABC, metaclass=RegistryMeta):
     def empty(content): pass
 
 
-class Dataframe(FileData, register=pd.DataFrame):
+class FileDataframe(FileData, register=pd.DataFrame):
     def __init__(self, *args, formatters, parsers, dates, types, **kwargs):
         self.__formatters = formatters
         self.__parsers = parsers
@@ -174,9 +173,6 @@ class Dataframe(FileData, register=pd.DataFrame):
 
 
 class FileMeta(ABCMeta):
-    parameters = ("datatype", "variable", "filename", "header", "types", "dates", "formatters", "parsers")
-    dunder = lambda parameter: f"__{parameter}__"
-
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is FileMeta for base in cls.__bases__]):
             return
@@ -185,17 +181,13 @@ class FileMeta(ABCMeta):
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
         cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
         cls.__filename__ = kwargs.get("filename", getattr(cls, "__filename__", None))
-        cls.__header__ = kwargs.get("header", getattr(cls, "__header__", None))
         cls.__types__ = kwargs.get("types", getattr(cls, "__types__", None))
         cls.__dates__ = kwargs.get("dates", getattr(cls, "__dates__", None))
 
     def __call__(cls, *args, **kwargs):
-        assert all([getattr(cls, cls.dunder(parameter), None) is not None for parameter in cls.parameters])
-        formatters = {key: value for key, value in cls.__formatters__.items() if key in cls.__header__}
-        parsers = {key: value for key, value in cls.__parsers__.items() if key in cls.__header__}
-        types = {key: value for key, value in cls.__types__.items() if key in cls.__header__}
-        dates = {key: value for key, value in cls.__dates__.items() if key in cls.__header__}
-        parameters = dict(parsers=parsers, formatters=formatters, types=types, dates=dates)
+        parameters = ("datatype", "variable", "filename", "types", "dates", "formatters", "parsers")
+        assert all([getattr(cls, f"__{parameter}__", None) is not None for parameter in parameters])
+        parameters = dict(parsers=cls.__parsers__, formatters=cls.__formatters__, types=cls.__types__, dates=cls.__dates__)
         filedata = FileData[cls.__datatype__](*args, **parameters, **kwargs)
         parameters = dict(variable=cls.__variable__, filename=cls.__filename__, filedata=filedata, mutex=FileLock())
         instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
@@ -211,7 +203,7 @@ class File(ABC, metaclass=FileMeta):
         return instance
 
     def __repr__(self): return self.name
-    def __init__(self, *args, repository, mutex, variable, filename, filetype, filedata, filetiming, **kwargs):
+    def __init__(self, *args, filedata, filename, filetype, filetiming, repository, mutex, variable, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__repository = repository
         self.__filetiming = filetiming
