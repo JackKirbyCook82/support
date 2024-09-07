@@ -46,12 +46,12 @@ class Loader(Producer, ABC, title="Loaded"):
         super().__init_subclass__(*args, **kwargs)
         cls.__function__ = kwargs.get("function", getattr(cls, "__function__", None))
 
-    def __init__(self, *args, datafile, directory, wait=0, **kwargs):
-        assert isinstance(datafile, dict) and all([isinstance(file, File) for file in datafile.keys()])
+    def __init__(self, *args, files, directory, wait=0, **kwargs):
+        assert isinstance(files, dict) and all([isinstance(file, File) for file in files.keys()])
         super().__init__(*args, **kwargs)
         self.__function = self.__class__.__function__
         self.__directory = directory
-        self.__datafile = datafile
+        self.__files = files
         self.__wait = int(wait)
 
     def producer(self, *args, **kwargs):
@@ -62,7 +62,7 @@ class Loader(Producer, ABC, title="Loaded"):
             time.sleep(self.wait)
 
     def read(self, *args, **kwargs):
-        for file, mode in self.datafile.items():
+        for file, mode in self.files.items():
             content = file.read(*args, mode=mode, **kwargs)
             if content is None:
                 continue
@@ -71,32 +71,32 @@ class Loader(Producer, ABC, title="Loaded"):
     @property
     def directory(self): return self.__directory
     @property
-    def datafile(self): return self.__datafile
-    @property
     def function(self): return self.__function
+    @property
+    def files(self): return self.__files
     @property
     def wait(self): return self.__wait
 
 
 class Saver(Consumer, ABC, title="Saved"):
-    def __init__(self, *args, datafile, **kwargs):
-        assert isinstance(datafile, dict) and all([isinstance(file, File) for file in datafile.keys()])
+    def __init__(self, *args, files, **kwargs):
+        assert isinstance(files, dict) and all([isinstance(file, File) for file in files.keys()])
         super().__init__(*args, **kwargs)
-        self.__datafile = datafile
+        self.__files = files
 
     def consumer(self, contents, *args, **kwargs):
         variable = contents[self.variable]
         self.write(contents, *args, variable=variable, **kwargs)
 
     def write(self, contents, *args, **kwargs):
-        for file, mode in self.datafile.items():
+        for file, mode in self.files.items():
             content = contents.get(file.variable, None)
             if content is None:
                 continue
             file.write(content, *args, mode=mode, **kwargs)
 
     @property
-    def datafile(self): return self.__datafile
+    def files(self): return self.__files
 
 
 class FileLock(dict, metaclass=SingletonMeta):
@@ -230,7 +230,6 @@ class File(ABC, metaclass=FileMeta):
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
             content = self.filedata.load(*args, **parameters, **kwargs)
-            content = self.parse(content, *args, **kwargs)
         return content
 
     def write(self, content, *args, mode, **kwargs):
@@ -238,7 +237,6 @@ class File(ABC, metaclass=FileMeta):
         file = self.file(*args, **kwargs)
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
-            content = self.format(content, *args, **kwargs)
             self.filedata.save(content, *args, **parameters, **kwargs)
         __logger__.info("Saved: {}".format(str(file)))
 
@@ -247,11 +245,6 @@ class File(ABC, metaclass=FileMeta):
         extension = str(self.filetype.name).lower()
         filename = self.filename(variable)
         return os.path.join(directory, ".".join([filename, extension]))
-
-    @staticmethod
-    def parse(content, *args, **kwargs): return content
-    @staticmethod
-    def format(content, *args, **kwargs): return content
 
     @property
     def repository(self): return self.__repository

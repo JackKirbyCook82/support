@@ -7,6 +7,7 @@ Created on Fri Aug 27 2021
 """
 
 import time
+import types
 import multiprocessing
 from abc import ABCMeta
 from inspect import isclass
@@ -147,12 +148,11 @@ class SingletonMeta(Meta):
 
 
 class ParametersMeta(Meta):
-    def __iter__(cls): return iter(cls.parameters.items())
+    def __iter__(cls): return iter(list(cls.__parameters__.items()))
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(ParametersMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        parameters = getattr(cls, "__parameters__", {})
-        update = {key: value for key, value in attrs.items()}
-        cls.__parameters__ = parameters | update
+        update = {key: value for key, value in attrs.items() if not isinstance(value, (types.MethodType, types.FunctionType))}
+        cls.__parameters__ = getattr(cls, "__parameters__", {}) | update
 
     @property
     def parameters(cls): return cls.__parameters__

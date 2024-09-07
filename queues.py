@@ -19,36 +19,36 @@ __license__ = "MIT License"
 
 
 class Dequeuer(Producer, title="Dequeued"):
-    def __init__(self, *args, datastack, **kwargs):
-        assert isinstance(datastack, Queue)
+    def __init__(self, *args, **kwargs):
+        assert isinstance(kwargs["queue"], Queue)
         super().__init__(*args, **kwargs)
-        self.__datastack = datastack
+        self.__queue = kwargs["queue"]
 
-    def read(self, *args, **kwargs): return self.datastack.read(*args, **kwargs)
+    def read(self, *args, **kwargs): return self.queue.read(*args, **kwargs)
     def producer(self, *args, **kwargs):
-        while bool(self.datastack):
+        while bool(self.queue):
             variable = self.read(*args, **kwargs)
             contents = {self.variable: variable}
             yield contents
             self.datastack.complete()
 
     @property
-    def datastack(self): return self.__datastack
+    def queue(self): return self.__queue
 
 
 class Requeuer(Consumer, title="Requeued"):
     def __init__(self, *args, datastack, **kwargs):
-        assert isinstance(datastack, Queue)
+        assert isinstance(kwargs["queue"], Queue)
         super().__init__(*args, **kwargs)
-        self.__datastack = datastack
+        self.__queue = kwargs["queue"]
 
-    def write(self, value, *args, **kwargs): self.datastack.write(value, *args, **kwargs)
+    def write(self, value, *args, **kwargs): self.queue.write(value, *args, **kwargs)
     def consumer(self, contents, *args, **kwargs):
         variable = contents[self.variable]
         self.write(variable, *args, **kwargs)
 
     @property
-    def datastack(self): return self.__datastack
+    def queue(self): return self.__queue
 
 
 class QueueMeta(ABCMeta):
@@ -60,9 +60,8 @@ class QueueMeta(ABCMeta):
     def __call__(cls, *args, contents=[], capacity=None, **kwargs):
         assert isinstance(contents, list) and (len(contents) <= capacity if bool(capacity) else True)
         capacity = capacity if capacity is not None else 0
-        queuedata = cls.__queuetype__(maxsize=capacity)
-        parameters = dict(queuedata=queuedata)
-        instance = super(QueueMeta, cls).__call__(*args, **parameters, **kwargs)
+        wrapped = cls.__queuetype__(maxsize=capacity)
+        instance = super(QueueMeta, cls).__call__(*args, queue=wrapped, **kwargs)
         for content in contents:
             instance.put(content)
         return instance
@@ -75,10 +74,10 @@ class Queue(ABC, metaclass=QueueMeta):
     def __bool__(self): return not self.empty
     def __len__(self): return self.size
 
-    def __init__(self, *args, queuedata, timeout=None, **kwargs):
+    def __init__(self, *args, timeout=None, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__queuedata = kwargs["queue"]
         self.__timeout = timeout
-        self.__queue = queuedata
 
     @abstractmethod
     def write(self, value, *args, **kwargs): pass
@@ -86,10 +85,10 @@ class Queue(ABC, metaclass=QueueMeta):
     def read(self, *args, **kwargs): pass
 
     @property
-    def empty(self): return self.queue.empty()
+    def empty(self): return self.queuedata.empty()
     @property
-    def size(self): return self.queue.qsize()
-    def complete(self): self.queue.task_done()
+    def size(self): return self.queuedata.qsize()
+    def complete(self): self.queuedata.task_done()
 
     @property
     def timeout(self): return self.__timeout

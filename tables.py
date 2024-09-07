@@ -102,7 +102,7 @@ class TableMeta(ABCMeta):
         cls.__tableaxes__ = kwargs.get("tableaxes", getattr(cls, "__tableaxes__", None))
 
     def __call__(cls, *args, **kwargs):
-        parameters = dict(tabledata=cls.__tabletype__(), tableview=cls.__tableview__(), tableaxes=cls.__tableaxes__())
+        parameters = cls.parameters(table=cls.__tabletype__, view=cls.__tableview__, axes=cls.__tableaxes__)
         instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
@@ -115,16 +115,19 @@ class Table(ABC, metaclass=TableMeta):
     def __len__(self): return self.size
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, *args, tabledata, tableview, tableaxes, **kwargs):
+    def __init__(self, *args, table, view, axes, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__mutex = multiprocessing.RLock()
-        self.__table = tabledata
-        self.__view = tableview
-        self.__axes = tableaxes
+        self.__table = table
+        self.__view = view
+        self.__axes = axes
 
     def __setitem__(self, locator, value): self.set(locator, value)
     def __getitem__(self, locator): return self.get(locator)
 
+    @classmethod
+    @abstractmethod
+    def parameters(cls, *args, **kwargs): pass
     @abstractmethod
     def get(self, locator): pass
     @abstractmethod
@@ -239,6 +242,13 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
         if not bool(self): return
         with self.mutex:
             self.table.reset_index(drop=True, inplace=True)
+
+    @classmethod
+    def parameters(cls, *args, table, view, axes, **kwargs):
+        view = view(*args, **kwargs)
+        axes = axes(*args, **kwargs)
+        table = table(columns=axes.header)
+        return dict(view=view, axes=axes, table=table)
 
     @property
     def string(self): return str(self.view(self.table))
