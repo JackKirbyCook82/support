@@ -186,7 +186,7 @@ class FileMeta(ABCMeta):
 
     def __call__(cls, *args, **kwargs):
         parameters = ("datatype", "variable", "filename", "types", "dates", "formatters", "parsers")
-        assert all([getattr(cls, f"__{parameter}__", None) is not None for parameter in parameters])
+        assert all([parameter is not None for parameter in parameters])
         parameters = dict(parsers=cls.__parsers__, formatters=cls.__formatters__, types=cls.__types__, dates=cls.__dates__)
         filedata = FileData[cls.__datatype__](*args, **parameters, **kwargs)
         parameters = dict(variable=cls.__variable__, filename=cls.__filename__, filedata=filedata, mutex=FileLock())

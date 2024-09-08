@@ -97,12 +97,13 @@ class TableMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is TableMeta for base in cls.__bases__]):
             return
-        cls.__tabletype__ = kwargs.get("tabletype", getattr(cls, "__tabletype__", None))
-        cls.__tableview__ = kwargs.get("tableview", getattr(cls, "__tableview__", None))
-        cls.__tableaxes__ = kwargs.get("tableaxes", getattr(cls, "__tableaxes__", None))
+        cls.__tabletype__ = kwargs.get("type", getattr(cls, "__tabletype__", None))
+        cls.__tableview__ = kwargs.get("view", getattr(cls, "__tableview__", None))
+        cls.__tableaxes__ = kwargs.get("axes", getattr(cls, "__tableaxes__", None))
 
     def __call__(cls, *args, **kwargs):
-        parameters = cls.parameters(table=cls.__tabletype__, view=cls.__tableview__, axes=cls.__tableaxes__)
+        parameters = dict(table=cls.__tabletype__, view=cls.__tableview__, axes=cls.__tableaxes__)
+        parameters = cls.parameters(*args, **parameters, **kwargs)
         instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
@@ -157,7 +158,7 @@ class Table(ABC, metaclass=TableMeta):
     def name(self): return self.__name
 
 
-class DataframeTable(Table, tabletype=pd.DataFrame):
+class DataframeTable(Table, type=pd.DataFrame):
     def get(self, locator):
         index, columns = self.locator(locator)
         return self.table.iloc[index, columns]
@@ -171,17 +172,18 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
         locator = locator if isinstance(locator, tuple) else (default, locator)
         index, columns = locator
         assert isinstance(index, slice) and isinstance(columns, (str, list))
-        columns = [columns] if isinstance(columns, str) else columns
-        columns = [self.stacker(column) for column in columns]
-        columns = [list(self.columns).index(value) for value in columns]
+        if isinstance(columns, list):
+            columns = list(map(self.stack, columns))
+            columns = [list(self.columns).index(column) for column in columns]
+        else:
+            columns = self.stack(columns)
+            columns = list(self.columns).index(columns)
         return index, columns
 
-    def stacker(self, column):
-        if isinstance(self.columns, pd.MultiIndex):
-            column = tuple([column]) if not isinstance(column, tuple) else column
-            length = self.columns.nlevels - len(column)
-            column = column + tuple([""]) * length
-        return column
+    def stack(self, column):
+        if not isinstance(self.columns, pd.MultiIndex): return column
+        column = tuple([column]) if not isinstance(column, tuple) else column
+        return column + tuple([""]) * (self.columns.nlevels - len(column))
 
     def combine(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
@@ -210,6 +212,7 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
             assert callable(function)
             mask = function(self)
             dataframe = self.table.where(mask, inplace=False)
+            dataframe = dataframe.dropna(how="all", inplace=False)
             self.table.where(~mask, inplace=True)
             self.table.dropna(how="all", inplace=True)
             return dataframe
@@ -217,15 +220,16 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
     def change(self, function, column, value):
         if not bool(self): return
         with self.mutex:
-            assert callable(function)
-            column = self.stacker(column)
+            assert callable(function) and isinstance(column, str)
+            column = self.stack(column)
             mask = function(self)
             self.table.loc[mask, column] = value
 
     def unique(self, columns, reverse=True):
         if not bool(self): return
         with self.mutex:
-            columns = [self.stacker(column) for column in columns]
+            assert isinstance(columns, list)
+            columns = [self.stack(column) for column in columns]
             keep = ("last" if bool(reverse) else "first")
             parameters = dict(keep=keep, inplace=True)
             self.table.drop_duplicates(columns, **parameters)
@@ -233,7 +237,8 @@ class DataframeTable(Table, tabletype=pd.DataFrame):
     def sort(self, column, reverse=True):
         if not bool(self): return
         with self.mutex:
-            column = self.stacker(column)
+            assert isinstance(column, str)
+            column = self.stack(column)
             ascending = not bool(reverse)
             parameters = dict(ascending=ascending, axis=0, ignore_index=False, inplace=True)
             self.table.sort_values(column, **parameters)

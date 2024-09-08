@@ -151,7 +151,7 @@ class ParametersMeta(Meta):
     def __iter__(cls): return iter(list(cls.__parameters__.items()))
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(ParametersMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        update = {key: value for key, value in attrs.items() if not isinstance(value, (types.MethodType, types.FunctionType))}
+        update = {key: value for key, value in attrs.items() if not isinstance(value, (types.MethodType, types.FunctionType)) or isinstance(value, types.LambdaType)}
         cls.__parameters__ = getattr(cls, "__parameters__", {}) | update
 
     @property
