@@ -11,12 +11,52 @@ import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 from collections import OrderedDict as ODict
 
+from support.pipelines import Producer, Consumer
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Tables", "Views"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
+
+
+class Reader(Producer, ABC, title="Read"):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__function__ = kwargs.get("function", getattr(cls, "__function__", None))
+
+    def __init__(self, *args, tables, **kwargs):
+        assert isinstance(tables, list) and all([isinstance(table, Table) for table in tables.keys()])
+        super().__init__(*args, **kwargs)
+        self.__function = self.__class__.__function__
+        self.__tables = tables
+
+    def producer(self, *args, **kwargs):
+        pass
+
+    def read(self, *args, **kwargs):
+        pass
+
+    @property
+    def function(self): return self.__function
+    @property
+    def tables(self): return self.__tables
+
+
+class Writer(Consumer, ABC, title="Wrote"):
+    def __init__(self, *args, tables, **kwargs):
+        assert isinstance(tables, list) and all([isinstance(table, Table) for table in tables.keys()])
+        super().__init__(*args, **kwargs)
+        self.__tables = tables
+
+    def consumer(self, contents, *args, **kwargs):
+        pass
+
+    def write(self, contents, *args, **kwargs):
+        pass
+
+    @property
+    def tables(self): return self.__tables
 
 
 class ViewMeta(ABCMeta):
