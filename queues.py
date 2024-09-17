@@ -9,46 +9,11 @@ Created on Weds Jul 12 2023
 import queue
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.pipelines import Producer, Consumer
-
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Dequeuer", "Requeuer", "Queues"]
+__all__ = ["LIFOQueue", "FIFOQueue", "LIPOQueue", "HIPOQueue"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-
-
-class Dequeuer(Producer, title="Dequeued"):
-    def __init__(self, *args, **kwargs):
-        assert isinstance(kwargs["queue"], Queue)
-        super().__init__(*args, **kwargs)
-        self.__queue = kwargs["queue"]
-
-    def read(self, *args, **kwargs): return self.queue.read(*args, **kwargs)
-    def producer(self, *args, **kwargs):
-        while bool(self.queue):
-            variable = self.read(*args, **kwargs)
-            contents = {self.variable: variable}
-            yield contents
-            self.datastack.complete()
-
-    @property
-    def queue(self): return self.__queue
-
-
-class Requeuer(Consumer, title="Requeued"):
-    def __init__(self, *args, datastack, **kwargs):
-        assert isinstance(kwargs["queue"], Queue)
-        super().__init__(*args, **kwargs)
-        self.__queue = kwargs["queue"]
-
-    def write(self, value, *args, **kwargs): self.queue.write(value, *args, **kwargs)
-    def consumer(self, contents, *args, **kwargs):
-        variable = contents[self.variable]
-        self.write(variable, *args, **kwargs)
-
-    @property
-    def queue(self): return self.__queue
 
 
 class QueueMeta(ABCMeta):
@@ -60,8 +25,8 @@ class QueueMeta(ABCMeta):
     def __call__(cls, *args, contents=[], capacity=None, **kwargs):
         assert isinstance(contents, list) and (len(contents) <= capacity if bool(capacity) else True)
         capacity = capacity if capacity is not None else 0
-        wrapped = cls.__queuetype__(maxsize=capacity)
-        instance = super(QueueMeta, cls).__call__(*args, queue=wrapped, **kwargs)
+        instance = cls.__queuetype__(maxsize=capacity)
+        instance = super(QueueMeta, cls).__call__(*args, queue=instance, **kwargs)
         for content in contents:
             instance.put(content)
         return instance
@@ -69,26 +34,25 @@ class QueueMeta(ABCMeta):
 
 class Queue(ABC, metaclass=QueueMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-
-    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __bool__(self): return not self.empty
     def __len__(self): return self.size
 
+    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __init__(self, *args, timeout=None, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__queuedata = kwargs["queue"]
+        self.__queue = kwargs["queue"]
         self.__timeout = timeout
 
     @abstractmethod
-    def write(self, value, *args, **kwargs): pass
+    def write(self, content, *args, **kwargs): pass
     @abstractmethod
     def read(self, *args, **kwargs): pass
 
     @property
-    def empty(self): return self.queuedata.empty()
+    def empty(self): return self.queue.empty()
     @property
-    def size(self): return self.queuedata.qsize()
-    def complete(self): self.queuedata.task_done()
+    def size(self): return self.queue.qsize()
+    def complete(self): self.queue.task_done()
 
     @property
     def timeout(self): return self.__timeout
@@ -99,12 +63,12 @@ class Queue(ABC, metaclass=QueueMeta):
 
 
 class StandardQueue(Queue):
-    def write(self, value, *args, **kwargs):
-        self.queue.put(value, timeout=self.timeout)
+    def write(self, content, *args, **kwargs):
+        self.queue.put(content, timeout=self.timeout)
 
     def read(self, *args, **kwargs):
-        value = self.queue.get(timeout=self.timeout)
-        return value
+        content = self.queue.get(timeout=self.timeout)
+        return content
 
 
 class PriorityQueue(Queue):
@@ -120,17 +84,17 @@ class PriorityQueue(Queue):
         self.__ascending = self.__class__.__ascending__
         self.__priority = priority
 
-    def write(self, value, *args, **kwargs):
-        priority = self.priority(value)
+    def write(self, content, *args, **kwargs):
+        priority = self.priority(content)
         assert isinstance(priority, int)
         multiplier = (int(not self.ascending) * 2) - 1
-        couple = (multiplier * priority, value)
+        couple = (multiplier * priority, content)
         self.queue.put(couple, timeout=self.timeout)
 
     def read(self, *args, **kwargs):
         couple = self.queue.get(timeout=self.timeout)
-        priority, value = couple
-        return value
+        priority, content = couple
+        return content
 
     @property
     def ascending(self): return self.__ascending
@@ -144,11 +108,6 @@ class HIPOQueue(PriorityQueue, queuetype=queue.PriorityQueue, ascending=True): p
 class LIPOQueue(PriorityQueue, queuetype=queue.PriorityQueue, ascending=False): pass
 
 
-class Queues(object):
-    FIFO = FIFOQueue
-    LIFO = LIFOQueue
-    HIPO = HIPOQueue
-    LIPO = LIPOQueue
 
 
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Created on Weds Jul 12 2023
-@name:   Filtering Objects
+@name:   Process Objects
 @author: Jack Kirby Cook
 
 """
@@ -14,7 +14,6 @@ from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 
 from support.dispatchers import typedispatcher
-from support.pipelines import Processor
 from support.mixins import Sizing
 
 __version__ = "1.0.0"
@@ -26,36 +25,24 @@ __logger__ = logging.getLogger(__name__)
 
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
-    def __call__(self, content, *args, **kwargs):
-        column = self.column(content)
-        return self.execute(content, column)
-
-    def column(self, content):
-        column = self.variable
-        if isinstance(content.columns, pd.MultiIndex):
-            column = tuple([column]) if not isinstance(column, tuple) else column
-            length = content.columns.nlevels - len(column)
-            column = column + tuple([""]) * length
-        return column
+    def __call__(self, content): return self.execute(content)
 
     @abstractmethod
-    def execute(self, content, column): pass
-
+    def execute(self, content): pass
 
 class Floor(Criteria):
-    def execute(self, content, column): return content[column] >= self.threshold
+    def execute(self, content): return content[self.variable] >= self.threshold
 
 class Ceiling(Criteria):
-    def execute(self, content, column): return content[column] <= self.threshold
+    def execute(self, content): return content[self.variable] <= self.threshold
 
 class Null(Criteria):
     @typedispatcher
-    def execute(self, content, column): raise TypeError(type(content).__name__)
+    def execute(self, content): raise TypeError(type(content).__name__)
     @execute.register(pd.DataFrame)
-    def dataframe(self, content, column): return content[column].notna()
+    def execute_dataframe(self, content): return content[self.variable].notna()
     @execute.register(xr.Dataset)
-    def dataset(self, content, column): return content[column].notnull()
-
+    def execute_dataset(self, content): return content[self.variable].notnull()
 
 class Criterion(object):
     FLOOR = Floor
@@ -63,7 +50,7 @@ class Criterion(object):
     NULL = Null
 
 
-class Filter(Processor, Sizing, ABC):
+class Filter(Sizing):
     def __init__(self, *args, criterion={}, **kwargs):
         assert isinstance(criterion, dict)
         assert all([issubclass(criteria, Criteria) for criteria in criterion.keys()])
@@ -71,31 +58,36 @@ class Filter(Processor, Sizing, ABC):
         super().__init__(*args, **kwargs)
         criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
-        self.__criterion = criterion
+        self.__criterion = dict(criterion)
+        self.__logger = __logger__
 
-    def filter(self, content, *args, variable, **kwargs):
+    def filter(self, variable, content, *args, **kwargs):
         prior = self.size(content)
-        mask = self.mask(content, *args, **kwargs)
-        content = self.where(content, *args, mask=mask, **kwargs)
+        mask = self.mask(content)
+        content = self.where(content, mask=mask)
         post = self.size(content)
-        string = f"{str(self.title)}: {repr(self)}|{str(variable)}[{prior:.0f}|{post:.0f}]"
-        __logger__.info(string)
+        string = f"Filtered: {repr(self)}|{str(variable)}[{prior:.0f}|{post:.0f}]"
+        self.logger.info(string)
         return content
 
-    def mask(self, content, *args, **kwargs):
-        criterion = [criteria(content, *args, **kwargs) for criteria in self.criterion]
+    def mask(self, content):
+        criterion = [criteria(content) for criteria in self.criterion]
         mask = reduce(lambda x, y: x & y, criterion) if bool(criterion) else None
         return mask
 
     @typedispatcher
-    def where(self, content, *args, mask=None, **kwargs): raise TypeError(type(content).__name__)
+    def where(self, content, mask=None): raise TypeError(type(content).__name__)
     @where.register(xr.Dataset)
-    def where_dataset(self, dataset, *args, mask=None, **kwargs): return dataset.where(mask, drop=True) if bool(mask is not None) else dataset
+    def where_dataset(self, dataset, mask=None): return dataset.where(mask, drop=True) if bool(mask is not None) else dataset
     @where.register(pd.DataFrame)
-    def where_dataframe(self, dataframe, *args, mask=None, **kwargs): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
+    def where_dataframe(self, dataframe, mask=None): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
 
     @property
     def criterion(self): return self.__criterion
+    @property
+    def logger(self): return self.__logger
+
+
 
 
 

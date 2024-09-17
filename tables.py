@@ -11,52 +11,11 @@ import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 from collections import OrderedDict as ODict
 
-from support.pipelines import Producer, Consumer
-
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Tables", "Views"]
+__all__ = ["DataframeTable", "DataframeView"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-
-
-class Reader(Producer, ABC, title="Read"):
-    def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        cls.__function__ = kwargs.get("function", getattr(cls, "__function__", None))
-
-    def __init__(self, *args, tables, **kwargs):
-        assert isinstance(tables, list) and all([isinstance(table, Table) for table in tables.keys()])
-        super().__init__(*args, **kwargs)
-        self.__function = self.__class__.__function__
-        self.__tables = tables
-
-    def producer(self, *args, **kwargs):
-        pass
-
-    def read(self, *args, **kwargs):
-        pass
-
-    @property
-    def function(self): return self.__function
-    @property
-    def tables(self): return self.__tables
-
-
-class Writer(Consumer, ABC, title="Wrote"):
-    def __init__(self, *args, tables, **kwargs):
-        assert isinstance(tables, list) and all([isinstance(table, Table) for table in tables.keys()])
-        super().__init__(*args, **kwargs)
-        self.__tables = tables
-
-    def consumer(self, contents, *args, **kwargs):
-        pass
-
-    def write(self, contents, *args, **kwargs):
-        pass
-
-    @property
-    def tables(self): return self.__tables
 
 
 class ViewMeta(ABCMeta):
@@ -144,27 +103,32 @@ class TableMeta(ABCMeta):
     def __call__(cls, *args, **kwargs):
         parameters = dict(table=cls.__tabletype__, view=cls.__tableview__, axes=cls.__tableaxes__)
         parameters = cls.parameters(*args, **parameters, **kwargs)
+        parameters = parameters | dict(mutex=multiprocessing.RLock())
         instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
 
 class Table(ABC, metaclass=TableMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-
     def __bool__(self): return not self.empty if self.table is not None else False
     def __str__(self): return self.string
     def __len__(self): return self.size
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, *args, table, view, axes, **kwargs):
+    def __init__(self, *args, table, view, axes, mutex, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__mutex = multiprocessing.RLock()
+        self.__mutex = mutex
         self.__table = table
         self.__view = view
         self.__axes = axes
 
     def __setitem__(self, locator, value): self.set(locator, value)
     def __getitem__(self, locator): return self.get(locator)
+
+    @abstractmethod
+    def write(self, content, *args, **kwargs): pass
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
 
     @classmethod
     @abstractmethod
@@ -198,7 +162,7 @@ class Table(ABC, metaclass=TableMeta):
     def name(self): return self.__name
 
 
-class DataframeTable(Table, type=pd.DataFrame):
+class DataframeTable(Table, ABC, type=pd.DataFrame):
     def get(self, locator):
         index, columns = self.locator(locator)
         return self.table.iloc[index, columns]
@@ -308,14 +272,6 @@ class DataframeTable(Table, type=pd.DataFrame):
     def index(self): return self.table.index
     @property
     def columns(self): return self.table.columns
-
-
-class Tables(object):
-    Dataframe = DataframeTable
-
-
-class Views(object):
-    Dataframe = DataframeView
 
 
 

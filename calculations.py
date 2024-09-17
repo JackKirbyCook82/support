@@ -11,7 +11,6 @@ import inspect
 import pandas as pd
 import xarray as xr
 from enum import Enum
-from numbers import Number
 from abc import ABC, ABCMeta, abstractmethod
 from collections import OrderedDict as ODict
 
