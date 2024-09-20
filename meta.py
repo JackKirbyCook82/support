@@ -148,7 +148,7 @@ class SingletonMeta(Meta):
 
 
 class ParametersMeta(Meta):
-    def __iter__(cls): return iter(list(cls.__parameters__.items()))
+    def __iter__(cls): return iter(list(cls.parameters.items()))
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(ParametersMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         update = {key: value for key, value in attrs.items() if not isinstance(value, (types.MethodType, types.FunctionType)) or isinstance(value, types.LambdaType)}
@@ -159,6 +159,7 @@ class ParametersMeta(Meta):
 
 
 class RegistryMeta(Meta):
+    def __iter__(cls): return iter(list(cls.registry.items()))
     def __init__(cls, name, bases, attrs, *args, register=None, **kwargs):
         assert "registry" not in attrs.keys()
         super(RegistryMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
