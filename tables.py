@@ -9,45 +9,53 @@ Created on Weds Jul 12 2023
 import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
-from collections import OrderedDict as ODict
+from collections import namedtuple as ntuple
+
+from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DataframeTable", "DataframeView"]
+__all__ = ["Table", "View"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class ViewMeta(ABCMeta):
-    def __init__(cls, *args, **kwargs):
-        order = kwargs.get("order", getattr(cls, "__order__", []))
-        fields = getattr(cls, "__fields__", {}) | kwargs.get("fields", {})
-        values = getattr(cls, "__values__", {})
-        update = {key: kwargs.get(key, values.get(key, None)) for key in fields.keys()}
-        values = values | update
-        cls.__values__ = values
-        cls.__fields__ = fields
-        cls.__order__ = order
+class ViewField(ntuple("Field", "attr key value")):
+    def __call__(self, value): return type(self)(self.attr, self.key, value)
+
+
+class ViewMeta(RegistryMeta, ABCMeta):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        if not any([type(base) is ViewMeta for base in bases]):
+            return super(ViewMeta, mcs).__new__(mcs, name, bases, attrs)
+        datatype = kwargs.get("datatype", None)
+        if datatype is not None: bases = tuple([View[datatype]] + list(bases))
+        exclude = [key for key, value in attrs.items() if isinstance(value, ViewField)]
+        attrs = {key: value for key, value in attrs.items() if key not in exclude}
+        cls = super(ViewMeta, mcs).__new__(mcs, name, bases, attrs)
+        return cls
+
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(ViewMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        if not any([type(base) is ViewMeta for base in cls.__bases__]):
+            return
+        fields = {key: value for key, value in attrs.items() if isinstance(value, ViewField)}
+        cls.__fields__ = getattr(cls, "__fields__", {}) | fields
+        cls.__order__ = kwargs.get("order", getattr(cls, "__order__", []))
 
     def __call__(cls, *args, **kwargs):
-        fields = {key: field for key, field in cls.__fields__.items()}
-        values = {key: value for key, value in cls.__values__.items()}
-        order = list(cls.__order__)
-        update = {key: kwargs.get(key, value) for key, value in values.items()}
-        values = values | update
-        parameters = dict(fields=fields, values=values, order=order)
-        instance = super(ViewMeta, cls).__call__(*args, **parameters, **kwargs)
-        return instance
+        assert "order" not in kwargs.keys() and "fields" not in kwargs.keys()
+        fields, order = list(cls.__fields__.values()), list(cls.__order__)
+        fields = {attr: ViewField(attr, key, kwargs.get(attr, value)) for (attr, key, value) in fields}
+        parameters = dict(order=order, fields=fields)
+        return super(ViewMeta, cls).__call__(*args, **parameters, **kwargs)
 
 
 class View(ABC, metaclass=ViewMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, fields={}, values={}, order=[], **kwargs):
-        assert set(fields.keys()) == set(values.keys()) and isinstance(order, list)
-        self.__border = "=" * values.get("width", 250)
-        self.__values = values
-        self.__fields = fields
-        self.__order = order
+    def __init__(self, *args, order=[], fields=[], **kwargs):
+        self.__fields = dict(fields)
+        self.__order = list(order)
+        self.__border = "=" * 250
 
     def __call__(self, table, *args, **kwargs):
         table = self.execute(table, *args, **kwargs)
@@ -59,94 +67,52 @@ class View(ABC, metaclass=ViewMeta):
     def execute(self, table, *args, **kwargs): pass
 
     @property
-    def parameters(self): return {field: self.values[key] for key, field in self.fields.items()}
-    @property
-    def border(self): return self.__border
-    @property
-    def values(self): return self.__values
-    @property
     def fields(self): return self.__fields
     @property
     def order(self): return self.__order
 
 
-class DataframeView(View, fields={"rows": "max_rows", "columns": "max_cols", "width": "line_width", "formats": "formatters", "numbers": "float_format"}):
-    def execute(self, dataframe, *args, **kwargs):
-        assert isinstance(dataframe, pd.DataFrame)
-        if bool(dataframe.empty):
-            return
-        columns = self.order if bool(self.order) else list(dataframe.columns)
-        length = dataframe.columns.nlevels if isinstance(dataframe.columns, pd.MultiIndex) else 1
-        columns = list(self.generator(columns, length)) if length > 1 else list(columns)
-        parameters = {key: value for key, value in self.parameters.items()}
-        formatters = parameters.pop("formatters", {})
-        formatters = zip(self.generator(formatters.keys(), length), formatters.values())
-        parameters = parameters | {"formatters": ODict(list(formatters))}
-        return dataframe[columns].to_string(**parameters, show_dimensions=True)
+class ViewDataframe(View, ABC, register=pd.DataFrame):
+    numbers = ViewField("numbers", "float_format", lambda column: f"{column:.02f}")
+    formats = ViewField("formats", "formatters", {})
+    columns = ViewField("columns", "max_cols", 30)
+    width = ViewField("width", "line_width", 250)
+    rows = ViewField("rows", "max_rows", 30)
 
-    @staticmethod
-    def generator(columns, length):
-        for column in columns:
-            column = tuple([column]) if not isinstance(column, tuple) else column
-            column = column + tuple([""]) * (length - len(column))
-            yield column if len(column) > 1 else column[0]
+    def execute(self, table, *args, **kwargs):
+        if not bool(table): return
+        overlaps = lambda label, column: label in column if isinstance(column, tuple) else label is column
+        order = [column for label in self.order for column in table.columns if overlaps(label, column)]
+        formats = self.fields.get("formats", {}).items()
+        formats = {column: function for column in order for label, function in formats if overlaps(label, column)}
+        assert len(list(formats.keys())) == len(set(formats.keys()))
+        fields = self.fields | {"formats": self.fields["formats"](formats)}
+        parameters = {key: value for (attr, key, value) in fields.values()}
+        string = table.dataframe[order].to_string(**parameters, show_dimensions=True)
+        return string
 
 
-class TableMeta(ABCMeta):
-    def __init__(cls, *args, **kwargs):
-        if not any([type(base) is TableMeta for base in cls.__bases__]):
-            return
-        cls.__tabletype__ = kwargs.get("type", getattr(cls, "__tabletype__", None))
-        cls.__tableview__ = kwargs.get("view", getattr(cls, "__tableview__", None))
-        cls.__tableaxes__ = kwargs.get("axes", getattr(cls, "__tableaxes__", None))
+class TableData(ABC):
+    def __init_subclass__(cls, *args, datatype, **kwargs):
+        cls.datatype = datatype
 
-    def __call__(cls, *args, **kwargs):
-        parameters = dict(table=cls.__tabletype__, view=cls.__tableview__, axes=cls.__tableaxes__)
-        parameters = cls.parameters(*args, **parameters, **kwargs)
-        parameters = parameters | dict(mutex=multiprocessing.RLock())
-        instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
-        return instance
-
-
-class Table(ABC, metaclass=TableMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
-    def __bool__(self): return not self.empty if self.table is not None else False
-    def __str__(self): return self.string
-    def __len__(self): return self.size
-
-    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, *args, table, view, axes, mutex, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
+    def __init__(self, *args, table, view, mutex, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__mutex = mutex
         self.__table = table
         self.__view = view
-        self.__axes = axes
+
+    def __bool__(self): return not self.empty if self.table is not None else False
+    def __str__(self): return self.view(self.table)
+    def __len__(self): return self.size
 
     def __setitem__(self, locator, value): self.set(locator, value)
     def __getitem__(self, locator): return self.get(locator)
 
     @abstractmethod
-    def write(self, content, *args, **kwargs): pass
-    @abstractmethod
-    def read(self, *args, **kwargs): pass
-
-    @classmethod
-    @abstractmethod
-    def parameters(cls, *args, **kwargs): pass
+    def set(self, locator, value): pass
     @abstractmethod
     def get(self, locator): pass
-    @abstractmethod
-    def set(self, locator, value): pass
-
-    @property
-    @abstractmethod
-    def string(self): pass
-    @property
-    @abstractmethod
-    def empty(self): pass
-    @property
-    @abstractmethod
-    def size(self): pass
 
     @property
     def table(self): return self.__table
@@ -156,13 +122,16 @@ class Table(ABC, metaclass=TableMeta):
     def mutex(self): return self.__mutex
     @property
     def view(self): return self.__view
+
     @property
-    def axes(self): return self.__axes
+    @abstractmethod
+    def empty(self): pass
     @property
-    def name(self): return self.__name
+    @abstractmethod
+    def size(self): pass
 
 
-class DataframeTable(Table, ABC, type=pd.DataFrame):
+class TableDataFrame(TableData, datatype=pd.DataFrame):
     def get(self, locator):
         index, columns = self.locator(locator)
         return self.table.iloc[index, columns]
@@ -171,10 +140,8 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
         index, columns = self.locator(locator)
         self.table.iloc[index, columns] = value
 
-    def locator(self, locator):
-        default = slice(None, None, None)
-        locator = locator if isinstance(locator, tuple) else (default, locator)
-        index, columns = locator
+    def locate(self, locator):
+        index, columns = locator if isinstance(locator, tuple) else (slice(None, None, None), locator)
         assert isinstance(index, slice) and isinstance(columns, (str, list))
         if isinstance(columns, list):
             columns = list(map(self.stack, columns))
@@ -185,9 +152,9 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
         return index, columns
 
     def stack(self, column):
-        if not isinstance(self.columns, pd.MultiIndex): return column
+        if not bool(self.stacked): return column
         column = tuple([column]) if not isinstance(column, tuple) else column
-        return column + tuple([""]) * (self.columns.nlevels - len(column))
+        return column + tuple([]) * (int(self.stacking) - len(column))
 
     def combine(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
@@ -196,24 +163,24 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
 
     def where(self, function):
         if not bool(self): return
+        assert callable(function)
         with self.mutex:
-            assert callable(function)
             mask = function(self)
             self.table.where(mask, inplace=True)
             self.table.dropna(how="all", inplace=True)
 
     def remove(self, function):
         if not bool(self): return
+        assert callable(function)
         with self.mutex:
-            assert callable(function)
             mask = function(self)
             self.table.where(~mask, inplace=True)
             self.table.dropna(how="all", inplace=True)
 
     def extract(self, function):
         if not bool(self): return
+        assert callable(function)
         with self.mutex:
-            assert callable(function)
             mask = function(self)
             dataframe = self.table.where(mask, inplace=False)
             dataframe = dataframe.dropna(how="all", inplace=False)
@@ -223,55 +190,101 @@ class DataframeTable(Table, ABC, type=pd.DataFrame):
 
     def change(self, function, column, value):
         if not bool(self): return
+        assert callable(function) and isinstance(column, str)
         with self.mutex:
-            assert callable(function) and isinstance(column, str)
             column = self.stack(column)
             mask = function(self)
             self.table.loc[mask, column] = value
 
     def unique(self, columns, reverse=True):
         if not bool(self): return
+        assert isinstance(columns, list)
         with self.mutex:
-            assert isinstance(columns, list)
             columns = [self.stack(column) for column in columns]
             keep = ("last" if bool(reverse) else "first")
             parameters = dict(keep=keep, inplace=True)
             self.table.drop_duplicates(columns, **parameters)
 
-    def sort(self, column, reverse=True):
+    def sort(self, columns, reverse):
         if not bool(self): return
+        assert isinstance(columns, (list, str)) and isinstance(reverse, (list, bool))
+        columns = [columns] if isinstance(columns, str) else columns
+        reverse = [reverse] if isinstance(reverse, bool) else reverse
+        reverse = reverse * len(columns) if len(reverse) == 1 else reverse
+        assert len(columns) == len(reverse)
         with self.mutex:
-            assert isinstance(column, str)
-            column = self.stack(column)
-            ascending = not bool(reverse)
+            columns = [self.stack(column) for column in columns]
+            ascending = [not bool(value) for value in reverse]
             parameters = dict(ascending=ascending, axis=0, ignore_index=False, inplace=True)
-            self.table.sort_values(column, **parameters)
+            self.table.sort_values(columns, **parameters)
 
     def reset(self):
         if not bool(self): return
         with self.mutex:
             self.table.reset_index(drop=True, inplace=True)
 
-    @classmethod
-    def parameters(cls, *args, table, view, axes, **kwargs):
-        view = view(*args, **kwargs)
-        axes = axes(*args, **kwargs)
-        table = table(columns=axes.header)
-        return dict(view=view, axes=axes, table=table)
+    def clear(self):
+        if not bool(self): return
+        with self.mutex:
+            index = self.index
+            self.table.drop(index, inplace=True)
 
     @property
-    def string(self): return str(self.view(self.table))
+    def stacking(self): return len(self.columns.nlevels) if bool(self.stacked) else 0
+    @property
+    def stacked(self): return isinstance(self.columns, pd.MultiIndex)
     @property
     def empty(self): return bool(self.table.empty)
     @property
     def size(self): return len(self.table.index)
-
     @property
-    def dataframe(self): return self.table
+    def columns(self): return self.table.columns
     @property
     def index(self): return self.table.index
     @property
-    def columns(self): return self.table.columns
+    def dataframe(self): return self.table
+
+
+class TableMeta(ABCMeta):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        mixins = {subclass.datatype: subclass for subclass in TableData.__subclasses__()}
+        datatype = kwargs.get("datatype", None)
+        if datatype is not None: bases = tuple([mixins[datatype]] + list(bases))
+        cls = super(TableMeta, mcs).__new__(mcs, name, bases, attrs)
+        return cls
+
+    def __init__(cls, *args, **kwargs):
+        if not any([type(base) is TableMeta for base in cls.__bases__]):
+            cls.__parameters__ = kwargs["parameters"]
+        for parameter in cls.__parameters__:
+            attribute = getattr(cls, f"__{parameter}__", None)
+            attribute = kwargs.get(parameter, attribute)
+            setattr(cls, f"__{parameter}__", attribute)
+
+    def __call__(cls, *args, **kwargs):
+        parameters = {parameter: getattr(cls, f"__{parameter}__") for parameter in cls.__parameters__}
+        parameters["view"] = parameters["view"](*args, **kwargs)
+        instance = super(TableMeta, cls).__call__(*args, **parameters, mutex=multiprocessing.RLock(), **kwargs)
+        return instance
+
+
+class Table(ABC, metaclass=TableMeta, parameters=["variable", "view"]):
+    def __init_subclass__(cls, *args, **kwargs): pass
+
+    def __repr__(self): return f"{str(self.name)}"
+    def __init__(self, *args, variable, **kwargs):
+        self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__variable = variable
+
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
+    @abstractmethod
+    def write(self, content, *args, **kwargs): pass
+
+    @property
+    def variable(self): return self.__variable
+    @property
+    def name(self): return self.__name
 
 
 

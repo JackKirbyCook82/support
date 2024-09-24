@@ -7,7 +7,7 @@ Created on Weds Jul 12 2023
 """
 
 import queue
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -16,32 +16,21 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class QueueMeta(ABCMeta):
-    def __init__(cls, *args, **kwargs):
-        if not any([type(base) is QueueMeta for base in cls.__bases__]):
-            return
-        cls.__queuetype__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
+class Queue(ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.__type__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
 
-    def __call__(cls, *args, contents=[], capacity=None, **kwargs):
-        assert isinstance(contents, list) and (len(contents) <= capacity if bool(capacity) else True)
-        capacity = capacity if capacity is not None else 0
-        instance = cls.__queuetype__(maxsize=capacity)
-        instance = super(QueueMeta, cls).__call__(*args, queue=instance, **kwargs)
-        for content in contents:
-            instance.put(content)
-        return instance
-
-
-class Queue(ABC, metaclass=QueueMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
     def __bool__(self): return not self.empty
     def __len__(self): return self.size
 
     def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
-    def __init__(self, *args, timeout=None, **kwargs):
+    def __init__(self, *args, contents=[], capacity=None, timeout=None, **kwargs):
+        capacity = capacity if capacity is not None else 0
         self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__queue = kwargs["queue"]
+        self.__queue = self.__class__.__type__(maxsize=capacity)
         self.__timeout = timeout
+        for content in contents:
+            self.put(content)
 
     @abstractmethod
     def write(self, content, *args, **kwargs): pass
@@ -102,10 +91,10 @@ class PriorityQueue(Queue):
     def priority(self): return self.__priority
 
 
-class FIFOQueue(StandardQueue, queuetype=queue.Queue): pass
-class LIFOQueue(StandardQueue, queuetype=queue.LifoQueue): pass
-class HIPOQueue(PriorityQueue, queuetype=queue.PriorityQueue, ascending=True): pass
-class LIPOQueue(PriorityQueue, queuetype=queue.PriorityQueue, ascending=False): pass
+class FIFOQueue(StandardQueue, type=queue.Queue): pass
+class LIFOQueue(StandardQueue, type=queue.LifoQueue): pass
+class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=True): pass
+class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=False): pass
 
 
 

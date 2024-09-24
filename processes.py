@@ -20,7 +20,7 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Filter", "Criterion", "Calculator", "Downloader", "Loader", "Saver", "Reader", "Writer"]
+__all__ = ["Filter", "Criterion", "Calculator", "Downloader"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -53,52 +53,6 @@ class Process(Sizing, ABC):
     def title(self): return self.__title
     @property
     def name(self): return self.__name
-
-
-class Calculator(Process, ABC, title="Calculated"):
-    def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        calculations = getattr(cls, "__calculations__", {}) | kwargs.get("calculations", {})
-        calculation = kwargs.get("calculation", getattr(cls, "__calculation__", None))
-        variables = kwargs.get("variables", getattr(cls, "__variables__", None))
-        cls.__calculations__ = calculations
-        cls.__calculation__ = calculation
-        cls.__variables__ = variables
-
-    def __init__(self, *args, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        calculations = self.__class__.__calculations__
-        calculation = self.__class__.__calculation__
-        variables = self.__class__.__variables__
-        calculations = {key: calculation(*args, **kwargs) for key, calculation in calculations.items()}
-        calculation = calculation(*args, **kwargs) if calculation is not None else calculation
-        variables = variables(*args, **kwargs) if variables is not None else variables
-        self.__calculations = calculations
-        self.__calculation = calculation
-        self.__variables = variables
-
-    @property
-    def calculations(self): return self.__calculations
-    @property
-    def calculation(self): return self.__calculation
-    @property
-    def variables(self): return self.__variables
-
-
-class Downloader(Process, ABC, title="Downloaded"):
-    def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        pages = getattr(cls, "__pages__", {}) | kwargs.get("pages", {})
-        cls.__pages__ = pages
-
-    def __init__(self, *args, name=None, **kwargs):
-        super().__init__(*args, name=name, **kwargs)
-        pages = self.__class__.__pages__
-        pages = {key: page(*args, **kwargs) for key, page in pages.items()}
-        self.__pages = pages
-
-    @property
-    def pages(self): return self.__pages
 
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
@@ -162,9 +116,51 @@ class Filter(Process, ABC, title="Filtered"):
     def criterion(self): return self.__criterion
 
 
-class Loader(Process, ABC, title="Loaded"): pass
-class Saver(Process, ABC, title="Saved"): pass
-class Reader(Process, ABC, title="Read"): pass
-class Writer(Process, ABC, title="Wrote"): pass
+class Calculator(Process, ABC, title="Calculated"):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        calculations = getattr(cls, "__calculations__", {}) | kwargs.get("calculations", {})
+        calculation = kwargs.get("calculation", getattr(cls, "__calculation__", None))
+        variables = kwargs.get("variables", getattr(cls, "__variables__", None))
+        cls.__calculations__ = calculations
+        cls.__calculation__ = calculation
+        cls.__variables__ = variables
+
+    def __init__(self, *args, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        calculations = self.__class__.__calculations__
+        calculation = self.__class__.__calculation__
+        variables = self.__class__.__variables__
+        calculations = {key: calculation(*args, **kwargs) for key, calculation in calculations.items()}
+        calculation = calculation(*args, **kwargs) if calculation is not None else calculation
+        variables = variables(*args, **kwargs) if variables is not None else variables
+        self.__calculations = calculations
+        self.__calculation = calculation
+        self.__variables = variables
+
+    @property
+    def calculations(self): return self.__calculations
+    @property
+    def calculation(self): return self.__calculation
+    @property
+    def variables(self): return self.__variables
+
+
+class Downloader(Process, ABC, title="Downloaded"):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        pages = getattr(cls, "__pages__", {}) | kwargs.get("pages", {})
+        cls.__pages__ = pages
+
+    def __init__(self, *args, name=None, **kwargs):
+        super().__init__(*args, name=name, **kwargs)
+        pages = self.__class__.__pages__
+        pages = {key: page(*args, **kwargs) for key, page in pages.items()}
+        self.__pages = pages
+
+    @property
+    def pages(self): return self.__pages
+
+
 
 

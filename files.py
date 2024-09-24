@@ -16,7 +16,7 @@ from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
 from support.dispatchers import kwargsdispatcher
-from support.meta import SingletonMeta, RegistryMeta
+from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -44,8 +44,9 @@ class FileLock(dict, metaclass=SingletonMeta):
         return super().__getitem__(file)
 
 
-class FileData(ABC, metaclass=RegistryMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
+class FileData(ABC):
+    def __init_subclass__(cls, *args, datatype, **kwargs):
+        cls.datatype = datatype
 
     @abstractmethod
     def load(self, *args, file, mode, **kwargs): pass
@@ -53,8 +54,9 @@ class FileData(ABC, metaclass=RegistryMeta):
     def save(self, content, *args, file, mode, **kwargs): pass
 
 
-class FileDataframe(FileData, register=pd.DataFrame):
+class FileDataframe(FileData, datatype=pd.DataFrame):
     def __init__(self, *args, formatters, parsers, dates, types, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__formatters = formatters
         self.__parsers = parsers
         self.__dates = dates
@@ -67,14 +69,14 @@ class FileDataframe(FileData, register=pd.DataFrame):
 
     @load.register.value(csv_eager)
     def load_eager_csv(self, *args, file, mode="r", **kwargs):
-        assert mode is "r"
+        assert mode == "r"
         parameters = dict(infer_datetime_format=False, parse_dates=list(self.dates.keys()), date_format=self.dates, dtype=self.types, converters=self.parsers)
         dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
         return dataframe
 
     @load.register.value(csv_lazy)
     def load_lazy_csv(self, *args, file, mode="r", size, **kwargs):
-        assert mode is "r"
+        assert mode == "r"
         parameters = dict(infer_datetime_format=False, parse_dates=list(self.dates.keys()), date_format=self.dates, dtype=self.types, converters=self.parsers)
         dataframe = dk.read_csv(file, blocksize=size, index_col=None, header=0, **parameters)
         return dataframe
@@ -109,28 +111,28 @@ class FileDataframe(FileData, register=pd.DataFrame):
 
 
 class FileMeta(ABCMeta):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        mixins = {subclass.datatype: subclass for subclass in FileData.__subclasses__()}
+        datatype = kwargs.get("datatype", None)
+        if datatype is not None: bases = tuple([mixins[datatype]] + list(bases))
+        cls = super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
+        return cls
+
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is FileMeta for base in cls.__bases__]):
-            return
-        cls.__formatters__ = kwargs.get("formatters", getattr(cls, "__formatters__", {}))
-        cls.__parsers__ = kwargs.get("parsers", getattr(cls, "__parsers__", {}))
-        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
-        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
-        cls.__filename__ = kwargs.get("filename", getattr(cls, "__filename__", None))
-        cls.__types__ = kwargs.get("types", getattr(cls, "__types__", None))
-        cls.__dates__ = kwargs.get("dates", getattr(cls, "__dates__", None))
+            cls.__parameters__ = kwargs["parameters"]
+        for parameter in cls.__parameters__:
+            attribute = getattr(cls, f"__{parameter}__", None)
+            attribute = kwargs.get(parameter, attribute)
+            setattr(cls, f"__{parameter}__", attribute)
 
     def __call__(cls, *args, **kwargs):
-        parameters = ("datatype", "filename", "variable", "types", "dates", "formatters", "parsers")
-        assert all([parameter is not None for parameter in parameters])
-        parameters = dict(parsers=cls.__parsers__, formatters=cls.__formatters__, types=cls.__types__, dates=cls.__dates__)
-        instance = FileData[cls.__datatype__](*args, **parameters, **kwargs)
-        parameters = dict(mutex=FileLock(), filedata=instance, filename=cls.__filename__, variable=cls.__variable__)
-        instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
+        parameters = {parameter: getattr(cls, f"__{parameter}__") for parameter in cls.__parameters__}
+        instance = super(FileMeta, cls).__call__(*args, **parameters, mutex=FileLock(), **kwargs)
         return instance
 
 
-class File(ABC, metaclass=FileMeta):
+class File(ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parsers", "filename", "types", "dates"]):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, repository, **kwargs):
         instance = super().__new__(cls)
@@ -139,45 +141,39 @@ class File(ABC, metaclass=FileMeta):
         return instance
 
     def __repr__(self): return f"{str(self.name)}"
-    def __init__(self, *args, repository, variable, filedata, filetype, filename, filetiming, mutex, **kwargs):
+    def __init__(self, *args, filetype, filename, filetiming, repository, variable, mutex, **kwargs):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__repository = repository
-        self.__variable = variable
         self.__filetiming = filetiming
         self.__filetype = filetype
         self.__filename = filename
-        self.__filedata = filedata
-        self.__filedata = filedata
+        self.__variable = variable
         self.__mutex = mutex
 
-    def read(self, variable, *args, mode, **kwargs):
+    def read(self, *args, query, mode, **kwargs):
         method = FileMethod(self.filetype, self.filetiming)
-        file = self.file(variable)
+        directory = os.path.join(self.repository, str(self.variable))
+        extension = str(self.filetype.name).lower()
+        filename = self.filename(query)
+        file = os.path.join(directory, ".".join([filename, extension]))
         if not os.path.exists(file):
             return
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
-            content = self.filedata.load(*args, **parameters, **kwargs)
+            content = self.load(*args, **parameters, **kwargs)
         return content
 
-    def write(self, variable, content, *args, mode, **kwargs):
+    def write(self, content, *args, query, mode, **kwargs):
         method = FileMethod(self.filetype, self.filetiming)
-        file = self.file(variable)
-        with self.mutex[file]:
-            parameters = dict(file=str(file), mode=mode, method=method)
-            self.filedata.save(content, *args, **parameters, **kwargs)
-        __logger__.info("Saved: {}".format(str(file)))
-
-    def file(self, variable):
         directory = os.path.join(self.repository, str(self.variable))
         extension = str(self.filetype.name).lower()
-        filename = self.filename(variable)
-        return os.path.join(directory, ".".join([filename, extension]))
+        filename = self.filename(query)
+        file = os.path.join(directory, ".".join([filename, extension]))
+        with self.mutex[file]:
+            parameters = dict(file=str(file), mode=mode, method=method)
+            self.save(content, *args, **parameters, **kwargs)
+        __logger__.info("Saved: {}".format(str(file)))
 
-    @property
-    def repository(self): return self.__repository
-    @property
-    def variable(self): return self.__variable
     @property
     def filetiming(self): return self.__filetiming
     @property
@@ -185,7 +181,9 @@ class File(ABC, metaclass=FileMeta):
     @property
     def filetype(self): return self.__filetype
     @property
-    def filedata(self): return self.__filedata
+    def repository(self): return self.__repository
+    @property
+    def variable(self): return self.__variable
     @property
     def mutex(self): return self.__mutex
     @property
