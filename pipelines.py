@@ -13,7 +13,7 @@ import logging
 from functools import reduce
 from abc import ABC, abstractmethod
 
-from support.mixins import Mixin
+from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -59,7 +59,7 @@ class Pipeline(ABC):
     def name(self): return self.__name
 
 
-class OpenPipeline(Pipeline, ABC):
+class OpenPipeline(Pipeline):
     def __add__(self, other):
         assert isinstance(other, (Processor, Consumer))
         if not isinstance(other, Consumer):
@@ -109,106 +109,95 @@ class ClosedPipeline(Pipeline):
     def consumer(self): return self.__consumer
 
 
-class Stage(Mixin, ABC):
-    def __init_subclass__(cls, **kwargs):
-        cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
-
-    def __init__(self, *args, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__title = self.__class__.__title__
-        self.__logger = __logger__
-
-    def __repr__(self): return f"{str(self.name)}"
+class Stage(Logging, ABC):
     def __call__(self, *args, **kwargs):
-        if not inspect.isgeneratorfunction(self.wrapper): yield self.wrapper(*args, **kwargs)
-        else: yield from self.wrapper(*args, **kwargs)
+        if not inspect.isgeneratorfunction(self.execute): yield self.execute(*args, **kwargs)
+        else: yield from self.execute(*args, **kwargs)
 
-    @abstractmethod
-    def wrapper(self, *args, **kwargs): pass
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
-    @property
-    def logger(self): return self.__logger
-    @property
-    def name(self): return self.__name
 
-
-class Routine(Stage, title="Performed"):
-    def __init__(self, *args, **kwargs):
+class Routine(Stage):
+    def __init__(self, routine, *args, **kwargs):
+        assert callable(routine)
         assert not inspect.isgeneratorfunction(self.execute)
-        assert not inspect.isgeneratorfunction(self.routine)
+        assert not inspect.isgeneratorfunction(routine)
         super().__init__(*args, **kwargs)
+        self.routine = routine
 
-    def wrapper(self, *args, **kwargs):
+    def execute(self, *args, **kwargs):
         assert not bool(args)
         start = time.time()
-        self.execute(*args, **kwargs)
+        self.routine(*args, **kwargs)
         elapsed = (time.time() - start).total_seconds()
-        string = f"{str(self.title).title()}: {repr(self)}[{elapsed:.02f}s]"
+        string = f"Performed: {repr(self)}[{elapsed:.02f}s]"
         self.logger.info(string)
 
-    @abstractmethod
-    def routine(self, *args, **kwargs): pass
 
-
-class Producer(Stage, ABC, title="Produced"):
-    def __init__(self, *args, **kwargs):
+class Producer(Stage, ABC):
+    def __init__(self, producer, *args, **kwargs):
+        assert callable(producer)
         assert inspect.isgeneratorfunction(self.execute)
-        assert inspect.isgeneratorfunction(self.producer)
+        assert inspect.isgeneratorfunction(producer)
         super().__init__(*args, **kwargs)
+        self.producer = producer
 
     def __add__(self, other):
         assert isinstance(other, (Processor, Consumer))
         if not isinstance(other, Consumer): return OpenPipeline(producer=self, processors=[other])
         else: return ClosedPipeline(producer=self, consumer=other)
 
-    def wrapper(self, *args, **kwargs):
+    def execute(self, *args, **kwargs):
         assert not bool(args)
         start = time.time()
-        for produced in self.execute(*args, **kwargs):
+        for produced in self.producer(*args, **kwargs):
             assert isinstance(produced, dict)
             elapsed = time.time() - start
-            string = f"{str(self.title).title()}: {repr(self)}[{elapsed:.02f}s]"
+            string = f"Produced: {repr(self)}[{elapsed:.02f}s]"
             self.logger.info(string)
             yield produced
             start = time.time()
 
 
-class Processor(Stage, ABC, title="Processed"):
-    def __init__(self, *args, **kwargs):
+class Processor(Stage, ABC):
+    def __init__(self, processor, *args, **kwargs):
+        assert callable(processor)
         assert inspect.isgeneratorfunction(self.execute)
-        assert inspect.isgeneratorfunction(self.processor)
+        assert inspect.isgeneratorfunction(processor)
         super().__init__(*args, **kwargs)
+        self.processor
 
-    def wrapper(self, source, *args, **kwargs):
+    def execute(self, source, *args, **kwargs):
         assert not bool(args)
         assert isinstance(source, types.GeneratorType)
         for consumed in source:
             start = time.time()
-            for produced in self.execute(consumed, *args, **kwargs):
+            for produced in self.processor(consumed, *args, **kwargs):
                 assert isinstance(produced, dict)
                 elapsed = time.time() - start
-                string = f"{str(self.title).title()}: {repr(self)}[{elapsed:.02f}s]"
+                string = f"Processed: {repr(self)}[{elapsed:.02f}s]"
                 self.logger.info(string)
                 yield produced
                 start = time.time()
 
 
-class Consumer(Stage, ABC, title="Consumed"):
-    def __init__(self, *args, **kwargs):
+class Consumer(Stage, ABC):
+    def __init__(self, consumer, *args, **kwargs):
+        assert callable(consumer)
         assert not inspect.isgeneratorfunction(self.execute)
         assert not inspect.isgeneratorfunction(self.consumer)
         super().__init__(*args, **kwargs)
+        self.consumer = consumer
 
-    def wrapper(self, source, *args, **kwargs):
+    def execute(self, source, *args, **kwargs):
         assert not bool(args)
         assert isinstance(source, types.GeneratorType)
         for consumed in source:
             start = time.time()
-            self.execute(consumed, *args, **kwargs)
+            self.consumer(consumed, *args, **kwargs)
             elapsed = time.time() - start
-            string = f"{str(self.title).title()}: {repr(self)}[{elapsed:.02f}s]"
+            string = f"Consumed: {repr(self)}[{elapsed:.02f}s]"
             self.logger.info(string)
 
 
