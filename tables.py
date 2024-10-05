@@ -12,6 +12,7 @@ from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
 from support.meta import RegistryMeta
+from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -103,8 +104,9 @@ class TableData(ABC):
         self.__view = view
 
     def __bool__(self): return not self.empty if self.table is not None else False
+    def __repr__(self): return f"{self.name}[{len(self):.0f}]"
+    def __len__(self): return self.size if bool(self) else 0
     def __str__(self): return self.view(self.table)
-    def __len__(self): return self.size
 
     def __setitem__(self, locator, value): self.set(locator, value)
     def __getitem__(self, locator): return self.get(locator)
@@ -268,23 +270,19 @@ class TableMeta(ABCMeta):
         return instance
 
 
-class Table(ABC, metaclass=TableMeta, parameters=["variable", "view"]):
+class Table(Logging, ABC, metaclass=TableMeta, parameters=["variable", "view"]):
     def __init_subclass__(cls, *args, **kwargs): pass
-
-    def __repr__(self): return f"{str(self.name)}"
     def __init__(self, *args, variable, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
+        super().__init__(*args, **kwargs)
         self.__variable = variable
 
     @abstractmethod
-    def read(self, *args, **kwargs): pass
-    @abstractmethod
     def write(self, content, *args, **kwargs): pass
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
 
     @property
     def variable(self): return self.__variable
-    @property
-    def name(self): return self.__name
 
 
 

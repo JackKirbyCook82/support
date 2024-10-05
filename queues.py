@@ -9,6 +9,8 @@ Created on Weds Jul 12 2023
 import queue
 from abc import ABC, abstractmethod
 
+from support.mixins import Logging
+
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["LIFOQueue", "FIFOQueue", "LIPOQueue", "HIPOQueue"]
@@ -16,17 +18,17 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Queue(ABC):
+class Queue(Logging, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         cls.__type__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
 
+    def __repr__(self): return f"{self.name}[{len(self):.0f}]"
     def __bool__(self): return not self.empty
     def __len__(self): return self.size
 
-    def __repr__(self): return f"{str(self.name)}[{str(len(self))}]"
     def __init__(self, *args, contents=[], capacity=None, timeout=None, **kwargs):
+        super().__init__(*args, **kwargs)
         capacity = capacity if capacity is not None else 0
-        self.__name = kwargs.get("name", self.__class__.__name__)
         self.__queue = self.__class__.__type__(maxsize=capacity)
         self.__timeout = timeout
         for content in contents:
@@ -47,8 +49,6 @@ class Queue(ABC):
     def timeout(self): return self.__timeout
     @property
     def queue(self): return self.__queue
-    @property
-    def name(self): return self.__name
 
 
 class StandardQueue(Queue):

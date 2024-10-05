@@ -17,6 +17,7 @@ from collections import namedtuple as ntuple
 
 from support.dispatchers import kwargsdispatcher
 from support.meta import SingletonMeta
+from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -132,7 +133,7 @@ class FileMeta(ABCMeta):
         return instance
 
 
-class File(ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parsers", "filename", "types", "dates"]):
+class File(Logging, ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parsers", "filename", "types", "dates"]):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, repository, **kwargs):
         instance = super().__new__(cls)
@@ -140,9 +141,9 @@ class File(ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parse
             os.mkdir(repository)
         return instance
 
-    def __repr__(self): return f"{str(self.name)}"
     def __init__(self, *args, filetype, filename, filetiming, repository, variable, mutex, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
+        super().__init__(*args, **kwargs)
+        self.__logger = __logger__
         self.__repository = repository
         self.__filetiming = filetiming
         self.__filetype = filetype
@@ -172,7 +173,7 @@ class File(ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parse
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
             self.save(content, *args, **parameters, **kwargs)
-        __logger__.info("Saved: {}".format(str(file)))
+        self.logger.info("Saved: {}".format(str(file)))
 
     @property
     def filetiming(self): return self.__filetiming
@@ -186,8 +187,7 @@ class File(ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parse
     def variable(self): return self.__variable
     @property
     def mutex(self): return self.__mutex
-    @property
-    def name(self): return self.__name
+
 
 
 

@@ -6,8 +6,6 @@ Created on Weds Sept 18 2024
 
 """
 
-
-import logging
 import pandas as pd
 import xarray as xr
 from functools import reduce
@@ -21,7 +19,6 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["Filter", "Criterion"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-__logger__ = logging.getLogger(__name__)
 
 
 class Criteria(ntuple("Criteria", "variable threshold"), ABC):
@@ -59,7 +56,6 @@ class Filter(object):
         criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
         self.__criterion = dict(criterion)
-        self.__logger = __logger__
 
     def filter(self, content, *args, **kwargs):
         mask = self.mask(content)
@@ -80,7 +76,6 @@ class Filter(object):
 
     @property
     def criterion(self): return self.__criterion
-    @property
-    def logger(self): return self.__logger
+
 
 

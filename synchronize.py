@@ -13,6 +13,8 @@ import logging
 import traceback
 import threading
 
+from support.mixins import Logging
+
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["RoutineThread", "RepeatingThread"]
@@ -21,12 +23,11 @@ __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-class Thread(object):
-    def __repr__(self): return self.name
+class Thread(Logging):
     def __bool__(self): return bool(self.active)
     def __init__(self, routine, *args, **kwargs):
         assert callable(routine)
-        self.__name = kwargs.get("name", self.__class__.__name__)
+        super().__init__(*args, **kwargs)
         self.__logger = __logger__
         self.__routine = routine
         self.__arguments = list()
@@ -75,10 +76,6 @@ class Thread(object):
     def parameters(self): return self.__parameters
     @property
     def routine(self): return self.__routine
-    @property
-    def logger(self): return self.__logger
-    @property
-    def name(self): return self.__name
 
 
 class RoutineThread(Thread, threading.Thread):

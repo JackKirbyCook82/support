@@ -186,7 +186,7 @@ class Consumer(Stage, ABC):
     def __init__(self, consumer, *args, **kwargs):
         assert callable(consumer)
         assert not inspect.isgeneratorfunction(self.execute)
-        assert not inspect.isgeneratorfunction(self.consumer)
+        assert not inspect.isgeneratorfunction(consumer)
         super().__init__(*args, **kwargs)
         self.consumer = consumer
 
