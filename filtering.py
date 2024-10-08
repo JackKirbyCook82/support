@@ -48,14 +48,13 @@ class Criterion(object):
 
 
 class Filter(object):
-    def __init__(self, *args, criterion={}, name=None, **kwargs):
+    def __init__(self, *args, criterion={}, **kwargs):
         assert isinstance(criterion, dict)
         assert all([issubclass(criteria, Criteria) for criteria in criterion.keys()])
         assert all([isinstance(parameter, (list, dict)) for parameter in criterion.values()])
-        super().__init__(*args, name=name, **kwargs)
         criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
-        self.__criterion = dict(criterion)
+        self.__criterion = list(criterion)
 
     def filter(self, content, *args, **kwargs):
         mask = self.mask(content)

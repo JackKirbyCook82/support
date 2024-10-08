@@ -94,8 +94,8 @@ class ViewDataframe(View, ABC, register=pd.DataFrame):
 
 
 class TableData(ABC):
-    def __init_subclass__(cls, *args, datatype, **kwargs):
-        cls.datatype = datatype
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.datatype = kwargs.get("datatype", getattr(cls, "datatype", None))
 
     def __init__(self, *args, table, view, mutex, **kwargs):
         super().__init__(*args, **kwargs)
@@ -273,7 +273,7 @@ class TableMeta(ABCMeta):
 class Table(Logging, ABC, metaclass=TableMeta, parameters=["variable", "view"]):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __init__(self, *args, variable, **kwargs):
-        super().__init__(*args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
         self.__variable = variable
 
     @abstractmethod

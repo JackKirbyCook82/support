@@ -20,14 +20,14 @@ __license__ = "MIT License"
 
 class Queue(Logging, ABC):
     def __init_subclass__(cls, *args, **kwargs):
-        cls.__type__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
+        cls.datatype = kwargs.get("datatype", getattr(cls, "datatype", None))
 
     def __repr__(self): return f"{self.name}[{len(self):.0f}]"
     def __bool__(self): return not self.empty
     def __len__(self): return self.size
 
     def __init__(self, *args, contents=[], capacity=None, timeout=None, **kwargs):
-        super().__init__(*args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
         capacity = capacity if capacity is not None else 0
         self.__queue = self.__class__.__type__(maxsize=capacity)
         self.__timeout = timeout
@@ -62,14 +62,14 @@ class StandardQueue(Queue):
 
 class PriorityQueue(Queue):
     def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
+        Queue.__init_subclass__(cls, *args, **kwargs)
         ascending = kwargs.get("ascending", getattr(cls, "__ascending__", True))
         assert isinstance(ascending, bool)
         cls.__ascending__ = ascending
 
     def __init__(self, *args, priority, **kwargs):
         assert callable(priority)
-        super().__init__(*args, **kwargs)
+        Queue.__init__(self, *args, **kwargs)
         self.__ascending = self.__class__.__ascending__
         self.__priority = priority
 
@@ -91,10 +91,10 @@ class PriorityQueue(Queue):
     def priority(self): return self.__priority
 
 
-class FIFOQueue(StandardQueue, type=queue.Queue): pass
-class LIFOQueue(StandardQueue, type=queue.LifoQueue): pass
-class HIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=True): pass
-class LIPOQueue(PriorityQueue, type=queue.PriorityQueue, ascending=False): pass
+class FIFOQueue(StandardQueue, datatype=queue.Queue): pass
+class LIFOQueue(StandardQueue, datatype=queue.LifoQueue): pass
+class HIPOQueue(PriorityQueue, datatype=queue.PriorityQueue, ascending=True): pass
+class LIPOQueue(PriorityQueue, datatype=queue.PriorityQueue, ascending=False): pass
 
 
 

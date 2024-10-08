@@ -27,7 +27,7 @@ class Thread(Logging):
     def __bool__(self): return bool(self.active)
     def __init__(self, routine, *args, **kwargs):
         assert callable(routine)
-        super().__init__(*args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
         self.__logger = __logger__
         self.__routine = routine
         self.__arguments = list()

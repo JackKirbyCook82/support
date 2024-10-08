@@ -150,9 +150,11 @@ class SingletonMeta(Meta):
 class ParametersMeta(Meta):
     def __iter__(cls): return iter(list(cls.parameters.items()))
     def __init__(cls, name, bases, attrs, *args, **kwargs):
+        function = lambda value: isinstance(value, types.LambdaType) or not isinstance(value, (types.MethodType, types.FunctionType))
         super(ParametersMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        update = {key: value for key, value in attrs.items() if not isinstance(value, (types.MethodType, types.FunctionType)) or isinstance(value, types.LambdaType)}
-        cls.__parameters__ = getattr(cls, "__parameters__", {}) | update
+        existing = getattr(cls, "__parameters__", {})
+        update = {key: value for key, value in attrs.items() if function(value)}
+        cls.__parameters__ = existing | update
 
     @property
     def parameters(cls): return cls.__parameters__

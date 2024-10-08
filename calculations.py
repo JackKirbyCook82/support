@@ -11,7 +11,7 @@ import inspect
 import pandas as pd
 import xarray as xr
 from enum import Enum
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher, kwargsdispatcher
@@ -38,7 +38,7 @@ class Variable(Node, ABC):
     def __str__(self): return self.key
     def __len__(self): return self.size
     def __init__(self, varkey, varname, vartype, *args, **kwargs):
-        super().__init__(*args, name=varname, **kwargs)
+        Node.__init__(self, *args, name=varname, **kwargs)
         self.__type = vartype
         self.__key = varkey
 
@@ -76,7 +76,7 @@ class Variable(Node, ABC):
 class Independent(Variable):
     def __init__(self, *args, position, **kwargs):
         assert isinstance(position, (int, str, Enum))
-        super().__init__(*args, **kwargs)
+        Variable.__init__(self, *args, **kwargs)
         self.__position = position
 
     def execute(self, order):
@@ -101,7 +101,7 @@ class Independent(Variable):
 class Source(Independent):
     def __init__(self, *args, locator, **kwargs):
         assert isinstance(locator, str)
-        super().__init__(*args, **kwargs)
+        Independent.__init__(self, *args, **kwargs)
         self.__locator = locator
 
     @typedispatcher
@@ -133,7 +133,7 @@ class Constant(Independent):
 
 class Dependent(Variable):
     def __init__(self, *args, function, **kwargs):
-        super().__init__(*args, **kwargs)
+        Variable.__init__(self, *args, **kwargs)
         assert isinstance(function, types.LambdaType)
         self.__function = function
 
@@ -229,51 +229,10 @@ class Equation(ABC, metaclass=EquationMeta):
     def variables(self): return self.__variables
 
 
-class Fields(frozenset):
-    def __getitem__(self, key): return self.todict()[key]
-    def __bool__(self): return None not in self.values()
-
-    def __new__(cls, contents):
-        assert isinstance(contents, (dict, list))
-        contents = ODict.fromkeys(contents) if isinstance(contents, list) else contents
-        contents = list(contents.items())
-        return super().__new__(cls, contents)
-
-    def __or__(self, contents):
-        assert isinstance(contents, (dict, list))
-        contents = ODict.fromkeys(contents) if isinstance(contents, list) else contents
-        contents = self.todict() | contents
-        return type(self)(contents)
-
-    def todict(self): return ODict(list(self))
-    def tolist(self): return list(self)
-    def keys(self): return self.todict().keys()
-    def values(self): return self.todict().values()
-    def items(self): return self.todict().items()
-
-
-class CalculationMeta(ABCMeta):
-    def __iter__(cls): return iter(list(cls.registry.items()))
-    def __init__(cls, *args, **kwargs):
-        if not any([type(base) is CalculationMeta for base in cls.__bases__]):
-            return
-        if not any([type(subbase) is CalculationMeta for base in cls.__bases__ for subbase in base.__bases__]):
-            cls.__fields__ = Fields(list(set(kwargs.get("fields", []))))
-            cls.__registry__ = ODict()
-        fields = cls.fields | {key: kwargs[key] for key in cls.fields.keys() if key in kwargs.keys()}
-        if bool(fields):
-            cls.registry[fields] = cls
+class Calculation(ABC):
+    def __init_subclass__(cls, *args, **kwargs):
         cls.__equation__ = kwargs.get("equation", getattr(cls, "__equation__", None))
-        cls.__fields__ = fields
 
-    @property
-    def registry(cls): return cls.__registry__
-    @property
-    def fields(cls): return cls.__fields__
-
-
-class Calculation(ABC, metaclass=CalculationMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
     def __init__(self, *args, **kwargs):
         self.__equation = self.__class__.__equation__
 

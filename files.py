@@ -15,9 +15,9 @@ from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
+from support.mixins import Pipelining, Logging, Emptying
 from support.dispatchers import kwargsdispatcher
 from support.meta import SingletonMeta
-from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -46,8 +46,8 @@ class FileLock(dict, metaclass=SingletonMeta):
 
 
 class FileData(ABC):
-    def __init_subclass__(cls, *args, datatype, **kwargs):
-        cls.datatype = datatype
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.datatype = kwargs.get("datatype", getattr(cls, "datatype", None))
 
     @abstractmethod
     def load(self, *args, file, mode, **kwargs): pass
@@ -123,9 +123,9 @@ class FileMeta(ABCMeta):
         if not any([type(base) is FileMeta for base in cls.__bases__]):
             cls.__parameters__ = kwargs["parameters"]
         for parameter in cls.__parameters__:
-            attribute = getattr(cls, f"__{parameter}__", None)
-            attribute = kwargs.get(parameter, attribute)
-            setattr(cls, f"__{parameter}__", attribute)
+            existing = getattr(cls, f"__{parameter}__", None)
+            updated = kwargs.get(parameter, existing)
+            setattr(cls, f"__{parameter}__", updated)
 
     def __call__(cls, *args, **kwargs):
         parameters = {parameter: getattr(cls, f"__{parameter}__") for parameter in cls.__parameters__}
@@ -133,7 +133,7 @@ class FileMeta(ABCMeta):
         return instance
 
 
-class File(Logging, ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parsers", "filename", "types", "dates"]):
+class File(Pipelining, Logging, Emptying, ABC, metaclass=FileMeta, parameters=["variable", "queryname", "filename", "formatters", "parsers", "types", "dates"]):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, repository, **kwargs):
         instance = super().__new__(cls)
@@ -141,24 +141,39 @@ class File(Logging, ABC, metaclass=FileMeta, parameters=["variable", "formatters
             os.mkdir(repository)
         return instance
 
-    def __init__(self, *args, filetype, filename, filetiming, repository, variable, mutex, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __iter__(self): yield from self.directory()
+    def __init__(self, *args, filetype, filetiming, filename, queryname, repository, variable, mutex, **kwargs):
+        Pipelining.__init__(self, *args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
         self.__logger = __logger__
         self.__repository = repository
         self.__filetiming = filetiming
         self.__filetype = filetype
         self.__filename = filename
+        self.__queryname = queryname
         self.__variable = variable
         self.__mutex = mutex
 
-    def read(self, *args, query, mode, **kwargs):
+    def execute(self, *args, mode="r", **kwargs):
+        for query in self.directory(*args, **kwargs):
+            content = self.read(*args, query=query, mode=mode, **kwargs)
+            if self.empty(content): continue
+            yield content
+
+    def directory(self, *args, **kwargs):
+        directory = os.path.join(self.repository, str(self.variable))
+        for file in os.listdir(directory):
+            file = str(file).split(".")[0]
+            queryname = self.queryname(file)
+            yield queryname
+
+    def read(self, *args, query, mode="r", **kwargs):
         method = FileMethod(self.filetype, self.filetiming)
         directory = os.path.join(self.repository, str(self.variable))
         extension = str(self.filetype.name).lower()
         filename = self.filename(query)
         file = os.path.join(directory, ".".join([filename, extension]))
-        if not os.path.exists(file):
-            return
+        if not os.path.exists(file): return
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
             content = self.load(*args, **parameters, **kwargs)
@@ -178,9 +193,11 @@ class File(Logging, ABC, metaclass=FileMeta, parameters=["variable", "formatters
     @property
     def filetiming(self): return self.__filetiming
     @property
+    def filetype(self): return self.__filetype
+    @property
     def filename(self): return self.__filename
     @property
-    def filetype(self): return self.__filetype
+    def queryname(self): return self.__queryname
     @property
     def repository(self): return self.__repository
     @property

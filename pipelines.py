@@ -123,7 +123,7 @@ class Routine(Stage):
         assert callable(routine)
         assert not inspect.isgeneratorfunction(self.execute)
         assert not inspect.isgeneratorfunction(routine)
-        super().__init__(*args, **kwargs)
+        Stage.__init__(self, *args, **kwargs)
         self.routine = routine
 
     def execute(self, *args, **kwargs):
@@ -140,7 +140,7 @@ class Producer(Stage, ABC):
         assert callable(producer)
         assert inspect.isgeneratorfunction(self.execute)
         assert inspect.isgeneratorfunction(producer)
-        super().__init__(*args, **kwargs)
+        Stage.__init__(self, *args, **kwargs)
         self.producer = producer
 
     def __add__(self, other):
@@ -165,7 +165,7 @@ class Processor(Stage, ABC):
         assert callable(processor)
         assert inspect.isgeneratorfunction(self.execute)
         assert inspect.isgeneratorfunction(processor)
-        super().__init__(*args, **kwargs)
+        Stage.__init__(self, *args, **kwargs)
         self.processor
 
     def execute(self, source, *args, **kwargs):
@@ -187,7 +187,7 @@ class Consumer(Stage, ABC):
         assert callable(consumer)
         assert not inspect.isgeneratorfunction(self.execute)
         assert not inspect.isgeneratorfunction(consumer)
-        super().__init__(*args, **kwargs)
+        Stage.__init__(self, *args, **kwargs)
         self.consumer = consumer
 
     def execute(self, source, *args, **kwargs):

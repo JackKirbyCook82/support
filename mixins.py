@@ -6,11 +6,14 @@ Created on Sun 14 2023
 
 """
 
+import types
+import inspect
 import logging
 import numpy as np
 import pandas as pd
 import xarray as xr
 from abc import ABC, abstractmethod
+from functools import update_wrapper
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
@@ -18,7 +21,7 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Node", "Fields", "Logging", "Empty", "Sizing", "Publisher", "Subscriber", "Mixin"]
+__all__ = ["Node", "Fields", "Logging", "Emptying", "Sizing", "Pipelining", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -45,37 +48,19 @@ def renderer(node, layers=[], style=single):
             yield from renderer(value, layers=[*layers, last(index, node.size - 1)], style=style)
 
 
-class Mixin(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        index = list(cls.__mro__).index(Mixin)
-        residual = set(cls.__mro__[index+1:]) - {ABC, object}
-        assert not bool(residual)
-
-    def __new__(cls, *args, **kwargs): return super().__new__(cls)
-    def __init__(self, *args, **kwargs): super().__init__()
-
-
-class Fields(Mixin):
+class Fields(object):
     def __init_subclass__(cls, *args, fields=[], **kwargs):
-        super().__init_subclass__(*args, **kwargs)
         assert all([attr not in fields for attr in ("fields", "keys", "values", "items")])
         existing = getattr(cls, "__fields__", [])
         update = [field for field in fields if field not in existing]
         cls.__fields__ = existing + update
 
-    def __new__(cls, *args, **kwargs):
-        instance = super().__new__(cls, *args, **kwargs)
-        fields = list(cls.__fields__)
-        for field in fields:
-            content = kwargs.get(field, None)
-            setattr(instance, field, content)
-        return instance
-
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         fields = list(self.__class__.__fields__)
-        fields = [(field, kwargs.get(field, None)) for field in fields]
-        self.__fields = ODict(fields)
+        fields = ODict([(field, kwargs.get(field, None)) for field in fields])
+        self.__fields = fields
+        for field, content in fields.items():
+            setattr(self, field, content)
 
     def tolist(self): return list(self.fields.items())
     def todict(self): return dict(self.fields)
@@ -87,42 +72,41 @@ class Fields(Mixin):
     def fields(self): return self.__fields
 
 
-class Empty(Mixin):
+class Emptying(object):
     @typedispatcher
     def empty(self, content): raise TypeError(type(content).__name__)
     @empty.register(dict)
-    def mapping(self, mapping): return all([self.empty(value) for value in mapping.values()]) if bool(mapping) else False
+    def empty_mapping(self, mapping): return all([self.empty(value) for value in mapping.values()]) if bool(mapping) else True
     @empty.register(list)
-    def collection(self, collection): return all([self.empty(value) for value in collection]) if bool(collection) else False
+    def empty_collection(self, collection): return all([self.empty(value) for value in collection]) if bool(collection) else True
     @empty.register(xr.DataArray)
-    def dataarray(self, dataarray): return not bool(np.count_nonzero(~np.isnan(dataarray.values)))
+    def empty_dataarray(self, dataarray): return not bool(np.count_nonzero(~np.isnan(dataarray.values)))
     @empty.register(pd.DataFrame)
-    def dataframe(self, dataframe): return bool(dataframe.empty)
+    def empty_dataframe(self, dataframe): return bool(dataframe.empty)
     @empty.register(pd.Series)
-    def series(self, series): return bool(series.empty)
+    def empty_series(self, series): return bool(series.empty)
 
 
-class Sizing(Mixin):
+class Sizing(object):
     @typedispatcher
     def size(self, content): raise TypeError(type(content).__name__)
     @size.register(dict)
-    def mapping(self, mapping): return sum([self.size(value) for value in mapping.values()])
+    def size_mapping(self, mapping): return sum([self.size(value) for value in mapping.values()])
     @size.register(list)
-    def collection(self, collection): return sum([self.size(value) for value in collection])
+    def size_collection(self, collection): return sum([self.size(value) for value in collection])
     @size.register(xr.DataArray)
-    def dataarray(self, dataarray): return np.count_nonzero(~np.isnan(dataarray.values))
+    def size_dataarray(self, dataarray): return np.count_nonzero(~np.isnan(dataarray.values))
     @size.register(pd.DataFrame)
-    def dataframe(self, dataframe): return len(dataframe.dropna(how="all", inplace=False).index)
+    def size_dataframe(self, dataframe): return len(dataframe.dropna(how="all", inplace=False).index)
     @size.register(pd.Series)
-    def series(self, series): return len(series.dropna(how="all", inplace=False).index)
+    def size_series(self, series): return len(series.dropna(how="all", inplace=False).index)
 
 
-class Logging(Mixin):
+class Logging(object):
     def __repr__(self): return str(self.name)
     def __init__(self, *args, **kwargs):
         self.__name = kwargs.pop("name", self.__class__.__name__)
         self.__logger = __logger__
-        super().__init__(*args, **kwargs)
 
     @property
     def logger(self): return self.__logger
@@ -130,9 +114,50 @@ class Logging(Mixin):
     def name(self): return self.__name
 
 
-class Node(Mixin):
+class Pipelining(ABC):
+    def __new__(cls, *args, **kwargs):
+        execute = cls.execute
+        if not inspect.isgeneratorfunction(execute):
+            def wrapper(self, *arguments, **parameters):
+                assert isinstance(self, cls)
+                results = execute(self, *arguments, **parameters)
+                if results is not None: yield results
+            update_wrapper(wrapper, execute)
+            setattr(cls, "execute", wrapper)
+        return super().__new__(cls)
+
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+        assert inspect.isgeneratorfunction(self.execute)
+        assert inspect.isgeneratorfunction(self.generator)
+
+    def __call__(self, *args, source=None, **kwargs):
+        yield from self.wrapper(source, *args, **kwargs)
+
+    @typedispatcher
+    def wrapper(self, source, *args, **kwargs):
+        yield from self.execute(source, *args, **kwargs)
+
+    @wrapper.register(types.NoneType)
+    def source(self, source, *args, **kwargs):
+        assert isinstance(source, types.NoneType)
+        yield from self.execute(*args, **kwargs)
+
+    @wrapper.register(types.FunctionType)
+    def function(self, function, *args, **kwargs):
+        source = function(*args, **kwargs)
+        yield from self.execute(source, *args, **kwargs)
+
+    @wrapper.register(types.GeneratorType)
+    def generator(self, generator, *args, **kwargs):
+        for source in generator:
+            yield from self.execute(source, *args, **kwargs)
+
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
+
+
+class Node(object):
+    def __init__(self, *args, **kwargs):
         self.__formatter = kwargs.get("formatter", lambda key, node: str(node.name))
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__style = kwargs.get("style", single)
@@ -185,9 +210,8 @@ class Node(Mixin):
     def name(self): return self.__name
 
 
-class Publisher(Mixin):
+class Publisher(object):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__subscribers = set()
 
@@ -213,9 +237,8 @@ class Publisher(Mixin):
     def name(self): return self.__name
 
 
-class Subscriber(Mixin, ABC):
+class Subscriber(ABC):
     def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__publishers = set()
 
