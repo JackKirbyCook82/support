@@ -56,12 +56,11 @@ class View(ABC, metaclass=ViewMeta):
     def __init__(self, *args, order=[], fields=[], **kwargs):
         self.__fields = dict(fields)
         self.__order = list(order)
-        self.__border = "=" * 250
 
     def __call__(self, table, *args, **kwargs):
         table = self.execute(table, *args, **kwargs)
         assert isinstance(table, (str, type(None)))
-        string = "\n".join([self.border, table, self.border]) if table is not None else ""
+        string = "\n".join(["=" * 250, table, "=" * 250]) if table is not None else ""
         return string + "\n" if bool(string) else string
 
     @abstractmethod
@@ -231,6 +230,12 @@ class TableDataFrame(TableData, datatype=pd.DataFrame):
             index = self.index
             self.table.drop(index, inplace=True)
 
+#    @staticmethod
+#    def parameters(*args, viewtype, datatype, **kwargs):
+#        view = viewtype(*args, **kwargs)
+#        table = datatype(columns=)
+#        return dict(table=table, view=view)
+
     @property
     def stacking(self): return len(self.columns.nlevels) if bool(self.stacked) else 0
     @property
@@ -257,30 +262,26 @@ class TableMeta(ABCMeta):
 
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is TableMeta for base in cls.__bases__]):
-            cls.__parameters__ = kwargs["parameters"]
-        for parameter in cls.__parameters__:
-            attribute = getattr(cls, f"__{parameter}__", None)
-            attribute = kwargs.get(parameter, attribute)
-            setattr(cls, f"__{parameter}__", attribute)
+            return
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
+        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
+        cls.__viewtype__ = kwargs.get("viewtype", getattr(cls, "__viewtype__", None))
 
-    def __call__(cls, *args, **kwargs):
-        parameters = {parameter: getattr(cls, f"__{parameter}__") for parameter in cls.__parameters__}
-        parameters["view"] = parameters["view"](*args, **kwargs)
-        instance = super(TableMeta, cls).__call__(*args, **parameters, mutex=multiprocessing.RLock(), **kwargs)
-        return instance
+#    def __call__(cls, *args, **kwargs):
+#        parameters = dict(variable=cls.__variable__) | cls.parameters(*args, viewtype=cls.__viewtype__, datatype=cls.__datatype__, **kwargs)
+#        instance = super(TableMeta, cls).__call__(*args, **parameters, mutex=multiprocessing.RLock(), **kwargs)
+#        return instance
 
 
-class Table(Logging, ABC, metaclass=TableMeta, parameters=["variable", "view"]):
+class Table(Logging, ABC, metaclass=TableMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __init__(self, *args, variable, **kwargs):
         Logging.__init__(self, *args, **kwargs)
         self.__variable = variable
 
-    @abstractmethod
-    def write(self, content, *args, **kwargs): pass
-    @abstractmethod
-    def read(self, *args, **kwargs): pass
-
+#    @staticmethod
+#    @abstractmethod
+#    def parameters(*args, **kwargs): pass
     @property
     def variable(self): return self.__variable
 

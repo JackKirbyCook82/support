@@ -29,7 +29,8 @@ class Queue(Logging, ABC):
     def __init__(self, *args, contents=[], capacity=None, timeout=None, **kwargs):
         Logging.__init__(self, *args, **kwargs)
         capacity = capacity if capacity is not None else 0
-        self.__queue = self.__class__.__type__(maxsize=capacity)
+        queuetype = self.__class__.__datatype__
+        self.__queue = queuetype(maxsize=capacity)
         self.__timeout = timeout
         for content in contents:
             self.put(content)

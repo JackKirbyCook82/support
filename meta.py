@@ -169,9 +169,7 @@ class RegistryMeta(Meta):
             assert register is None
             cls.__registry__ = dict()
             return
-        register = list(filter(None, [register] if not isinstance(register, list) else register))
-        registry = cls.registry | {key: cls for key in register}
-        for register in registry:
+        for register in list(filter(None, [register] if not isinstance(register, list) else register)):
             cls[register] = cls
 
     def __setitem__(cls, key, value): cls.registry[key] = value

@@ -13,15 +13,15 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from abc import ABC, abstractmethod
-from functools import update_wrapper
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
+from functools import update_wrapper, total_ordering, reduce
 
 from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Node", "Fields", "Logging", "Emptying", "Sizing", "Pipelining", "Publisher", "Subscriber"]
+__all__ = ["Node", "Query", "Field", "Logging", "Emptying", "Sizing", "Sourcing", "Pipelining", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -48,28 +48,47 @@ def renderer(node, layers=[], style=single):
             yield from renderer(value, layers=[*layers, last(index, node.size - 1)], style=style)
 
 
-class Fields(object):
+@total_ordering
+class Field(ABC):
+    pass
+
+
+@total_ordering
+class Query(ABC):
     def __init_subclass__(cls, *args, fields=[], **kwargs):
-        assert all([attr not in fields for attr in ("fields", "keys", "values", "items")])
-        existing = getattr(cls, "__fields__", [])
+        assert all([attr not in fields for attr in ("fields", "contents")])
+        existing = getattr(cls, "fields", [])
         update = [field for field in fields if field not in existing]
-        cls.__fields__ = existing + update
+        cls.fields = tuple(existing + update)
 
-    def __init__(self, *args, **kwargs):
-        fields = list(self.__class__.__fields__)
-        fields = ODict([(field, kwargs.get(field, None)) for field in fields])
-        self.__fields = fields
-        for field, content in fields.items():
-            setattr(self, field, content)
+    def __new__(cls, contents, *args, **kwargs):
+        assert isinstance(contents, (tuple, list))
+        assert len(cls.fields) == len(contents)
+        instance = super().__new__(cls)
+        setattr(instance, "fields", cls.fields)
+        for field, content in zip(cls.fields, contents):
+            setattr(instance, field, content)
+        return instance
 
-    def tolist(self): return list(self.fields.items())
-    def todict(self): return dict(self.fields)
-    def items(self): return self.fields.items()
-    def values(self): return self.fields.values()
-    def keys(self): return self.fields.keys()
+    def __iter__(self): return ((field, content) for field, content in zip(self.fields, self.contents))
+    def __init__(self, contents, *args, delimiter="|", **kwargs):
+        self.contents = tuple(contents)
+        self.delimiter = str(delimiter)
 
-    @property
-    def fields(self): return self.__fields
+    def __hash__(self): return hash(tuple([hash(content) for content in self.contents]))
+    def __str__(self): return str(self.delimiter).join([str(content) for content in self.contents])
+
+    def __eq__(self, other):
+        assert type(other) is type(self) and self.fields == other.fields
+        return all([primary == secondary for primary, secondary in zip(self.contents, other.contents)])
+
+    def __lt__(self, other):
+        assert type(other) is type(self) and self.fields == other.fields
+        return all([primary < secondary for primary, secondary in zip(self.contents, other.contents)])
+
+    @classmethod
+    def fromstring(cls, string, delimiter): return cls([field.fromstring(content) for field, content in zip(cls.fields, str(string).split(delimiter))])
+    def tostring(self, delimiter): return str(delimiter).join([str(content) for content in self.contents])
 
 
 class Emptying(object):
@@ -85,6 +104,8 @@ class Emptying(object):
     def empty_dataframe(self, dataframe): return bool(dataframe.empty)
     @empty.register(pd.Series)
     def empty_series(self, series): return bool(series.empty)
+    @empty.register(types.NoneType)
+    def empty_null(self, *args, **kwargs): return False
 
 
 class Sizing(object):
@@ -100,18 +121,46 @@ class Sizing(object):
     def size_dataframe(self, dataframe): return len(dataframe.dropna(how="all", inplace=False).index)
     @size.register(pd.Series)
     def size_series(self, series): return len(series.dropna(how="all", inplace=False).index)
+    @size.register(types.NoneType)
+    def size_nothing(self, *args, **kwargs): return 0
 
 
-class Logging(object):
-    def __repr__(self): return str(self.name)
-    def __init__(self, *args, **kwargs):
-        self.__name = kwargs.pop("name", self.__class__.__name__)
-        self.__logger = __logger__
+class Sourcing(object):
+    @typedispatcher
+    def source(self, source, *args, query, **kwargs):
+        assert issubclass(query, Query)
+        yield query(source)
 
-    @property
-    def logger(self): return self.__logger
-    @property
-    def name(self): return self.__name
+    @source.register(list)
+    def source_collection(self, collection, *args, query, **kwargs):
+        assert issubclass(query, Query)
+        for content in collection:
+            yield query(content)
+
+    @source.register(pd.DataFrame)
+    def source_dataframe(self, dataframe, *args, query, **kwargs):
+        assert issubclass(query, Query)
+        generator = dataframe.groupby(query.fields)
+        for content, dataframe in iter(generator):
+            yield query(content), dataframe
+
+    @source.register(xr.Dataset)
+    def source_dataset(self, dataset, *args, query, **kwargs):
+        assert issubclass(query, Query)
+        for field in iter(query.fields):
+            dataset = dataset.expand_dims(field)
+        dataset = dataset.stack(stack=query.fields)
+        generator = dataset.groupby("stack")
+        for content, dataset in iter(generator):
+            dataset = dataset.unstack().drop_vars("stack")
+            yield query(content), dataset
+
+    @staticmethod
+    def align(source, query):
+        assert isinstance(source, (pd.DataFrame, xr.Dataset)) and isinstance(query, Query)
+        mask = [source[field] == content for field, content in iter(query)]
+        mask = reduce(lambda lead, lag: lead & lag, mask)
+        return source.where(mask).dropna(how="all", inplace=False)
 
 
 class Pipelining(ABC):
@@ -131,29 +180,46 @@ class Pipelining(ABC):
         assert inspect.isgeneratorfunction(self.generator)
 
     def __call__(self, *args, source=None, **kwargs):
-        yield from self.wrapper(source, *args, **kwargs)
+        generator = self.generator(source, *args, **kwargs)
+        yield from generator
 
     @typedispatcher
-    def wrapper(self, source, *args, **kwargs):
-        yield from self.execute(source, *args, **kwargs)
+    def generator(self, source, *args, **kwargs):
+        generator = self.execute(source, *args, **kwargs)
+        yield from generator
 
-    @wrapper.register(types.NoneType)
-    def source(self, source, *args, **kwargs):
+    @generator.register(types.NoneType)
+    def generator_empty(self, source, *args, **kwargs):
         assert isinstance(source, types.NoneType)
-        yield from self.execute(*args, **kwargs)
+        generator = self.execute(*args, **kwargs)
+        yield from generator
 
-    @wrapper.register(types.FunctionType)
-    def function(self, function, *args, **kwargs):
-        source = function(*args, **kwargs)
-        yield from self.execute(source, *args, **kwargs)
+    @generator.register(types.FunctionType)
+    def generator_function(self, source, *args, **kwargs):
+        content = source(*args, **kwargs)
+        generator = self.execute(content, *args, **kwargs)
+        yield from generator
 
-    @wrapper.register(types.GeneratorType)
-    def generator(self, generator, *args, **kwargs):
-        for source in generator:
-            yield from self.execute(source, *args, **kwargs)
+    @generator.register(types.GeneratorType)
+    def generator_generator(self, source, *args, **kwargs):
+        for content in iter(source):
+            generator = self.execute(content, *args, **kwargs)
+            yield from generator
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
+
+
+class Logging(object):
+    def __repr__(self): return str(self.name)
+    def __init__(self, *args, **kwargs):
+        self.__name = kwargs.pop("name", self.__class__.__name__)
+        self.__logger = __logger__
+
+    @property
+    def logger(self): return self.__logger
+    @property
+    def name(self): return self.__name
 
 
 class Node(object):
