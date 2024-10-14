@@ -11,8 +11,8 @@ import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
+from support.mixins import Pipelining, Sourcing, Logging, Emptying, Sizing
 from support.meta import RegistryMeta
-from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -284,6 +284,38 @@ class Table(Logging, ABC, metaclass=TableMeta):
 #    def parameters(*args, **kwargs): pass
     @property
     def variable(self): return self.__variable
+
+
+class Reader(Pipelining, Logging, Sizing, Emptying):
+    def __init__(self, *args, table, **kwargs):
+        Pipelining.__init__(self, *args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
+        self.__table = table
+
+    def execute(self, *args, **kwargs):
+        pass
+
+    @property
+    def table(self): return self.__table
+
+
+class Writer(Pipelining, Sourcing, Logging, Sizing, Emptying):
+    def __init__(self, *args, table, **kwargs):
+        Pipelining.__init__(self, *args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
+        self.__table = table
+
+    def execute(self, *args, **kwargs):
+        pass
+
+    @property
+    def table(self): return self.__table
+
+
+
+
+
+
 
 
 

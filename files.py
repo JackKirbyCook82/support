@@ -15,7 +15,7 @@ from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
-from support.mixins import Pipelining, Logging, Emptying
+from support.mixins import Pipelining, Sourcing, Logging, Emptying, Sizing
 from support.dispatchers import kwargsdispatcher
 from support.meta import SingletonMeta
 
@@ -133,7 +133,7 @@ class FileMeta(ABCMeta):
         return instance
 
 
-class File(Pipelining, Logging, Emptying, ABC, metaclass=FileMeta, parameters=["variable", "queryname", "filename", "formatters", "parsers", "types", "dates"]):
+class File(ABC, metaclass=FileMeta, parameters=["variable", "queryname", "filename", "formatters", "parsers", "types", "dates"]):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, repository, **kwargs):
         instance = super().__new__(cls)
@@ -153,12 +153,6 @@ class File(Pipelining, Logging, Emptying, ABC, metaclass=FileMeta, parameters=["
         self.__queryname = queryname
         self.__variable = variable
         self.__mutex = mutex
-
-    def execute(self, *args, mode="r", **kwargs):
-        for query in self.directory(*args, **kwargs):
-            content = self.read(*args, query=query, mode=mode, **kwargs)
-            if self.empty(content): continue
-            yield content
 
     def directory(self, *args, **kwargs):
         directory = os.path.join(self.repository, str(self.variable))
@@ -188,7 +182,6 @@ class File(Pipelining, Logging, Emptying, ABC, metaclass=FileMeta, parameters=["
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
             self.save(content, *args, **parameters, **kwargs)
-        self.logger.info("Saved: {}".format(str(file)))
 
     @property
     def filetiming(self): return self.__filetiming
@@ -204,6 +197,46 @@ class File(Pipelining, Logging, Emptying, ABC, metaclass=FileMeta, parameters=["
     def variable(self): return self.__variable
     @property
     def mutex(self): return self.__mutex
+
+
+class Loader(Pipelining, Logging, Sizing, Emptying):
+    def __init__(self, *args, file, **kwargs):
+        Pipelining.__init__(self, *args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
+        self.__file = file
+
+    def execute(self, *args, mode="r", **kwargs):
+        pass
+
+    @property
+    def file(self): return self.__file
+
+#        for query in iter(self.file):
+#            content = self.read(*args, query=query, mode=mode, **kwargs)
+#            size = self.size(content)
+#            string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
+#            self.logger.info(string)
+#            if self.empty(content): continue
+#            yield content
+
+
+class Saver(Pipelining, Sourcing, Logging, Sizing, Emptying):
+    def __init__(self, *args, file, **kwargs):
+        Pipelining.__init__(self, *args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
+        self.__file = file
+
+    def execute(self, content, *args, mode, **kwargs):
+        pass
+
+    @property
+    def file(self): return self.__file
+
+#        size = self.size(content)
+#        self.logger.info("Saved: {}".format(str(file)))
+
+
+
 
 
 

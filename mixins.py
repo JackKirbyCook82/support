@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sun 14 2023
+Created on Mon Oct 14 2024
 @name:   Mixins Object
 @author: Jack Kirby Cook
 
@@ -15,13 +15,13 @@ import xarray as xr
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
-from functools import update_wrapper, total_ordering, reduce
+from functools import update_wrapper, reduce
 
 from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Node", "Query", "Field", "Logging", "Emptying", "Sizing", "Sourcing", "Pipelining", "Publisher", "Subscriber"]
+__all__ = ["Node", "Logging", "Emptying", "Sizing", "Sourcing", "Pipelining", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -46,49 +46,6 @@ def renderer(node, layers=[], style=single):
         for value in aslist(values):
             yield func(index, node.size - 1), key, value
             yield from renderer(value, layers=[*layers, last(index, node.size - 1)], style=style)
-
-
-@total_ordering
-class Field(ABC):
-    pass
-
-
-@total_ordering
-class Query(ABC):
-    def __init_subclass__(cls, *args, fields=[], **kwargs):
-        assert all([attr not in fields for attr in ("fields", "contents")])
-        existing = getattr(cls, "fields", [])
-        update = [field for field in fields if field not in existing]
-        cls.fields = tuple(existing + update)
-
-    def __new__(cls, contents, *args, **kwargs):
-        assert isinstance(contents, (tuple, list))
-        assert len(cls.fields) == len(contents)
-        instance = super().__new__(cls)
-        setattr(instance, "fields", cls.fields)
-        for field, content in zip(cls.fields, contents):
-            setattr(instance, field, content)
-        return instance
-
-    def __iter__(self): return ((field, content) for field, content in zip(self.fields, self.contents))
-    def __init__(self, contents, *args, delimiter="|", **kwargs):
-        self.contents = tuple(contents)
-        self.delimiter = str(delimiter)
-
-    def __hash__(self): return hash(tuple([hash(content) for content in self.contents]))
-    def __str__(self): return str(self.delimiter).join([str(content) for content in self.contents])
-
-    def __eq__(self, other):
-        assert type(other) is type(self) and self.fields == other.fields
-        return all([primary == secondary for primary, secondary in zip(self.contents, other.contents)])
-
-    def __lt__(self, other):
-        assert type(other) is type(self) and self.fields == other.fields
-        return all([primary < secondary for primary, secondary in zip(self.contents, other.contents)])
-
-    @classmethod
-    def fromstring(cls, string, delimiter): return cls([field.fromstring(content) for field, content in zip(cls.fields, str(string).split(delimiter))])
-    def tostring(self, delimiter): return str(delimiter).join([str(content) for content in self.contents])
 
 
 class Emptying(object):
@@ -127,33 +84,31 @@ class Sizing(object):
 
 class Sourcing(object):
     @typedispatcher
-    def source(self, source, *args, query, **kwargs):
-        assert issubclass(query, Query)
-        yield query(source)
-
-    @source.register(list)
-    def source_collection(self, collection, *args, query, **kwargs):
-        assert issubclass(query, Query)
-        for content in collection:
-            yield query(content)
+    def source(self, source, *args, query, **kwargs): raise TypeError(type(source).__name__)
 
     @source.register(pd.DataFrame)
     def source_dataframe(self, dataframe, *args, query, **kwargs):
-        assert issubclass(query, Query)
-        generator = dataframe.groupby(query.fields)
-        for content, dataframe in iter(generator):
-            yield query(content), dataframe
+        assert inspect.isclass(query)
+        attributes = list(map(str, query))
+        generator = dataframe.groupby(attributes)
+        for values, dataframe in iter(generator):
+            assert isinstance(values, tuple)
+            values = list(values)
+            yield query(values), dataframe
 
     @source.register(xr.Dataset)
     def source_dataset(self, dataset, *args, query, **kwargs):
-        assert issubclass(query, Query)
-        for field in iter(query.fields):
-            dataset = dataset.expand_dims(field)
-        dataset = dataset.stack(stack=query.fields)
+        assert inspect.isclass(query)
+        attributes = list(map(str, query))
+        for attribute in attributes:
+            dataset = dataset.expand_dims(attribute)
+        dataset = dataset.stack(stack=attributes)
         generator = dataset.groupby("stack")
-        for content, dataset in iter(generator):
+        for values, dataset in iter(generator):
+            assert isinstance(values, tuple)
+            values = list(values)
             dataset = dataset.unstack().drop_vars("stack")
-            yield query(content), dataset
+            yield query(values), dataset
 
     @staticmethod
     def align(source, query):
