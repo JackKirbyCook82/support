@@ -21,7 +21,7 @@ from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["File", "FileTypes", "FileTimings"]
+__all__ = ["Loader", "Saver", "File", "FileTypes", "FileTimings"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -133,7 +133,7 @@ class FileMeta(ABCMeta):
         return instance
 
 
-class File(ABC, metaclass=FileMeta, parameters=["variable", "queryname", "filename", "formatters", "parsers", "types", "dates"]):
+class File(ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parsers", "types", "dates"]):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, repository, **kwargs):
         instance = super().__new__(cls)
@@ -142,43 +142,36 @@ class File(ABC, metaclass=FileMeta, parameters=["variable", "queryname", "filena
         return instance
 
     def __iter__(self): yield from self.directory()
-    def __init__(self, *args, filetype, filetiming, filename, queryname, repository, variable, mutex, **kwargs):
+    def __init__(self, *args, filetype, filetiming, repository, variable, mutex, **kwargs):
         Pipelining.__init__(self, *args, **kwargs)
         Logging.__init__(self, *args, **kwargs)
-        self.__logger = __logger__
         self.__repository = repository
         self.__filetiming = filetiming
         self.__filetype = filetype
-        self.__filename = filename
-        self.__queryname = queryname
         self.__variable = variable
         self.__mutex = mutex
 
     def directory(self, *args, **kwargs):
         directory = os.path.join(self.repository, str(self.variable))
-        for file in os.listdir(directory):
-            file = str(file).split(".")[0]
-            queryname = self.queryname(file)
-            yield queryname
+        for file in  os.listdir(directory):
+            yield str(file).split(".")[0]
 
-    def read(self, *args, query, mode="r", **kwargs):
+    def read(self, *args, file, mode="r", **kwargs):
         method = FileMethod(self.filetype, self.filetiming)
         directory = os.path.join(self.repository, str(self.variable))
         extension = str(self.filetype.name).lower()
-        filename = self.filename(query)
-        file = os.path.join(directory, ".".join([filename, extension]))
+        file = os.path.join(directory, ".".join([file, extension]))
         if not os.path.exists(file): return
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
             content = self.load(*args, **parameters, **kwargs)
         return content
 
-    def write(self, content, *args, query, mode, **kwargs):
+    def write(self, content, *args, file, mode, **kwargs):
         method = FileMethod(self.filetype, self.filetiming)
         directory = os.path.join(self.repository, str(self.variable))
         extension = str(self.filetype.name).lower()
-        filename = self.filename(query)
-        file = os.path.join(directory, ".".join([filename, extension]))
+        file = os.path.join(directory, ".".join([file, extension]))
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
             self.save(content, *args, **parameters, **kwargs)
@@ -188,10 +181,6 @@ class File(ABC, metaclass=FileMeta, parameters=["variable", "queryname", "filena
     @property
     def filetype(self): return self.__filetype
     @property
-    def filename(self): return self.__filename
-    @property
-    def queryname(self): return self.__queryname
-    @property
     def repository(self): return self.__repository
     @property
     def variable(self): return self.__variable
@@ -200,42 +189,61 @@ class File(ABC, metaclass=FileMeta, parameters=["variable", "queryname", "filena
 
 
 class Loader(Pipelining, Logging, Sizing, Emptying):
-    def __init__(self, *args, file, **kwargs):
+    def __init__(self, *args, file, query, mode="r", **kwargs):
         Pipelining.__init__(self, *args, **kwargs)
         Logging.__init__(self, *args, **kwargs)
+        self.__query = query
         self.__file = file
+        self.__mode = mode
 
-    def execute(self, *args, mode="r", **kwargs):
-        pass
+    def execute(self, *args, **kwargs):
+        for file in iter(self.file):
+            contents = self.read(*args, file=file, mode=self.mode, **kwargs)
+            if self.empty(contents): return
+            for values, content in self.source(contents, keys=list(self.query)):
+                if self.empty(content): continue
+                query = self.query(values)
+                size = self.size(content)
+                string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
+                self.logger.info(string)
+                if self.empty(content): continue
+                yield content
 
     @property
+    def query(self): return self.__query
+    @property
     def file(self): return self.__file
-
-#        for query in iter(self.file):
-#            content = self.read(*args, query=query, mode=mode, **kwargs)
-#            size = self.size(content)
-#            string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
-#            self.logger.info(string)
-#            if self.empty(content): continue
-#            yield content
+    @property
+    def mode(self): return self.__mode
 
 
 class Saver(Pipelining, Sourcing, Logging, Sizing, Emptying):
-    def __init__(self, *args, file, **kwargs):
+    def __init__(self, *args, file, query, mode, **kwargs):
         Pipelining.__init__(self, *args, **kwargs)
         Logging.__init__(self, *args, **kwargs)
+        self.__query = query
         self.__file = file
+        self.__mode = mode
 
-    def execute(self, content, *args, mode, **kwargs):
-        pass
+    def execute(self, contents, *args, mode, **kwargs):
+        if self.empty(contents): return
+        for values, content in self.source(contents, keys=list(self.query)):
+            if self.empty(content): continue
+            query = self.query(values)
+            file = str(query).replace("|", "_")
+            self.write(content, *args, file=file, mode=self.mode, **kwargs)
+            size = self.size(content)
+            string = f"Saved: {repr(self)}|{str(query)}[{size:.0f}]"
+            self.logger.info(string)
+            string = f"Saved: {str(file)}"
+            self.logger.info(string)
 
     @property
+    def query(self): return self.__query
+    @property
     def file(self): return self.__file
-
-#        size = self.size(content)
-#        self.logger.info("Saved: {}".format(str(file)))
-
-
+    @property
+    def mode(self): return self.__mode
 
 
 

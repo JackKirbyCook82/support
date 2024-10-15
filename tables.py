@@ -16,7 +16,7 @@ from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Table", "View"]
+__all__ = ["Reader", "Writer", "Table", "View"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -97,7 +97,6 @@ class TableData(ABC):
         cls.datatype = kwargs.get("datatype", getattr(cls, "datatype", None))
 
     def __init__(self, *args, table, view, mutex, **kwargs):
-        super().__init__(*args, **kwargs)
         self.__mutex = mutex
         self.__table = table
         self.__view = view
@@ -230,12 +229,6 @@ class TableDataFrame(TableData, datatype=pd.DataFrame):
             index = self.index
             self.table.drop(index, inplace=True)
 
-#    @staticmethod
-#    def parameters(*args, viewtype, datatype, **kwargs):
-#        view = viewtype(*args, **kwargs)
-#        table = datatype(columns=)
-#        return dict(table=table, view=view)
-
     @property
     def stacking(self): return len(self.columns.nlevels) if bool(self.stacked) else 0
     @property
@@ -263,53 +256,75 @@ class TableMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is TableMeta for base in cls.__bases__]):
             return
-        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
         cls.__viewtype__ = kwargs.get("viewtype", getattr(cls, "__viewtype__", None))
 
-#    def __call__(cls, *args, **kwargs):
-#        parameters = dict(variable=cls.__variable__) | cls.parameters(*args, viewtype=cls.__viewtype__, datatype=cls.__datatype__, **kwargs)
-#        instance = super(TableMeta, cls).__call__(*args, **parameters, mutex=multiprocessing.RLock(), **kwargs)
-#        return instance
+    def __call__(cls, *args, **kwargs):
+        table = cls.__datatype__()
+        view = cls.__viewtype__()
+        mutex = multiprocessing.RLock()
+        parameters = dict(table=table, view=view, mutex=mutex)
+        instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
+        return instance
 
 
-class Table(Logging, ABC, metaclass=TableMeta):
+class Table(ABC, metaclass=TableMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, variable, **kwargs):
-        Logging.__init__(self, *args, **kwargs)
-        self.__variable = variable
-
-#    @staticmethod
-#    @abstractmethod
-#    def parameters(*args, **kwargs): pass
-    @property
-    def variable(self): return self.__variable
 
 
-class Reader(Pipelining, Logging, Sizing, Emptying):
-    def __init__(self, *args, table, **kwargs):
+class Reader(Pipelining, Logging, Sizing, Emptying, ABC):
+    def __init__(self, *args, table, query, **kwargs):
         Pipelining.__init__(self, *args, **kwargs)
         Logging.__init__(self, *args, **kwargs)
         self.__table = table
+        self.__query = query
 
     def execute(self, *args, **kwargs):
-        pass
+        if not bool(self.table): return
+        contents = self.read(*args, **kwargs)
+        if self.empty(contents): return
+        for values, content in self.source(contents, keys=list(self.query)):
+            if self.empty(content): continue
+            query = self.query(values)
+            size = self.size(content)
+            string = f"Read: {repr(self)}|{str(query)}[{size:.0f}]"
+            self.logger.info(string)
+            if self.empty(content): continue
+            yield content
+
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
 
     @property
     def table(self): return self.__table
+    @property
+    def query(self): return self.__query
 
 
-class Writer(Pipelining, Sourcing, Logging, Sizing, Emptying):
-    def __init__(self, *args, table, **kwargs):
+class Writer(Pipelining, Sourcing, Logging, Sizing, Emptying, ABC):
+    def __init__(self, *args, table, query, **kwargs):
         Pipelining.__init__(self, *args, **kwargs)
         Logging.__init__(self, *args, **kwargs)
         self.__table = table
+        self.__query = query
 
-    def execute(self, *args, **kwargs):
-        pass
+    def execute(self, contents, *args, **kwargs):
+        if self.empty(contents): return
+        for values, content in self.source(contents, keys=list(self.query)):
+            if self.empty(content): continue
+            query = self.query(values)
+            self.write(query, content, *args, **kwargs)
+            size = self.size(content)
+            string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
+            self.logger.info(string)
+
+    @abstractmethod
+    def write(self, *args, **kwargs): pass
 
     @property
     def table(self): return self.__table
+    @property
+    def query(self): return self.__query
 
 
 

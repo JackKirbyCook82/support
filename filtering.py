@@ -12,6 +12,7 @@ from functools import reduce
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 
+from support.mixins import Emptying, Sizing, Logging, Pipelining, Sourcing
 from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
@@ -47,14 +48,30 @@ class Criterion(object):
     NULL = Null
 
 
-class Filter(object):
-    def __init__(self, *args, criterion={}, **kwargs):
-        assert isinstance(criterion, dict)
+class Filter(Pipelining, Sourcing, Logging, Sizing, Emptying):
+    def __init__(self, *args, query, criterion={}, **kwargs):
+        assert isinstance(criterion, dict) and callable(query)
         assert all([issubclass(criteria, Criteria) for criteria in criterion.keys()])
         assert all([isinstance(parameter, (list, dict)) for parameter in criterion.values()])
+        Pipelining.__init__(self, *args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
+        Filter.__init__(self, *args, **kwargs)
         criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
         self.__criterion = list(criterion)
+        self.__query = query
+
+    def execute(self, contents, *args, **kwargs):
+        for values, content in self.source(contents, keys=list(self.query)):
+            query = self.query(values)
+            prior = self.size(content)
+            content = self.filter(content, *args, **kwargs)
+            dataframe = dataframe.reset_index(drop=True, inplace=False)
+            post = self.size(dataframe)
+            string = f"Filtered: {repr(self)}|{str(query)}[{prior:.0f}|{post:.0f}]"
+            self.logger.info(string)
+            if self.empty(content): continue
+            yield v
 
     def filter(self, content, *args, **kwargs):
         mask = self.mask(content)
@@ -75,6 +92,8 @@ class Filter(object):
 
     @property
     def criterion(self): return self.__criterion
+    @property
+    def query(self): return self.__query
 
 
 

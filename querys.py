@@ -143,7 +143,7 @@ class QueryMeta(ABCMeta):
         attributes = list(map(str, fields))
         generator = zip(fields, values)
         contents = [field(value) for field, value in generator]
-        instance = super(QueryMeta, cls).__call__(contents, delimiter=delimiter)
+        instance = super(QueryMeta, cls).__call__(fields, contents, delimiter=delimiter)
         for attribute, content in zip(attributes, contents):
             setattr(instance, attribute, content)
         return instance
@@ -156,7 +156,7 @@ class QueryMeta(ABCMeta):
         attributes = list(map(str, fields))
         generator = zip(fields, strings)
         contents = [field[string] for field, string in generator]
-        instance = super(QueryMeta, cls).__call__(contents, delimiter=delimiter)
+        instance = super(QueryMeta, cls).__call__(fields, contents, delimiter=delimiter)
         for attribute, content in zip(attributes, contents):
             setattr(instance, attribute, content)
         return instance
@@ -164,10 +164,11 @@ class QueryMeta(ABCMeta):
 
 @total_ordering
 class Query(ABC, metaclass=QueryMeta):
-    def __init__(self, contents, *args, delimiter, **kwargs):
-        assert isinstance(contents, list) and isinstance(delimiter, str)
-        self.__contents = tuple(contents)
+    def __init__(self, fields, contents, *args, delimiter, **kwargs):
+        assert isinstance(contents, list) and isinstance(fields, list) and len(fields) == len(contents) and isinstance(delimiter, str)
         self.__delimiter = str(delimiter)
+        self.__contents = tuple(contents)
+        self.__fields = tuple(fields)
 
     def __iter__(self): return iter(self.contents)
     def __hash__(self): return hash(tuple([hash(content) for content in self.contents]))
@@ -181,10 +182,15 @@ class Query(ABC, metaclass=QueryMeta):
         assert type(other) is type(self) and list(type(self)) == list(type(other))
         return all([primary < secondary for primary, secondary in zip(self, other)])
 
+    def items(self): return self.fields, self.contents
+    def values(self): return self.contents
+    def keys(self): return self.fields
+
     @property
     def delimiter(self): return self.__delimiter
     @property
     def contents(self): return self.__contents
-
+    @property
+    def fields(self): return self.__fields
 
 

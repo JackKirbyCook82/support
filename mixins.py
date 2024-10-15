@@ -87,33 +87,25 @@ class Sourcing(object):
     def source(self, source, *args, query, **kwargs): raise TypeError(type(source).__name__)
 
     @source.register(pd.DataFrame)
-    def source_dataframe(self, dataframe, *args, query, **kwargs):
-        assert inspect.isclass(query)
-        attributes = list(map(str, query))
-        generator = dataframe.groupby(attributes)
+    def source_dataframe(self, dataframe, *args, keys, **kwargs):
+        generator = dataframe.groupby(keys)
         for values, dataframe in iter(generator):
-            assert isinstance(values, tuple)
-            values = list(values)
-            yield query(values), dataframe
+            yield list(values), dataframe
 
     @source.register(xr.Dataset)
-    def source_dataset(self, dataset, *args, query, **kwargs):
-        assert inspect.isclass(query)
-        attributes = list(map(str, query))
-        for attribute in attributes:
-            dataset = dataset.expand_dims(attribute)
-        dataset = dataset.stack(stack=attributes)
+    def source_dataset(self, dataset, *args, keys, **kwargs):
+        for key in keys:
+            dataset = dataset.expand_dims(key)
+        dataset = dataset.stack(stack=keys)
         generator = dataset.groupby("stack")
         for values, dataset in iter(generator):
-            assert isinstance(values, tuple)
-            values = list(values)
             dataset = dataset.unstack().drop_vars("stack")
-            yield query(values), dataset
+            yield list(values), dataset
 
     @staticmethod
-    def align(source, query):
-        assert isinstance(source, (pd.DataFrame, xr.Dataset)) and isinstance(query, Query)
-        mask = [source[field] == content for field, content in iter(query)]
+    def align(source, *args, keys, values, **kwargs):
+        assert isinstance(source, (pd.DataFrame, xr.Dataset))
+        mask = [source[key] == value for key, value in zip(keys, values)]
         mask = reduce(lambda lead, lag: lead & lag, mask)
         return source.where(mask).dropna(how="all", inplace=False)
 
