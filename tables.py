@@ -6,12 +6,15 @@ Created on Weds Jul 12 2023
 
 """
 
+import inspect
 import multiprocessing
 import pandas as pd
+import xarray as xr
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
-from support.mixins import Pipelining, Sourcing, Logging, Emptying, Sizing
+from support.mixins import Function, Generator, Logging, Emptying, Sizing
+from support.dispatchers import typedispatcher
 from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
@@ -272,47 +275,18 @@ class Table(ABC, metaclass=TableMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
 
 
-class Reader(Pipelining, Logging, Sizing, Emptying, ABC):
-    def __init__(self, *args, table, query, **kwargs):
-        Pipelining.__init__(self, *args, **kwargs)
+class Writer(Function, Logging, Sizing, Emptying, ABC):
+    def __init__(self, *args, table, **kwargs):
+        assert not inspect.isgeneratorfunction(self.write)
+        Function.__init__(self, *args, **kwargs)
         Logging.__init__(self, *args, **kwargs)
         self.__table = table
-        self.__query = query
 
-    def execute(self, *args, **kwargs):
-        if not bool(self.table): return
-        contents = self.read(*args, **kwargs)
-        if self.empty(contents): return
-        for values, content in self.source(contents, keys=list(self.query)):
-            if self.empty(content): continue
-            query = self.query(values)
-            size = self.size(content)
-            string = f"Read: {repr(self)}|{str(query)}[{size:.0f}]"
-            self.logger.info(string)
-            if self.empty(content): continue
-            yield content
-
-    @abstractmethod
-    def read(self, *args, **kwargs): pass
-
-    @property
-    def table(self): return self.__table
-    @property
-    def query(self): return self.__query
-
-
-class Writer(Pipelining, Sourcing, Logging, Sizing, Emptying, ABC):
-    def __init__(self, *args, table, query, **kwargs):
-        Pipelining.__init__(self, *args, **kwargs)
-        Logging.__init__(self, *args, **kwargs)
-        self.__table = table
-        self.__query = query
-
-    def execute(self, contents, *args, **kwargs):
-        if self.empty(contents): return
-        for values, content in self.source(contents, keys=list(self.query)):
-            if self.empty(content): continue
-            query = self.query(values)
+    def execute(self, source, *args, **kwargs):
+        assert isinstance(source, tuple)
+        query, content = source
+        if self.empty(content): return
+        with self.table.mutex:
             self.write(query, content, *args, **kwargs)
             size = self.size(content)
             string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
@@ -320,17 +294,58 @@ class Writer(Pipelining, Sourcing, Logging, Sizing, Emptying, ABC):
 
     @abstractmethod
     def write(self, *args, **kwargs): pass
-
     @property
     def table(self): return self.__table
+
+
+class Reader(Generator, Logging, Sizing, Emptying, ABC):
+    def __init__(self, *args, table, query, **kwargs):
+        assert not inspect.isgeneratorfunction(self.read)
+        Generator.__init__(self, *args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
+        self.__query = query
+        self.__table = table
+
+    def execute(self, *args, **kwargs):
+        if not bool(self.table): return
+        with self.table.mutex:
+            contents = self.read(*args, **kwargs)
+            for query, content in self.source(contents):
+                size = self.size(content)
+                string = f"Read: {repr(self)}|{str(query)}[{size:.0f}]"
+                self.logger.info(string)
+                if self.empty(content): continue
+                yield query, content
+
+    @typedispatcher
+    def source(self, contents): pass
+
+    @source.register(pd.DataFrame)
+    def source_dataframe(self, dataframe):
+        keys = list(self.query)
+        generator = dataframe.groupby(keys)
+        for values, dataframe in iter(generator):
+            query = self.query(values)
+            yield query, dataframe
+
+    @source.register(xr.Dataset)
+    def source_dataset(self, dataset):
+        for key in list(self.query):
+            dataset = dataset.expand_dims(key)
+        keys = list(self.query)
+        dataset = dataset.stack(stack=keys)
+        generator = dataset.groupby("stack")
+        for values, dataset in iter(generator):
+            query = self.query(values)
+            dataset = dataset.unstack().drop_vars("stack")
+            yield query, dataset
+
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
     @property
     def query(self): return self.__query
-
-
-
-
-
-
+    @property
+    def table(self): return self.__table
 
 
 

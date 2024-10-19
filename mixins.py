@@ -13,39 +13,64 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from abc import ABC, abstractmethod
-from collections import namedtuple as ntuple
+from functools import update_wrapper
 from collections import OrderedDict as ODict
-from functools import update_wrapper, reduce
 
 from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Node", "Logging", "Emptying", "Sizing", "Sourcing", "Pipelining", "Publisher", "Subscriber"]
+__all__ = ["Node", "MultiNode", "Logging", "Emptying", "Sizing", "Function", "Generator", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-Style = ntuple("Style", "branch terminate run blank")
-aslist = lambda x: [x] if not isinstance(x, (list, tuple)) else list(x)
-double = Style("╠══", "╚══", "║  ", "   ")
-single = Style("├──", "└──", "│  ", "   ")
-curved = Style("├──", "╰──", "│  ", "   ")
+class Node(object):
+    def __init__(self, *args, **kwargs):
+        self.__nodes = ODict()
+
+    def set(self, key, value): self.nodes[key] = value
+    def get(self, key): return self.nodes[key]
+
+    def keys(self): return self.nodes.keys()
+    def values(self): return self.nodes.values()
+    def items(self): return self.nodes.items()
+
+    def transverse(self):
+        for value in self.items():
+            yield value
+            yield from value.transverse()
+
+    @property
+    def leafs(self): return [value for value in self.transverse() if not bool(value.children)]
+    @property
+    def branches(self): return [value for value in self.transverse() if bool(value.children)]
+    @property
+    def children(self): return list(self.nodes.values())
+    @property
+    def size(self): return len(self.nodes)
+
+    @property
+    def nodes(self): return self.__nodes
 
 
-def renderer(node, layers=[], style=single):
-    assert hasattr(node, "children") and hasattr(node, "size")
-    last = lambda i, x: i == x
-    func = lambda i, x: "".join([pads(), pre(i, x)])
-    pre = lambda i, x: style.terminate if last(i, x) else style.blank
-    pads = lambda: "".join([style.blank if layer else style.run for layer in layers])
-    if not layers:
-        yield "", None, node
-    for index, (key, values) in enumerate(iter(node.children)):
-        for value in aslist(values):
-            yield func(index, node.size - 1), key, value
-            yield from renderer(value, layers=[*layers, last(index, node.size - 1)], style=style)
+class MultiNode(Node):
+    def get(self, key, index=None):
+        if index is None: return self.nodes[key]
+        return self.nodes[key][index]
+
+    def set(self, key, value):
+        if key not in self.nodes: self.nodes[key] = []
+        if isinstance(value, list): self.nodes[key].extend(value)
+        else: self.nodes[key].append(value)
+
+    def transverse(self):
+        for values in self.values():
+            assert isinstance(values, list)
+            for value in values:
+                yield value
+                yield from value.transverse()
 
 
 class Emptying(object):
@@ -82,35 +107,47 @@ class Sizing(object):
     def size_nothing(self, *args, **kwargs): return 0
 
 
-class Sourcing(object):
+class Function(ABC):
+    def __new__(cls, *args, **kwargs):
+        execute = cls.execute
+        if inspect.isgeneratorfunction(execute):
+            def wrapper(self, *arguments, **parameters):
+                assert isinstance(self, cls)
+                generator = execute(self, *arguments, **parameters)
+                return list(generator)
+            update_wrapper(wrapper, execute)
+            setattr(cls, "execute", wrapper)
+        return super().__new__(cls)
+
+    def __init__(self, *args, **kwargs):
+        assert not inspect.isgeneratorfunction(self.execute)
+        assert not inspect.isgeneratorfunction(self.function)
+
+    def __call__(self, *args, source=None, **kwargs):
+        return self.function(source, *args, **kwargs)
+
     @typedispatcher
-    def source(self, source, *args, query, **kwargs): raise TypeError(type(source).__name__)
+    def function(self, source, *args, **kwargs): pass
 
-    @source.register(pd.DataFrame)
-    def source_dataframe(self, dataframe, *args, keys, **kwargs):
-        generator = dataframe.groupby(keys)
-        for values, dataframe in iter(generator):
-            yield list(values), dataframe
+    @function.register(types.NoneType)
+    def function_empty(self, source, *args, **kwargs):
+        assert isinstance(source, types.NoneType)
+        return self.execute(*args, **kwargs)
 
-    @source.register(xr.Dataset)
-    def source_dataset(self, dataset, *args, keys, **kwargs):
-        for key in keys:
-            dataset = dataset.expand_dims(key)
-        dataset = dataset.stack(stack=keys)
-        generator = dataset.groupby("stack")
-        for values, dataset in iter(generator):
-            dataset = dataset.unstack().drop_vars("stack")
-            yield list(values), dataset
+    @function.register(types.FunctionType)
+    def function_function(self, source, *args, **kwargs):
+        content = source(*args, **kwargs)
+        return self.execute(content, *args, **kwargs)
 
-    @staticmethod
-    def align(source, *args, keys, values, **kwargs):
-        assert isinstance(source, (pd.DataFrame, xr.Dataset))
-        mask = [source[key] == value for key, value in zip(keys, values)]
-        mask = reduce(lambda lead, lag: lead & lag, mask)
-        return source.where(mask).dropna(how="all", inplace=False)
+    @function.register(types.GeneratorType)
+    def function_function(self, source, *args, **kwargs):
+        return [self.execute(content, *args, **kwargs) for content in iter(source)]
+
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
 
 
-class Pipelining(ABC):
+class Generator(ABC):
     def __new__(cls, *args, **kwargs):
         execute = cls.execute
         if not inspect.isgeneratorfunction(execute):
@@ -165,60 +202,6 @@ class Logging(object):
 
     @property
     def logger(self): return self.__logger
-    @property
-    def name(self): return self.__name
-
-
-class Node(object):
-    def __init__(self, *args, **kwargs):
-        self.__formatter = kwargs.get("formatter", lambda key, node: str(node.name))
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__style = kwargs.get("style", single)
-        self.__nodes = ODict()
-
-    def set(self, key, value): self.nodes[key] = value
-    def get(self, key): return self.nodes[key]
-
-    def append(self, key, value):
-        assert isinstance(value, Node)
-        self.nodes[key] = aslist(self.nodes.get(key, []))
-        self.nodes[key].append(value)
-
-    def extend(self, key, value):
-        assert isinstance(value, list)
-        self.nodes[key] = aslist(self.nodes.get(key, []))
-        self.nodes[key].extend(value)
-
-    def keys(self): return self.nodes.keys()
-    def values(self): return self.nodes.values()
-    def items(self): return self.nodes.items()
-
-    def transverse(self):
-        for value in self.values():
-            yield value
-            yield from value.transverse()
-
-    @property
-    def leafs(self): return [value for value in self.transverse() if not bool(value.children)]
-    @property
-    def branches(self): return [value for value in self.transverse() if bool(value.children)]
-    @property
-    def children(self): return list(self.nodes.values())
-    @property
-    def size(self): return len(self.nodes)
-
-    @property
-    def tree(self):
-        generator = renderer(self, style=self.style)
-        rows = [pre + self.formatter(key, value) for pre, key, value in generator]
-        return "\n".format(rows)
-
-    @property
-    def formatter(self): return self.__formatter
-    @property
-    def style(self): return self.__style
-    @property
-    def nodes(self): return self.__nodes
     @property
     def name(self): return self.__name
 

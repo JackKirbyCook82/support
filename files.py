@@ -5,7 +5,7 @@ Created on Sun 14 2023
 @author: Jack Kirby Cook
 
 """
-
+import inspect
 import os
 import logging
 import multiprocessing
@@ -15,7 +15,7 @@ from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
-from support.mixins import Pipelining, Sourcing, Logging, Emptying, Sizing
+from support.mixins import Function, Generator, Logging, Emptying, Sizing
 from support.dispatchers import kwargsdispatcher
 from support.meta import SingletonMeta
 
@@ -141,9 +141,7 @@ class File(ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parse
             os.mkdir(repository)
         return instance
 
-    def __iter__(self): yield from self.directory()
     def __init__(self, *args, filetype, filetiming, repository, variable, mutex, **kwargs):
-        Pipelining.__init__(self, *args, **kwargs)
         Logging.__init__(self, *args, **kwargs)
         self.__repository = repository
         self.__filetiming = filetiming
@@ -153,7 +151,7 @@ class File(ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parse
 
     def directory(self, *args, **kwargs):
         directory = os.path.join(self.repository, str(self.variable))
-        for file in  os.listdir(directory):
+        for file in os.listdir(directory):
             yield str(file).split(".")[0]
 
     def read(self, *args, file, mode="r", **kwargs):
@@ -188,55 +186,57 @@ class File(ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parse
     def mutex(self): return self.__mutex
 
 
-class Loader(Pipelining, Logging, Sizing, Emptying):
+class Saver(Function, Logging, Sizing, Emptying):
+    def __init__(self, *args, file, mode, **kwargs):
+        assert not inspect.isgeneratorfunction(self.write)
+        Function.__init__(self, *args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
+        self.__file = file
+        self.__mode = mode
+
+    def write(self, *args, **kwargs): self.file.write(*args, **kwargs)
+    def execute(self, source, *args, **kwargs):
+        assert isinstance(source, tuple)
+        query, content = source
+        file = str(query).replace("|", "_")
+        if self.empty(content): return
+        self.write(content, *args, file=file, mode=self.mode, **kwargs)
+        size = self.size(content)
+        string = f"Saved: {repr(self)}|{str(query)}[{size:.0f}]"
+        self.logger.info(string)
+        string = f"Saved: {str(file)}"
+        self.logger.info(string)
+
+    @property
+    def file(self): return self.__file
+    @property
+    def mode(self): return self.__mode
+
+
+class Loader(Generator, Logging, Sizing, Emptying):
     def __init__(self, *args, file, query, mode="r", **kwargs):
-        Pipelining.__init__(self, *args, **kwargs)
+        assert not inspect.isgeneratorfunction(self.read)
+        Generator.__init__(self, *args, **kwargs)
         Logging.__init__(self, *args, **kwargs)
         self.__query = query
         self.__file = file
         self.__mode = mode
 
+    def source(self, *args, **kwargs):
+        for file in self.file.directory(*args, **kwargs):
+            string = str(file).replace("_", "|")
+            query = self.query[string]
+            yield query, file
+
+    def read(self, *args, **kwargs): return self.file.read(*args, **kwargs)
     def execute(self, *args, **kwargs):
-        for file in iter(self.file):
-            contents = self.read(*args, file=file, mode=self.mode, **kwargs)
-            if self.empty(contents): return
-            for values, content in self.source(contents, keys=list(self.query)):
-                if self.empty(content): continue
-                query = self.query(values)
-                size = self.size(content)
-                string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
-                self.logger.info(string)
-                if self.empty(content): continue
-                yield content
-
-    @property
-    def query(self): return self.__query
-    @property
-    def file(self): return self.__file
-    @property
-    def mode(self): return self.__mode
-
-
-class Saver(Pipelining, Sourcing, Logging, Sizing, Emptying):
-    def __init__(self, *args, file, query, mode, **kwargs):
-        Pipelining.__init__(self, *args, **kwargs)
-        Logging.__init__(self, *args, **kwargs)
-        self.__query = query
-        self.__file = file
-        self.__mode = mode
-
-    def execute(self, contents, *args, mode, **kwargs):
-        if self.empty(contents): return
-        for values, content in self.source(contents, keys=list(self.query)):
-            if self.empty(content): continue
-            query = self.query(values)
-            file = str(query).replace("|", "_")
-            self.write(content, *args, file=file, mode=self.mode, **kwargs)
+        for query, file in self.source(*args, **kwargs):
+            content = self.read(*args, file=file, mode=self.mode, **kwargs)
             size = self.size(content)
-            string = f"Saved: {repr(self)}|{str(query)}[{size:.0f}]"
+            string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
             self.logger.info(string)
-            string = f"Saved: {str(file)}"
-            self.logger.info(string)
+            if self.empty(content): continue
+            yield query, content
 
     @property
     def query(self): return self.__query
@@ -244,8 +244,5 @@ class Saver(Pipelining, Sourcing, Logging, Sizing, Emptying):
     def file(self): return self.__file
     @property
     def mode(self): return self.__mode
-
-
-
 
 

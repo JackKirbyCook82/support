@@ -1,258 +1,130 @@
 # -*- coding: utf-8 -*-
 """
-Created on Weds Jul 12 2023
+Created on Thurs Cot 17 2024
 @name:   Calculation Objects
 @author: Jack Kirby Cook
 
 """
 
-import types
 import inspect
-import pandas as pd
-import xarray as xr
-from enum import Enum
+from copy import copy
 from abc import ABC, abstractmethod
-from collections import OrderedDict as ODict
 
-from support.dispatchers import typedispatcher, kwargsdispatcher
-from support.meta import SingletonMeta
+from support.meta import SingletonMeta, RegistryMeta
 from support.mixins import Node
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Variable", "Equation", "Calculation"]
+__all__ = ["Calculation", "Variable"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Variable(Node, ABC):
-    def __new__(cls, *args, function=None, locator=None, **kwargs):
-        if cls is Variable and bool(function):
-            return Dependent(*args, function=function, **kwargs)
-        elif cls is Variable and bool(locator):
-            return Source(*args, locator=locator, **kwargs)
-        elif cls is Variable:
-            return Constant(*args, **kwargs)
-        return super().__new__(cls)
+class Variable(Node, metaclass=RegistryMeta):
+    def __new__(cls, *args, **kwargs):
+        if issubclass(cls, Variable) and cls is not Variable:
+            return object.__new__(cls)
+        function = kwargs.get("function", None)
+        return Variable[bool(function)](*args, **kwargs)
 
-    def __str__(self): return self.key
-    def __len__(self): return self.size
-    def __init__(self, varkey, varname, vartype, *args, **kwargs):
-        Node.__init__(self, *args, name=varname, **kwargs)
+    def __init__(self, varname, vartype, *args, domain, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__domain = domain
         self.__type = vartype
-        self.__key = varkey
+        self.__name = varname
+        self.__result = None
+        self.__state = False
+
+    def __bool__(self): return bool(self.state)
+    def __str__(self): return str(self.name)
+    def __len__(self): return int(self.size)
 
     def __setitem__(self, key, value): self.set(key, value)
     def __getitem__(self, key): return self.get(key)
 
-    @property
-    def constants(self): return [stage for stage in self.leafs if isinstance(stage, Constant)]
-    @property
-    def sources(self): return [stage for stage in self.leafs if isinstance(stage, Source)]
-    @property
-    def independents(self): return list(self.leafs)
-    @property
-    def dependents(self): return list(self.branches)
-    @property
-    def domain(self): return list(self.children)
-
-    @property
-    def arguments(self): return tuple([self.key, self.name, self.type])
-    @property
-    def parameters(self): return dict(formatter=self.formatter, style=self.style)
-    def copy(self): return type(self)(*self.arguments, **self.parameters)
+    def __call__(self, contents):
+        if bool(self): return self.result
+        self.result = self.execute(contents)
+        self.state = True
+        return self.result
 
     @abstractmethod
-    def calculate(self, execute, *args, datatype, sources, constants, **kwargs): pass
-    @abstractmethod
-    def execute(self, order): pass
+    def execute(self, contents): pass
 
+    @property
+    def domain(self): return self.__domain
+    @property
+    def result(self): return self.__results
+    @property
+    def state(self): return self.__state
+    @property
+    def name(self): return self.__name
     @property
     def type(self): return self.__type
-    @property
-    def key(self): return self.__key
+
+    @result.setter
+    def result(self, result): self.__result = result
+    @state.setter
+    def state(self, state): self.__state = state
 
 
-class Independent(Variable):
-    def __init__(self, *args, position, **kwargs):
-        assert isinstance(position, (int, str, Enum))
-        Variable.__init__(self, *args, **kwargs)
-        self.__position = position
-
-    def execute(self, order):
-        calculation = lambda *contents: contents[order.index(self)]
-        calculation.__name__ = "_".join([str(self.name).lower(), "independent", "calculation"])
-        calculation.__order__ = [str(variable) for variable in order]
-        return calculation
-
-    def calculate(self, execute, *args, sources, constants, **kwargs):
-        contents = list(sources) + list(constants)
-        return execute(contents)
-
-    @abstractmethod
-    def locate(self, collection, *args, **kwargs): pass
-
-    @property
-    def parameters(self): return super().parameters | dict(position=self.position)
-    @property
-    def position(self): return self.__position
-
-
-class Source(Independent):
-    def __init__(self, *args, locator, **kwargs):
-        assert isinstance(locator, str)
-        Independent.__init__(self, *args, **kwargs)
-        self.__locator = locator
-
-    @typedispatcher
-    def locate(self, collection): raise TypeError(type(collection).__name__)
-    @locate.register(dict)
-    def mapping(self, mapping): return mapping[self.position][self.locator]
-    @locate.register(xr.Dataset, pd.DataFrame)
-    def collection(self, collection): return collection[self.locator]
-
-    @property
-    def location(self):
-        def wrapper(collection):
-            results = self.locate(collection)
-            assert isinstance(results, (xr.DataArray, pd.Series))
-            results = results.rename(self.name)
-            return results
-        wrapper.__name__ = "_".join([str(self.name), "location"])
-        return wrapper
-
-    @property
-    def parameters(self): return super().parameters | dict(locator=self.locator)
-    @property
-    def locator(self): return self.__locator
-
-
-class Constant(Independent):
-    def locate(self, *args, **kwargs): return kwargs[self.position]
-
-
-class Dependent(Variable):
+class Equation(Variable, register=True):
     def __init__(self, *args, function, **kwargs):
-        Variable.__init__(self, *args, **kwargs)
-        assert isinstance(function, types.LambdaType)
+        domain = list(inspect.signature(function).parameters.keys())
+        super().__init__(*args, domain=domain, **kwargs)
         self.__function = function
 
-    def execute(self, order):
-        domains = [variable.execute(order) for variable in self.domain]
-        calculation = lambda *contents: self.function(*[domain(*contents) for domain in domains])
-        calculation.__name__ = "_".join([str(self.name).lower(), "dependent", "calculation"])
-        calculation.__order__ = [str(variable) for variable in order]
-        return calculation
+    def execute(self, contents):
+        domain = [child(contents) for child in self.children]
+        return self.function(*domain)
 
-    @kwargsdispatcher("datatype")
-    def calculate(self, execute, *args, **kwargs): raise TypeError(kwargs["datatype"].__name__)
-
-    @calculate.register.value(xr.DataArray)
-    def dataarray(self, execute, *args, sources, constants, **kwargs):
-        assert all([isinstance(source, xr.DataArray) for source in sources])
-        contents = list(sources) + list(constants)
-        dataarray = xr.apply_ufunc(execute, *contents, output_dtypes=[self.type], vectorize=True)
-        return dataarray
-
-    @calculate.register.value(pd.Series)
-    def series(self, execute, *args, sources, constants, **kwargs):
-        assert all([isinstance(source, pd.Series) for source in sources])
-        function = lambda array, *arguments: execute(*list(array), *list(arguments))
-        series = pd.concat(list(sources), axis=1).apply(function, axis=1, raw=False, args=tuple(constants))
-        return series
-
-    @property
-    def calculation(self):
-        def wrapper(collections, *args, **kwargs):
-            sources = ODict([(stage, stage.locate(collections)) for stage in self.sources])
-            constants = ODict([(stage, stage.locate(*args, **kwargs)) for stage in self.constants])
-            order = list(sources.keys()) + list(constants.keys())
-            execute = self.execute(order)
-            sources = list(sources.values())
-            constants = list(constants.values())
-            assert isinstance(sources, list) and isinstance(constants, list)
-            datatype = set([type(content) for content in sources])
-            assert len(datatype) == 1
-            datatype = list(datatype)[0]
-            parameters = dict(datatype=datatype, sources=sources, constants=constants)
-            results = self.calculate(execute, *args, **parameters, **kwargs)
-            assert isinstance(results, (xr.DataArray, pd.Series))
-            results = results.rename(self.name)
-            return results
-        wrapper.__name__ = "_".join([str(self.name), "location"])
-        return wrapper
-
-    @property
-    def parameters(self): return super().parameters | dict(function=self.function)
     @property
     def function(self): return self.__function
 
 
-class EquationMeta(SingletonMeta):
+class Source(Variable, register=False):
+    def __init__(self, *args, locator, **kwargs):
+        super().__(*args, domain=[], **kwargs)
+        self.__locator = locator
+
+    def execute(self, contents):
+        return contents[self.locator]
+
+    @property
+    def locator(self): return self.__locator
+
+
+class CalculationMeta(SingletonMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         exclude = [key for key, variable in attrs.items() if isinstance(variable, Variable)]
         attrs = {key: value for key, value in attrs.items() if key not in exclude}
-        cls = super(EquationMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+        cls = super(CalculationMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
         return cls
 
-    def __iter__(cls): return iter(cls.__variables__.items())
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(EquationMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        existing = {key: variable.copy() for key, variable in getattr(cls, "__variables__", {}).items()}
-        updated = {str(variable): variable for variable in attrs.values() if isinstance(variable, Variable)}
+        super(CalculationMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        existing = {key: variable for key, variable in getattr(cls, "__variables__", {}).items()}
+        updated = {key: variable for key, variable in attrs.items() if isinstance(variable, Variable)}
         cls.__variables__ = existing | updated
 
     def __call__(cls, *args, **kwargs):
-        variables = ODict(list(iter(cls)))
+        variables = {key: copy(variable) for key, variable in cls.__variables__.items()}
         for variable in variables.values():
-            if isinstance(variable, Dependent):
-                for key in list(inspect.signature(variable.function).parameters.keys()):
-                    variable[key] = variables[key]
-        instance = super(EquationMeta, cls).__call__(*args, variables=variables, **kwargs)
+            for key in list(variable.domain):
+                variable[key] = variables[key]
+        instance = super(CalculationMeta, cls).__call__(*args, variables=variables, **kwargs)
         return instance
 
 
-class Equation(ABC, metaclass=EquationMeta):
-    def __iter__(self): return list(self.variables.items())
+class Calculation(ABC, metaclass=CalculationMeta):
     def __init__(self, *args, variables, **kwargs):
-        assert isinstance(variables, dict)
-        assert all([isinstance(variable, Variable) for variable in variables.values()])
         self.__variables = variables
 
-    def __getattr__(self, variable):
-        if variable not in self.variables.keys():
-            raise AttributeError(variable)
-        variable = self.variables[variable]
-        return variable.location if isinstance(variable, Independent) else variable.calculation
+    def __call__(self, *args, **kwargs):
+        pass
 
     @property
     def variables(self): return self.__variables
-
-
-class Calculation(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.__equation__ = kwargs.get("equation", getattr(cls, "__equation__", None))
-
-    def __init__(self, *args, **kwargs):
-        self.__equation = self.__class__.__equation__
-
-    def __call__(self, *args, **kwargs):
-        generator = self.execute(*args, **kwargs)
-        contents = list(generator)
-        content = self.combine(contents[0], *contents[1:])
-        return content
-
-    @typedispatcher
-    def combine(self, content, *contents): raise TypeError(type(content).__name__)
-    @combine.register(xr.DataArray)
-    def dataarray(self, content, *contents): return xr.merge([content] + list(contents))
-    @combine.register(pd.Series)
-    def series(self, content, *contents): return pd.concat([content] + list(contents), axis=1)
-
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
-    @property
-    def equation(self): return self.__equation
 
 
 
