@@ -54,6 +54,8 @@ class Variable(Node, ABC, metaclass=RegistryMeta):
 
     @abstractmethod
     def execute(self, order): pass
+    @abstractmethod
+    def calculate(self, *args, **kwargs): pass
 
     @property
     def content(self): return self.__content
@@ -109,6 +111,9 @@ class Independent(Variable, register=False):
         wrapper.__name__ = str(self)
         return wrapper
 
+    def calculate(self, *args, **kwargs):
+        return self.content
+
     @property
     def locator(self): return self.__locator
 
@@ -141,15 +146,12 @@ class Equation(ABC, metaclass=EquationMeta):
         dependents = {key: variable for key, variable in variables.items() if isinstance(variable, Dependent)}
         for variable in independents:
             variable.content = sources.get(variable.locator, kwargs.get(variable.locator, None))
-        self.__independents = independents
-        self.__dependents = dependents
+        self.__variables = independents | dependents
 
     def __enter__(self): return self
     def __exit__(self, error_type, error_value, error_traceback):
-        independents = list(self.independents.keys())
-        dependents = list(self.dependents.keys())
-        for key in independents: del self.independents[key]
-        for key in dependents: del self.dependents[key]
+        keys = list(self.variables.keys())
+        for key in keys: del self.variables[key]
 
     def __getattr__(self, attribute):
         variables = {key: variable for key, variable in self.variables.items()}
@@ -164,11 +166,7 @@ class Equation(ABC, metaclass=EquationMeta):
         return variables[attribute].content
 
     @property
-    def variables(self): return self.dependents | self.independents
-    @property
-    def independents(self): return self.__independents
-    @property
-    def dependents(self): return self.__dependents
+    def variables(self): return self.variables
 
 
 class Calculation(ABC):
