@@ -38,7 +38,7 @@ class Node(object):
     def items(self): return self.nodes.items()
 
     def transverse(self):
-        for value in self.items():
+        for value in self.values():
             yield value
             yield from value.transverse()
 
