@@ -36,7 +36,7 @@ class Ceiling(Criteria):
 
 class Null(Criteria):
     @typedispatcher
-    def execute(self, content): raise TypeError(type(content).__name__)
+    def execute(self, content): raise TypeError(type(content))
     @execute.register(pd.DataFrame)
     def execute_dataframe(self, content): return content[self.variable].notna()
     @execute.register(xr.Dataset)
@@ -83,7 +83,7 @@ class Filter(Function, Logging, Sizing, Emptying):
         return mask
 
     @typedispatcher
-    def where(self, content, mask=None): raise TypeError(type(content).__name__)
+    def where(self, content, mask=None): raise TypeError(type(content))
     @where.register(xr.Dataset)
     def where_dataset(self, dataset, mask=None): return dataset.where(mask, drop=True) if bool(mask is not None) else dataset
     @where.register(pd.DataFrame)

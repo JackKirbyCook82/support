@@ -12,6 +12,9 @@ from functools import total_ordering
 from datetime import date as Date
 from datetime import datetime as Datetime
 from abc import ABC, ABCMeta, abstractmethod
+from collections import OrderedDict as ODict
+
+from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -21,7 +24,6 @@ __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-@total_ordering
 class FieldData(ABC):
     def __init_subclass__(cls, *args, **kwargs):
         cls.dataparams = getattr(cls, "dataparams", {}) | kwargs.get("dataparams", {})
@@ -54,9 +56,9 @@ class FieldNumber(FieldData, datatype=Number, dataparams={"digits": 2}):
     @staticmethod
     def string(value, *args, digits, **kwargs): return str(round(value, digits))
 
-class FieldDate(FieldData, datatype=Date, dataparams={"formatting": "%Y%m%d"}):
+class FieldDate(FieldData, datatype=Date, dataparams={"formatting": "%Y-%m-%d"}):
     @staticmethod
-    def parse(string, *args, formatting="%Y%m%d", **kwargs): return Datetime.strptime(string, formatting)
+    def parse(string, *args, formatting, **kwargs): return Datetime.strptime(string, formatting)
     @staticmethod
     def encode(value, *args, **kwargs): return hash(Datetime(year=value.year, month=value.month, day=value.day).timestamp())
     @staticmethod
@@ -68,14 +70,14 @@ class FieldMeta(ABCMeta):
         mixins = {subclass.datatype: subclass for subclass in FieldData.__subclasses__()}
         datatype = kwargs.get("datatype", None)
         if datatype is not None: bases = tuple([mixins[datatype]] + list(bases))
-        cls = super(FieldData, mcs).__new__(mcs, name, bases, attrs)
+        cls = super(FieldMeta, mcs).__new__(mcs, name, bases, attrs)
         return cls
 
-    def __str__(cls): return str(cls.dataname)
+    def __str__(cls): return str(cls.__dataname__)
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is FieldMeta for base in cls.__bases__]):
             return
-        dataparams = {kwargs.get(key, default) for key, default in cls.dataparams.items()}
+        dataparams = {key: kwargs.get(key, default) for key, default in cls.dataparams.items()}
         cls.__dataparams__ = getattr(cls, "__dataparams__", {}) | dataparams
         cls.__dataname__ = kwargs.get("dataname", getattr(cls, "__dataname__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
@@ -99,6 +101,7 @@ class FieldMeta(ABCMeta):
     def parse(string, *args, **kwargs): pass
 
 
+@total_ordering
 class Field(ABC, metaclass=FieldMeta):
     def __init__(self, name, value, parameters):
         self.__parameters = parameters
@@ -124,6 +127,8 @@ class Field(ABC, metaclass=FieldMeta):
     def string(value, *args, **kwargs): pass
 
     @property
+    def parameters(self): return self.__parameters
+    @property
     def value(self): return self.__value
     @property
     def name(self): return self.__name
@@ -131,19 +136,18 @@ class Field(ABC, metaclass=FieldMeta):
 
 class QueryMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
-        assert not any([attribute not in kwargs.keys() for attribute in ("fields", "contents", "delimiter")])
         cls.__delimiter__ = kwargs.get("delimiter", getattr(cls, "__delimiter__", "|"))
-        cls.__fields__ = getattr(cls, "__fields__", []) | kwargs.get("fields", [])
+        cls.__fields__ = getattr(cls, "__fields__", []) + kwargs.get("fields", [])
 
-    def __iter__(cls): return iter(cls.__fields__)
+    def __iter__(cls): return map(str, cls.__fields__)
+    def __len__(cls): return len(cls.__fields__)
+
     def __call__(cls, values):
-        assert isinstance(values, list)
-        delimiter, fields = cls.__delimiter__, cls.__fields__
-        assert len(fields) == list(values)
-        attributes = list(map(str, fields))
+        fields, values = cls.create(values)
         generator = zip(fields, values)
         contents = [field(value) for field, value in generator]
-        instance = super(QueryMeta, cls).__call__(fields, contents, delimiter=delimiter)
+        instance = super(QueryMeta, cls).__call__(fields, contents, delimiter=cls.__delimiter__)
+        attributes = list(map(str, fields))
         for attribute, content in zip(attributes, contents):
             setattr(instance, attribute, content)
         return instance
@@ -152,7 +156,7 @@ class QueryMeta(ABCMeta):
         assert isinstance(string, str)
         delimiter, fields = cls.__delimiter__, cls.__fields__
         strings = str(string).split(delimiter)
-        assert len(fields) == list(string)
+        assert len(fields) == len(strings)
         attributes = list(map(str, fields))
         generator = zip(fields, strings)
         contents = [field[string] for field, string in generator]
@@ -161,9 +165,24 @@ class QueryMeta(ABCMeta):
             setattr(instance, attribute, content)
         return instance
 
+    @typedispatcher
+    def create(cls, values): raise TypeError(type(values))
+
+    @create.register(list)
+    def create_collection(cls, collection):
+        assert len(collection) == len(cls)
+        return collection
+
+    @create.register(dict)
+    def create_mapping(cls, mapping):
+        assert len(mapping) >= len(cls)
+        mapping = ODict([(field, mapping[field]) for field in iter(cls)])
+        return list(mapping.keys()), list(mapping.values())
+
 
 @total_ordering
 class Query(ABC, metaclass=QueryMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
     def __init__(self, fields, contents, *args, delimiter, **kwargs):
         assert isinstance(contents, list) and isinstance(fields, list) and len(fields) == len(contents) and isinstance(delimiter, str)
         self.__delimiter = str(delimiter)
@@ -182,9 +201,9 @@ class Query(ABC, metaclass=QueryMeta):
         assert type(other) is type(self) and list(type(self)) == list(type(other))
         return all([primary < secondary for primary, secondary in zip(self, other)])
 
-    def items(self): return self.fields, self.contents
-    def values(self): return self.contents
-    def keys(self): return self.fields
+    def items(self): return ODict([(content.name, content.value) for content in self.contents]).items()
+    def values(self): return [content.value for content in self.contents]
+    def keys(self): return [content.name for content in self.contents]
 
     @property
     def delimiter(self): return self.__delimiter

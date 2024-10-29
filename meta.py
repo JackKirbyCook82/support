@@ -162,15 +162,16 @@ class ParametersMeta(Meta):
 
 class RegistryMeta(Meta):
     def __iter__(cls): return iter(list(cls.registry.items()))
-    def __init__(cls, name, bases, attrs, *args, register=None, **kwargs):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
         assert "registry" not in attrs.keys()
         super(RegistryMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         if not any([ismeta(base, RegistryMeta) for base in bases]):
-            assert register is None
+            assert "register" not in kwargs.keys()
             cls.__registry__ = dict()
             return
-        for register in list(filter(None, [register] if not isinstance(register, list) else register)):
-            cls[register] = cls
+        register = kwargs.get("register", [])
+        register = [register] if not isinstance(register, list) else register
+        for key in register: cls[key] = cls
 
     def __setitem__(cls, key, value): cls.registry[key] = value
     def __getitem__(cls, key): return cls.registry[key]
@@ -180,18 +181,17 @@ class RegistryMeta(Meta):
 
 
 class AttributeMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, attribute=None, **kwargs):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
         assert "root" not in attrs.keys()
-        assert isinstance(attribute, (list, str, type(None)))
         super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         if not any([ismeta(base, AttributeMeta) for base in bases]):
-            assert attribute is None
+            assert "attribute" not in kwargs.keys() and "attributes" not in kwargs.keys()
             cls.__root__ = cls
             return
-        attributes = list(filter(None, [attribute] if not isinstance(attribute, list) else attribute))
+        attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
+        attributes = list(map(lambda attribute: attribute is not None, attributes))
         assert all([isinstance(attribute, str) for attribute in attributes])
-        for attribute in attributes:
-            setattr(cls.root, attribute, cls)
+        for attribute in attributes: setattr(cls.root, attribute, cls)
 
     @property
     def root(cls): return cls.__root__

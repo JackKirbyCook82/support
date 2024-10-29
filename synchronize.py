@@ -35,10 +35,11 @@ class Thread(Logging):
         self.__active = False
         self.__results = None
 
-    def setup(self, *args, **kwargs):
+    def setup(self, *arguments, **parameters):
         assert self.results is None
-        self.arguments.extend(list(args)) if args else False
-        self.parameters.update(dict(kwargs)) if kwargs else False
+        self.arguments.extend(list(arguments)) if arguments else False
+        self.parameters.update(dict(parameters)) if parameters else False
+        return self
 
     def run(self):
         try:

@@ -20,13 +20,13 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Node", "MultiNode", "Logging", "Emptying", "Sizing", "Function", "Generator", "Publisher", "Subscriber"]
+__all__ = ["SingleNode", "MultipleNode", "AttributeNode", "Logging", "Emptying", "Sizing", "Function", "Generator", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-class Node(object):
+class SingleNode(object):
     def __init__(self, *args, **kwargs):
         self.__nodes = ODict()
 
@@ -55,7 +55,7 @@ class Node(object):
     def nodes(self): return self.__nodes
 
 
-class MultiNode(Node):
+class MultipleNode(SingleNode):
     def get(self, key, index=None):
         if index is None: return self.nodes[key]
         return self.nodes[key][index]
@@ -73,9 +73,19 @@ class MultiNode(Node):
                 yield from value.transverse()
 
 
+class AttributeNode(object):
+    def __new__(cls, mapping):
+        assert isinstance(mapping, dict)
+        instance = super().__new__(cls)
+        for attribute, content in mapping.items():
+            assert isinstance(attribute, str)
+            setattr(instance, attribute, content)
+        return instance
+
+
 class Emptying(object):
     @typedispatcher
-    def empty(self, content): raise TypeError(type(content).__name__)
+    def empty(self, content): raise TypeError(type(content))
     @empty.register(dict)
     def empty_mapping(self, mapping): return all([self.empty(value) for value in mapping.values()]) if bool(mapping) else True
     @empty.register(list)
@@ -87,12 +97,12 @@ class Emptying(object):
     @empty.register(pd.Series)
     def empty_series(self, series): return bool(series.empty)
     @empty.register(types.NoneType)
-    def empty_null(self, *args, **kwargs): return False
+    def empty_nothing(self, *args, **kwargs): return True
 
 
 class Sizing(object):
     @typedispatcher
-    def size(self, content): raise TypeError(type(content).__name__)
+    def size(self, content): raise TypeError(type(content))
     @size.register(dict)
     def size_mapping(self, mapping): return sum([self.size(value) for value in mapping.values()])
     @size.register(list)
@@ -119,29 +129,8 @@ class Function(ABC):
             setattr(cls, "execute", wrapper)
         return super().__new__(cls)
 
-    def __init__(self, *args, **kwargs):
-        assert not inspect.isgeneratorfunction(self.execute)
-        assert not inspect.isgeneratorfunction(self.function)
-
-    def __call__(self, *args, source=None, **kwargs):
-        return self.function(source, *args, **kwargs)
-
-    @typedispatcher
-    def function(self, source, *args, **kwargs): pass
-
-    @function.register(types.NoneType)
-    def function_empty(self, source, *args, **kwargs):
-        assert isinstance(source, types.NoneType)
-        return self.execute(*args, **kwargs)
-
-    @function.register(types.FunctionType)
-    def function_function(self, source, *args, **kwargs):
-        content = source(*args, **kwargs)
-        return self.execute(content, *args, **kwargs)
-
-    @function.register(types.GeneratorType)
-    def function_function(self, source, *args, **kwargs):
-        return [self.execute(content, *args, **kwargs) for content in iter(source)]
+    def __init__(self, *args, **kwargs): assert not inspect.isgeneratorfunction(self.execute)
+    def __call__(self, *args, **kwargs): return self.execute(*args, **kwargs)
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
@@ -159,36 +148,8 @@ class Generator(ABC):
             setattr(cls, "execute", wrapper)
         return super().__new__(cls)
 
-    def __init__(self, *args, **kwargs):
-        assert inspect.isgeneratorfunction(self.execute)
-        assert inspect.isgeneratorfunction(self.generator)
-
-    def __call__(self, *args, source=None, **kwargs):
-        generator = self.generator(source, *args, **kwargs)
-        yield from generator
-
-    @typedispatcher
-    def generator(self, source, *args, **kwargs):
-        generator = self.execute(source, *args, **kwargs)
-        yield from generator
-
-    @generator.register(types.NoneType)
-    def generator_empty(self, source, *args, **kwargs):
-        assert isinstance(source, types.NoneType)
-        generator = self.execute(*args, **kwargs)
-        yield from generator
-
-    @generator.register(types.FunctionType)
-    def generator_function(self, source, *args, **kwargs):
-        content = source(*args, **kwargs)
-        generator = self.execute(content, *args, **kwargs)
-        yield from generator
-
-    @generator.register(types.GeneratorType)
-    def generator_generator(self, source, *args, **kwargs):
-        for content in iter(source):
-            generator = self.execute(content, *args, **kwargs)
-            yield from generator
+    def __init__(self, *args, **kwargs): assert inspect.isgeneratorfunction(self.execute)
+    def __call__(self, *args, **kwargs): yield from self.execute(*args, **kwargs)
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
