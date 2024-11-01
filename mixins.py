@@ -138,21 +138,21 @@ class Function(ABC):
 
 class Generator(ABC):
     def __new__(cls, *args, **kwargs):
-        execute = cls.execute
-        if not inspect.isgeneratorfunction(execute):
+        generator = cls.generator
+        if not inspect.isgeneratorfunction(generator):
             def wrapper(self, *arguments, **parameters):
                 assert isinstance(self, cls)
-                results = execute(self, *arguments, **parameters)
+                results = generator(self, *arguments, **parameters)
                 if results is not None: yield results
-            update_wrapper(wrapper, execute)
-            setattr(cls, "execute", wrapper)
+            update_wrapper(wrapper, generator)
+            setattr(cls, "generator", wrapper)
         return super().__new__(cls)
 
-    def __init__(self, *args, **kwargs): assert inspect.isgeneratorfunction(self.execute)
-    def __call__(self, *args, **kwargs): yield from self.execute(*args, **kwargs)
+    def __init__(self, *args, **kwargs): assert inspect.isgeneratorfunction(self.generator)
+    def __call__(self, *args, **kwargs): yield from self.generator(*args, **kwargs)
 
     @abstractmethod
-    def execute(self, *args, **kwargs): pass
+    def generator(self, *args, **kwargs): pass
 
 
 class Logging(object):

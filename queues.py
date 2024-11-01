@@ -10,12 +10,11 @@ import queue
 from enum import StrEnum
 from abc import ABC, abstractmethod
 
-from support.mixins import Function, Generator, Logging
 from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Dequeue", "Requeue", "Queue", "QueueTypes"]
+__all__ = ["Queue", "QueueTypes"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -26,9 +25,12 @@ class QueueMeta(RegistryMeta):
         super(QueueMeta, cls).__init__(*args, **kwargs)
         cls.datatype = kwargs.get("datatype", getattr(cls, "datatype", None))
 
-    def __call__(cls, *args, **kwargs):
-        parameters = dict(name=)
-        instance = super(QueueMeta, cls).__call__(*args, **kwargs)
+    def __call__(cls, *args, contents=[], capacity=None, **kwargs):
+        capacity = capacity if capacity is not None else 0
+        data = cls.datatype(maxsize=capacity)
+        instance = super(QueueMeta, cls).__call__(*args, data=data, **kwargs)
+        for content in contents:
+            instance.put(content)
         return instance
 
 
@@ -37,13 +39,10 @@ class Queue(ABC, metaclass=QueueMeta):
     def __bool__(self): return not bool(self.empty)
     def __len__(self): return int(self.size)
 
-    def __init__(self, *args, contents=[], capacity=None, timeout=None, **kwargs):
-        capacity = capacity if capacity is not None else 0
-        self.__queue = self.__class__.__datatype__(maxsize=capacity)
-        self.__name = self.__class__.__name__
+    def __init__(self, *args, data, timeout=None, **kwargs):
+        self.__name = kwargs.get("name", self.__class__.__name__)
         self.__timeout = timeout
-        for content in contents:
-            self.put(content)
+        self.__data = data
 
     @abstractmethod
     def write(self, content, *args, **kwargs): pass
@@ -59,7 +58,7 @@ class Queue(ABC, metaclass=QueueMeta):
     @property
     def timeout(self): return self.__timeout
     @property
-    def queue(self): return self.__queue
+    def data(self): return self.__data
     @property
     def name(self): return self.__name
 
@@ -108,15 +107,6 @@ class FIFOQueue(StandardQueue, datatype=queue.Queue, register=QueueTypes.FIFO): 
 class LIFOQueue(StandardQueue, datatype=queue.LifoQueue, register=QueueTypes.LIFO): pass
 class HIPOQueue(PriorityQueue, ascending=True, register=QueueTypes.HIPO): pass
 class LIPOQueue(PriorityQueue, ascending=False, register=QueueTypes.LIPO): pass
-
-
-class Requeue(Function, Logging, ABC):
-    pass
-
-
-class Dequeue(Generator, Logging, ABC):
-    pass
-
 
 
 

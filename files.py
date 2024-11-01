@@ -130,12 +130,11 @@ class FileMeta(ABCMeta):
 
     def __call__(cls, *args, **kwargs):
         parameters = {parameter: getattr(cls, f"__{parameter}__") for parameter in cls.__parameters__}
-        parameters = parameters | dict(mutex=FileLock(), name=cls.__name__)
-        instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
+        instance = super(FileMeta, cls).__call__(*args, **parameters, mutex=FileLock(), **kwargs)
         return instance
 
 
-class File(Logging, ABC, metaclass=FileMeta, parameters=["variable", "filename", "formatters", "parsers", "types", "dates"]):
+class File(Logging, ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parsers", "types", "dates"]):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, repository, **kwargs):
         instance = super().__new__(cls)
@@ -143,42 +142,35 @@ class File(Logging, ABC, metaclass=FileMeta, parameters=["variable", "filename",
             os.mkdir(repository)
         return instance
 
+    def __bool__(self): return bool(os.listdir(os.path.join(self.repository, str(self.variable))))
     def __len__(self): return len(os.listdir(os.path.join(self.repository, str(self.variable))))
     def __repr__(self): return f"{self.name}[{len(self):.0f}]"
 
-    def __init__(self, *args, filetype, filetiming, filename, repository, variable, mutex, name, **kwargs):
+    def __init__(self, *args, filetiming, filetype, repository, variable, mutex, **kwargs):
         Logging.__init__(self, *args, **kwargs)
+        self.__name = kwargs.get("name", self.__class__.__name__)
         self.__repository = repository
         self.__filetiming = filetiming
-        self.__filename = filename
         self.__filetype = filetype
         self.__variable = variable
         self.__mutex = mutex
-        self.__name = name
 
-    def directory(self, *args, **kwargs):
-        directory = os.path.join(self.repository, str(self.variable))
-        for file in os.listdir(directory):
-            yield str(file).split(".")[0]
-
-    def read(self, *args, query, mode="r", **kwargs):
+    def read(self, *args, file, mode="r", **kwargs):
         method = FileMethod(self.filetype, self.filetiming)
         directory = os.path.join(self.repository, str(self.variable))
         extension = str(self.filetype.name).lower()
-        filename = self.filename(query)
-        file = os.path.join(directory, ".".join([filename, extension]))
+        file = os.path.join(directory, ".".join([file, extension]))
         if not os.path.exists(file): return
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
             content = self.load(*args, **parameters, **kwargs)
         return content
 
-    def write(self, content, *args, query, mode, **kwargs):
+    def write(self, content, *args, file, mode, **kwargs):
         method = FileMethod(self.filetype, self.filetiming)
         directory = os.path.join(self.repository, str(self.variable))
         extension = str(self.filetype.name).lower()
-        filename = self.filename(query)
-        file = os.path.join(directory, ".".join([filename, extension]))
+        file = os.path.join(directory, ".".join([file, extension]))
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
             self.save(content, *args, **parameters, **kwargs)
@@ -186,11 +178,15 @@ class File(Logging, ABC, metaclass=FileMeta, parameters=["variable", "filename",
         self.logger.info(string)
 
     @property
+    def directory(self):
+        directory = os.path.join(self.repository, str(self.variable))
+        for file in os.listdir(directory):
+            yield str(file).split(".")[0]
+
+    @property
     def filetiming(self): return self.__filetiming
     @property
     def filetype(self): return self.__filetype
-    @property
-    def filename(self): return self.__filename
     @property
     def repository(self): return self.__repository
     @property
@@ -202,23 +198,29 @@ class File(Logging, ABC, metaclass=FileMeta, parameters=["variable", "filename",
 
 
 class Saver(Function, Logging, Sizing, Emptying):
-    def __init__(self, *args, file, mode, **kwargs):
-        assert not inspect.isgeneratorfunction(self.write)
+    def __init__(self, *args, query, file, mode, **kwargs):
         Function.__init__(self, *args, **kwargs)
         Logging.__init__(self, *args, **kwargs)
+        self.__query = query
         self.__file = file
         self.__mode = mode
 
-    def write(self, *args, **kwargs): self.file.write(*args, **kwargs)
+    def write(self, query, content, *args, **kwargs):
+        file = str(query).replace("|", "_")
+        self.file.write(content, *args, file=file, mode=self.mode, **kwargs)
+
     def execute(self, source, *args, **kwargs):
         assert isinstance(source, tuple)
         query, content = source
         if self.empty(content): return
-        self.write(content, *args, query=query, mode=self.mode, **kwargs)
+        query = self.query(query)
+        self.write(query, content, *args, **kwargs)
         size = self.size(content)
         string = f"Saved: {repr(self)}|{str(query)}[{size:.0f}]"
         self.logger.info(string)
 
+    @property
+    def query(self): return self.__query
     @property
     def file(self): return self.__file
     @property
@@ -226,27 +228,42 @@ class Saver(Function, Logging, Sizing, Emptying):
 
 
 class Loader(Generator, Logging, Sizing, Emptying):
-    def __init__(self, *args, file, query, mode="r", **kwargs):
-        assert not inspect.isgeneratorfunction(self.read)
+    def __init__(self, *args, query, file, mode="r", **kwargs):
         Generator.__init__(self, *args, **kwargs)
         Logging.__init__(self, *args, **kwargs)
+        self.__query = query
         self.__file = file
         self.__mode = mode
 
-    def source(self, *args, **kwargs):
-        for file in self.file.directory(*args, **kwargs):
-            values = str(file).split("_")
-            yield self.query(values)
+    def read(self, query, *args, **kwargs):
+        file = str(query).replace("|", "_")
+        return self.file.read(*args, file=file, mode=self.mode, **kwargs)
 
-    def read(self, *args, **kwargs): return self.file.read(*args, **kwargs)
-    def execute(self, *args, **kwargs):
-        for query in self.source(*args, **kwargs):
-            content = self.read(*args, query=query, mode=self.mode, **kwargs)
+    def generator(self, *args, **kwargs):
+        if not bool(self.file): return
+        for query, filename in self.source(*args, **kwargs):
+            query = self.query(query)
+            content = self.read(query, *args, **kwargs)
             size = self.size(content)
             string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
             self.logger.info(string)
             if self.empty(content): continue
             yield query, content
+
+    def execute(self, source, *args, **kwargs):
+        if not bool(self.file): return
+        assert isinstance(source, tuple)
+        query = self.query(source[0])
+        content = self.read(query, *args, **kwargs)
+        size = self.size(content)
+        string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
+        self.logger.info(string)
+        if self.empty(content): return
+        return content
+
+    def source(self, *args, **kwargs):
+        for query, filename in self.file.directory:
+            yield query, filename
 
     @property
     def query(self): return self.__query

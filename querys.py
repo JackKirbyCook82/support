@@ -135,59 +135,63 @@ class Field(ABC, metaclass=FieldMeta):
 
 
 class QueryMeta(ABCMeta):
+    def __iter__(cls): return map(str, cls.__fields__)
     def __init__(cls, *args, **kwargs):
         cls.__delimiter__ = kwargs.get("delimiter", getattr(cls, "__delimiter__", "|"))
         cls.__fields__ = getattr(cls, "__fields__", []) + kwargs.get("fields", [])
 
-    def __iter__(cls): return map(str, cls.__fields__)
-    def __len__(cls): return len(cls.__fields__)
-
-    def __call__(cls, values):
-        fields, values = cls.create(values)
-        generator = zip(fields, values)
-        contents = [field(value) for field, value in generator]
-        instance = super(QueryMeta, cls).__call__(fields, contents, delimiter=cls.__delimiter__)
-        attributes = list(map(str, fields))
-        for attribute, content in zip(attributes, contents):
+    def __getitem__(cls, strings):
+        assert isinstance(strings, str)
+        fields, delimiter = cls.__fields__, cls.__delimiter__
+        mapping = cls.create(strings, fields=fields, delimiter=delimiter)
+        contents = list(mapping.values())
+        instance = super(QueryMeta, cls).__call__(contents, delimiter=delimiter)
+        for attribute, content in mapping.items():
             setattr(instance, attribute, content)
         return instance
 
-    def __getitem__(cls, string):
-        assert isinstance(string, str)
-        delimiter, fields = cls.__delimiter__, cls.__fields__
-        strings = str(string).split(delimiter)
-        assert len(fields) == len(strings)
-        attributes = list(map(str, fields))
-        generator = zip(fields, strings)
-        contents = [field[string] for field, string in generator]
-        instance = super(QueryMeta, cls).__call__(fields, contents, delimiter=delimiter)
-        for attribute, content in zip(attributes, contents):
+    def __call__(cls, values):
+        if isinstance(values, Query):
+            values = ODict(values.items())
+        fields, delimiter = cls.__fields__, cls.__delimiter__
+        mapping = cls.create(values, fields=fields, delimiter=delimiter)
+        contents = list(mapping.values())
+        instance = super(QueryMeta, cls).__call__(contents, delimiter=delimiter)
+        for attribute, content in mapping.items():
             setattr(instance, attribute, content)
         return instance
 
     @typedispatcher
     def create(cls, values): raise TypeError(type(values))
 
+    @create.register(str)
+    def create_string(cls, values, *args, fields, delimiter, **kwargs):
+        strings = str(values).split(delimiter)
+        assert len(strings) == len(cls)
+        contents = [field[string] for field, string in zip(fields, strings)]
+        return ODict([(field, content) for field, content in zip(list(cls), contents)])
+
     @create.register(list)
-    def create_collection(cls, collection):
-        assert len(collection) == len(cls)
-        return collection
+    def create_collection(cls, values, *args, fields, **kwargs):
+        assert len(values) == len(cls)
+        contents = [field(value) for field, value in zip(fields, values)]
+        return ODict([(field, content) for field, content in zip(list(cls), contents)])
 
     @create.register(dict)
-    def create_mapping(cls, mapping):
-        assert len(mapping) >= len(cls)
-        mapping = ODict([(field, mapping[field]) for field in iter(cls)])
-        return list(mapping.keys()), list(mapping.values())
+    def create_mapping(cls, values, *args, fields, **kwargs):
+        values = [values.get(field, None) for field in iter(cls)]
+        assert len(values) == len(cls) and None not in values
+        contents = [field(value) for field, value in zip(fields, values)]
+        return ODict([(field, content) for field, content in zip(list(cls), contents)])
 
 
 @total_ordering
 class Query(ABC, metaclass=QueryMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, fields, contents, *args, delimiter, **kwargs):
-        assert isinstance(contents, list) and isinstance(fields, list) and len(fields) == len(contents) and isinstance(delimiter, str)
+    def __init__(self, contents, *args, delimiter, **kwargs):
+        assert isinstance(contents, list) and isinstance(delimiter, str)
         self.__delimiter = str(delimiter)
         self.__contents = tuple(contents)
-        self.__fields = tuple(fields)
 
     def __iter__(self): return iter(self.contents)
     def __hash__(self): return hash(tuple([hash(content) for content in self.contents]))
@@ -209,7 +213,5 @@ class Query(ABC, metaclass=QueryMeta):
     def delimiter(self): return self.__delimiter
     @property
     def contents(self): return self.__contents
-    @property
-    def fields(self): return self.__fields
 
 
