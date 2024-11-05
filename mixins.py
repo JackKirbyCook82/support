@@ -14,63 +14,15 @@ import pandas as pd
 import xarray as xr
 from abc import ABC, abstractmethod
 from functools import update_wrapper
-from collections import OrderedDict as ODict
 
 from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SingleNode", "MultipleNode", "AttributeNode", "Logging", "Emptying", "Sizing", "Function", "Generator", "Publisher", "Subscriber"]
+__all__ = ["AttributeNode", "Logging", "Emptying", "Sizing", "Function", "Generator", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
-
-
-class SingleNode(object):
-    def __init__(self, *args, **kwargs):
-        self.__nodes = ODict()
-
-    def set(self, key, value): self.nodes[key] = value
-    def get(self, key): return self.nodes[key]
-
-    def keys(self): return self.nodes.keys()
-    def values(self): return self.nodes.values()
-    def items(self): return self.nodes.items()
-
-    def transverse(self):
-        for value in self.values():
-            yield value
-            yield from value.transverse()
-
-    @property
-    def leafs(self): return [value for value in self.transverse() if not bool(value.children)]
-    @property
-    def branches(self): return [value for value in self.transverse() if bool(value.children)]
-    @property
-    def children(self): return list(self.nodes.values())
-    @property
-    def size(self): return len(self.nodes)
-
-    @property
-    def nodes(self): return self.__nodes
-
-
-class MultipleNode(SingleNode):
-    def get(self, key, index=None):
-        if index is None: return self.nodes[key]
-        return self.nodes[key][index]
-
-    def set(self, key, value):
-        if key not in self.nodes: self.nodes[key] = []
-        if isinstance(value, list): self.nodes[key].extend(value)
-        else: self.nodes[key].append(value)
-
-    def transverse(self):
-        for values in self.values():
-            assert isinstance(values, list)
-            for value in values:
-                yield value
-                yield from value.transverse()
 
 
 class AttributeNode(object):

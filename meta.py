@@ -189,7 +189,7 @@ class AttributeMeta(Meta):
             cls.__root__ = cls
             return
         attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
-        attributes = list(map(lambda attribute: attribute is not None, attributes))
+        attributes = list(filter(lambda attribute: attribute is not None, attributes))
         assert all([isinstance(attribute, str) for attribute in attributes])
         for attribute in attributes: setattr(cls.root, attribute, cls)
 

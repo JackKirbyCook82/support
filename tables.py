@@ -165,6 +165,7 @@ class Table(ABC, metaclass=TableMeta):
     def data(self): return self.__data
     @data.setter
     def data(self, data): self.__data = data
+
     @property
     def header(self): return self.__header
     @property
@@ -200,44 +201,39 @@ class TableDataFrame(Table, register=pd.DataFrame):
         with self.mutex:
             self.dataframe = pd.concat([self.dataframe, dataframe], axis=0) if bool(self) else dataframe
 
-    def where(self, function):
+    def where(self, mask):
         if not bool(self): return
-        assert callable(function)
+        assert isinstance(mask, pd.Series)
         with self.mutex:
-            mask = function(self)
             self.dataframe.where(mask, inplace=True)
             self.dataframe.dropna(how="all", inplace=True)
 
-    def remove(self, function):
+    def remove(self, mask):
         if not bool(self): return
-        assert callable(function)
+        assert isinstance(mask, pd.Series)
         with self.mutex:
-            mask = function(self)
             self.dataframe.where(~mask, inplace=True)
             self.dataframe.dropna(how="all", inplace=True)
 
-    def extract(self, function):
+    def extract(self, mask):
         if not bool(self): return
-        assert callable(function)
+        assert isinstance(mask, pd.Series)
         with self.mutex:
-            mask = function(self)
             dataframe = self.dataframe.where(mask, inplace=False)
             dataframe = dataframe.dropna(how="all", inplace=False)
             self.dataframe.where(~mask, inplace=True)
             self.dataframe.dropna(how="all", inplace=True)
             return dataframe
 
-    def change(self, function, column, value):
+    def change(self, mask, column, value):
         if not bool(self): return
-        assert callable(function) and isinstance(column, str)
+        assert isinstance(mask, pd.Series)
         with self.mutex:
             column = self.stack(column)
-            mask = function(self)
             self.dataframe.loc[mask, column] = value
 
     def unique(self, columns, reverse=True):
         if not bool(self): return
-        assert isinstance(columns, list)
         with self.mutex:
             columns = [self.stack(column) for column in columns]
             keep = ("last" if bool(reverse) else "first")
@@ -291,6 +287,11 @@ class TableDataFrame(Table, register=pd.DataFrame):
         return data, view, header
 
     @property
+    def dataframe(self): return self.data
+    @dataframe.setter
+    def dataframe(self, dataframe): self.data = dataframe
+
+    @property
     def stacking(self): return int(self.columns.nlevels) if bool(self.stacked) else 0
     @property
     def stacked(self): return isinstance(self.columns, pd.MultiIndex)
@@ -302,24 +303,17 @@ class TableDataFrame(Table, register=pd.DataFrame):
     def columns(self): return self.data.columns
     @property
     def index(self): return self.data.index
-    @property
-    def dataframe(self): return self.data
 
 
 class Writer(Function, Logging, Sizing, Emptying, ABC):
-    def __init__(self, *args, query, table, **kwargs):
+    def __init__(self, *args, table, **kwargs):
         assert not inspect.isgeneratorfunction(self.write)
-        Function.__init__(self, *args, **kwargs)
         Logging.__init__(self, *args, **kwargs)
-        self.__query = query
         self.__table = table
 
-    def execute(self, source, *args, **kwargs):
-        assert isinstance(source, tuple)
-        query, content = source
+    def execute(self, query, content, *args, **kwargs):
         if self.empty(content): return
-        with self.mutex:
-            query = self.query(query)
+        with self.table.mutex:
             self.write(query, content, *args, **kwargs)
             size = self.size(content)
             string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
@@ -327,9 +321,6 @@ class Writer(Function, Logging, Sizing, Emptying, ABC):
 
     @abstractmethod
     def write(self, query, content, *args, **kwargs): pass
-
-    @property
-    def query(self): return self.__query
     @property
     def table(self): return self.__table
 
@@ -345,7 +336,7 @@ class Reader(Generator, Logging, Sizing, Emptying, ABC):
     def generator(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex:
-            contents = self.read(None, *args, **kwargs)
+            contents = self.read(*args, **kwargs)
             for query, content in self.source(contents):
                 query = self.query(query)
                 size = self.size(content)
@@ -354,31 +345,19 @@ class Reader(Generator, Logging, Sizing, Emptying, ABC):
                 if self.empty(content): continue
                 yield query, content
 
-    def execute(self, source, *args, **kwargs):
-        if not bool(self.table): return
-        with self.table.mutex:
-            assert isinstance(source, tuple)
-            query = self.query(source[0])
-            content = self.read(query, *args, **kwargs)
-            size = self.size(content)
-            string = f"Read: {repr(self)}|{str(query)}[{size:.0f}]"
-            self.logger.info(string)
-            if self.empty(content): return
-            return content
-
     @typedispatcher
-    def source(self, contents, *args, **kwargs):
+    def source(self, contents):
         raise TypeError(type(contents))
 
     @source.register(pd.DataFrame)
-    def source_dataframe(self, dataframe, *args, **kwargs):
+    def source_dataframe(self, dataframe):
         generator = dataframe.groupby(list(self.query))
         for values, dataframe in iter(generator):
             query = self.query(list(values))
             yield query, dataframe
 
     @source.register(xr.Dataset)
-    def source_dataset(self, dataset, *args, **kwargs):
+    def source_dataset(self, dataset):
         for field in list(self.query):
             dataset = dataset.expand_dims(field)
         dataset = dataset.stack(stack=list(self.query))
@@ -389,7 +368,7 @@ class Reader(Generator, Logging, Sizing, Emptying, ABC):
             yield query, dataset
 
     @abstractmethod
-    def read(self, query, *args, **kwargs): pass
+    def read(self, *args, **kwargs): pass
     @property
     def query(self): return self.__query
     @property

@@ -16,7 +16,7 @@ from collections import OrderedDict as ODict
 
 from support.dispatchers import kwargsdispatcher, typedispatcher
 from support.meta import RegistryMeta
-from support.mixins import SingleNode
+from support.trees import SingleNode
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -66,9 +66,6 @@ class Variable(SingleNode, ABC, metaclass=RegistryMeta):
     def __repr__(self): return str(self.varkey)
     def __str__(self): return str(self.varname)
     def __len__(self): return int(self.size)
-
-    def __setitem__(self, key, variable): self.set(key, variable)
-    def __getitem__(self, key): return self.get(key)
 
     @property
     def parameters(self): return dict(varname=self.varname, vartype=self.vartype, datatype=self.datatype)

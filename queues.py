@@ -10,11 +10,12 @@ import queue
 from enum import StrEnum
 from abc import ABC, abstractmethod
 
+from support.mixins import Generator, Logging
 from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Queue", "QueueTypes"]
+__all__ = ["Dequeue", "Queue", "QueueTypes"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -30,11 +31,13 @@ class QueueMeta(RegistryMeta):
         data = cls.datatype(maxsize=capacity)
         instance = super(QueueMeta, cls).__call__(*args, data=data, **kwargs)
         for content in contents:
-            instance.put(content)
+            instance.write(content)
         return instance
 
 
 class Queue(ABC, metaclass=QueueMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
+
     def __repr__(self): return f"{str(self.name)}[{len(self):.0f}]"
     def __bool__(self): return not bool(self.empty)
     def __len__(self): return int(self.size)
@@ -50,10 +53,10 @@ class Queue(ABC, metaclass=QueueMeta):
     def read(self, *args, **kwargs): pass
 
     @property
-    def empty(self): return self.queue.empty()
+    def empty(self): return self.data.empty()
     @property
-    def size(self): return self.queue.qsize()
-    def complete(self): self.queue.task_done()
+    def size(self): return self.data.qsize()
+    def complete(self): self.data.task_done()
 
     @property
     def timeout(self): return self.__timeout
@@ -65,10 +68,10 @@ class Queue(ABC, metaclass=QueueMeta):
 
 class StandardQueue(Queue):
     def write(self, content, *args, **kwargs):
-        self.queue.put(content, timeout=self.timeout)
+        self.data.put(content, timeout=self.timeout)
 
     def read(self, *args, **kwargs):
-        content = self.queue.get(timeout=self.timeout)
+        content = self.data.get(timeout=self.timeout)
         return content
 
 
@@ -90,10 +93,10 @@ class PriorityQueue(Queue, datatype=queue.PriorityQueue):
         assert isinstance(priority, int)
         multiplier = (int(not self.ascending) * 2) - 1
         couple = (multiplier * priority, content)
-        self.queue.put(couple, timeout=self.timeout)
+        self.data.put(couple, timeout=self.timeout)
 
     def read(self, *args, **kwargs):
-        couple = self.queue.get(timeout=self.timeout)
+        couple = self.data.get(timeout=self.timeout)
         priority, content = couple
         return content
 
@@ -107,6 +110,24 @@ class FIFOQueue(StandardQueue, datatype=queue.Queue, register=QueueTypes.FIFO): 
 class LIFOQueue(StandardQueue, datatype=queue.LifoQueue, register=QueueTypes.LIFO): pass
 class HIPOQueue(PriorityQueue, ascending=True, register=QueueTypes.HIPO): pass
 class LIPOQueue(PriorityQueue, ascending=False, register=QueueTypes.LIPO): pass
+
+
+class Dequeue(Generator, Logging):
+    def __init__(self, *args, **kwargs):
+        Generator.__init__(self, *args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
+        self.__queue = kwargs["queue"]
+
+    def generator(self, *args, **kwargs):
+        if not bool(self.queue): return
+        while bool(self.queue):
+            content = self.queue.read(*args, **kwargs)
+            yield content
+            self.queue.complete()
+
+    @property
+    def queue(self): return self.__queue
+
 
 
 

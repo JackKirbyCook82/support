@@ -12,8 +12,8 @@ from functools import reduce
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 
-from support.mixins import Function, Emptying, Sizing, Logging
 from support.dispatchers import typedispatcher
+from support.mixins import Function, Logging, Sizing, Emptying
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -50,20 +50,18 @@ class Criterion(object):
 
 class Filter(Function, Logging, Sizing, Emptying):
     def __init__(self, *args, criterion={}, **kwargs):
+        Function.__init__(self, *args, **kwargs)
+        Logging.__init__(self, *args, **kwargs)
         assert isinstance(criterion, dict)
         assert all([issubclass(criteria, Criteria) for criteria in criterion.keys()])
         assert all([isinstance(parameter, (list, dict)) for parameter in criterion.values()])
-        Function.__init__(self, *args, **kwargs)
-        Logging.__init__(self, *args, **kwargs)
         criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
         criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
         self.__criterion = list(criterion)
 
-    def execute(self, source, *args, **kwargs):
-        assert isinstance(source, tuple)
-        query, content = source
+    def execute(self, query, content, *args, **kwargs):
         prior = self.size(content)
-        content = self.filter(content, *args, **kwargs)
+        content = self.filter(content)
         if isinstance(content, pd.DataFrame):
             content = content.reset_index(drop=True, inplace=False)
         post = self.size(content)
@@ -72,7 +70,7 @@ class Filter(Function, Logging, Sizing, Emptying):
         if self.empty(content): return
         return content
 
-    def filter(self, content, *args, **kwargs):
+    def filter(self, content):
         mask = self.mask(content)
         content = self.where(content, mask=mask)
         return content
