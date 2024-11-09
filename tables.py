@@ -13,7 +13,7 @@ import xarray as xr
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 
-from support.mixins import Function, Generator, Logging, Emptying, Sizing
+from support.mixins import Logging, Emptying, Sizing
 from support.dispatchers import typedispatcher
 from support.meta import RegistryMeta
 
@@ -305,10 +305,10 @@ class TableDataFrame(Table, register=pd.DataFrame):
     def index(self): return self.data.index
 
 
-class Writer(Function, Logging, Sizing, Emptying, ABC):
+class Writer(Logging, Sizing, Emptying, ABC):
     def __init__(self, *args, table, **kwargs):
         assert not inspect.isgeneratorfunction(self.write)
-        Logging.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.__table = table
 
     def execute(self, query, content, *args, **kwargs):
@@ -325,15 +325,14 @@ class Writer(Function, Logging, Sizing, Emptying, ABC):
     def table(self): return self.__table
 
 
-class Reader(Generator, Logging, Sizing, Emptying, ABC):
+class Reader(Logging, Sizing, Emptying, ABC):
     def __init__(self, *args, table, query, **kwargs):
         assert not inspect.isgeneratorfunction(self.read)
-        Generator.__init__(self, *args, **kwargs)
-        Logging.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.__query = query
         self.__table = table
 
-    def generator(self, *args, **kwargs):
+    def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex:
             contents = self.read(*args, **kwargs)

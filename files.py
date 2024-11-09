@@ -15,7 +15,7 @@ from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
-from support.mixins import Generator, Function, Logging, Emptying, Sizing
+from support.mixins import Logging, Emptying, Sizing
 from support.dispatchers import kwargsdispatcher
 from support.meta import SingletonMeta
 
@@ -122,8 +122,8 @@ class FileMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         if not any([type(base) is FileMeta for base in cls.__bases__]):
             cls.__parameters__ = kwargs["parameters"]
-        for parameter in cls.__parameters__:
-            existing = getattr(cls, f"__{parameter}__", None)
+        for parameter, default in cls.__parameters__.items():
+            existing = getattr(cls, f"__{parameter}__", default)
             updated = kwargs.get(parameter, existing)
             setattr(cls, f"__{parameter}__", updated)
 
@@ -133,7 +133,7 @@ class FileMeta(ABCMeta):
         return instance
 
 
-class File(Logging, ABC, metaclass=FileMeta, parameters=["variable", "formatters", "parsers", "types", "dates"]):
+class File(Logging, ABC, metaclass=FileMeta, parameters={"variable": None, "formatters": {}, "parsers": {}, "types": {}, "dates": {}}):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, repository, **kwargs):
         instance = super().__new__(cls)
@@ -207,10 +207,9 @@ class File(Logging, ABC, metaclass=FileMeta, parameters=["variable", "formatters
     def mutex(self): return self.__mutex
 
 
-class Saver(Function, Logging, Sizing, Emptying):
+class Saver(Logging, Sizing, Emptying):
     def __init__(self, *args, file, mode, **kwargs):
-        Function.__init__(self, *args, **kwargs)
-        Logging.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.__file = file
         self.__mode = mode
 
@@ -227,10 +226,9 @@ class Saver(Function, Logging, Sizing, Emptying):
     def mode(self): return self.__mode
 
 
-class Loader(Function, Logging, Sizing, Emptying):
+class Loader(Logging, Sizing, Emptying):
     def __init__(self, *args, query, file, mode="r", **kwargs):
-        Function.__init__(self, *args, **kwargs)
-        Logging.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.__query = query
         self.__file = file
         self.__mode = mode
@@ -252,15 +250,14 @@ class Loader(Function, Logging, Sizing, Emptying):
     def mode(self): return self.__mode
 
 
-class Directory(Generator, Logging, Sizing, Emptying):
+class Directory(Logging, Sizing, Emptying):
     def __init__(self, *args, query, file, mode="r", **kwargs):
-        Generator.__init__(self, *args, **kwargs)
-        Logging.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.__query = query
         self.__file = file
         self.__mode = mode
 
-    def generator(self, *args, **kwargs):
+    def execute(self, *args, **kwargs):
         if not bool(self.file): return
         for parameters, filename in self.file.directory:
             query = self.query(parameters)

@@ -13,7 +13,7 @@ from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 
 from support.dispatchers import typedispatcher
-from support.mixins import Function, Logging, Sizing, Emptying
+from support.mixins import Logging, Sizing, Emptying
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -48,10 +48,9 @@ class Criterion(object):
     NULL = Null
 
 
-class Filter(Function, Logging, Sizing, Emptying):
+class Filter(Logging, Sizing, Emptying):
     def __init__(self, *args, criterion={}, **kwargs):
-        Function.__init__(self, *args, **kwargs)
-        Logging.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         assert isinstance(criterion, dict)
         assert all([issubclass(criteria, Criteria) for criteria in criterion.keys()])
         assert all([isinstance(parameter, (list, dict)) for parameter in criterion.values()])

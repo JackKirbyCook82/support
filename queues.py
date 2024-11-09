@@ -10,12 +10,12 @@ import queue
 from enum import StrEnum
 from abc import ABC, abstractmethod
 
-from support.mixins import Generator, Logging
+from support.mixins import Logging
 from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Dequeue", "Queue", "QueueTypes"]
+__all__ = ["Dequeuer", "Queue", "QueueTypes"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -112,13 +112,12 @@ class HIPOQueue(PriorityQueue, ascending=True, register=QueueTypes.HIPO): pass
 class LIPOQueue(PriorityQueue, ascending=False, register=QueueTypes.LIPO): pass
 
 
-class Dequeue(Generator, Logging):
+class Dequeuer(Logging):
     def __init__(self, *args, **kwargs):
-        Generator.__init__(self, *args, **kwargs)
-        Logging.__init__(self, *args, **kwargs)
+        super().__init__(*args, **kwargs)
         self.__queue = kwargs["queue"]
 
-    def generator(self, *args, **kwargs):
+    def execute(self, *args, **kwargs):
         if not bool(self.queue): return
         while bool(self.queue):
             content = self.queue.read(*args, **kwargs)

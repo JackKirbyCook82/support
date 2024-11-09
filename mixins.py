@@ -19,20 +19,10 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["AttributeNode", "Logging", "Emptying", "Sizing", "Function", "Generator", "Publisher", "Subscriber"]
+__all__ = ["Logging", "Emptying", "Sizing", "Carryover", "Function", "Generator", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
-
-
-class AttributeNode(object):
-    def __new__(cls, mapping):
-        assert isinstance(mapping, dict)
-        instance = super().__new__(cls)
-        for attribute, content in mapping.items():
-            assert isinstance(attribute, str)
-            setattr(instance, attribute, content)
-        return instance
 
 
 class Emptying(object):
@@ -69,20 +59,67 @@ class Sizing(object):
     def size_nothing(self, *args, **kwargs): return 0
 
 
-class Function(ABC):
+class Carryover(ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        try: super().__init_subclass__(*args, **kwargs)
+        except TypeError: pass
+        carryover = kwargs.get("carryover", getattr(cls, "carryover", []))
+        leading = kwargs.get("leading", getattr(cls, "leading", True))
+        assert isinstance(carryover, (list, str)) and isinstance(leading, bool)
+        cls.carryover = [carryover] if isinstance(carryover, str) else carryover
+        cls.leading = leading
+
     def __new__(cls, *args, **kwargs):
         execute = cls.execute
-        if inspect.isgeneratorfunction(execute):
+        signature = list(inspect.signature(execute).parameters.keys())
+        indexes = [cls.arguments(signature).index(argument) for argument in cls.carryover]
+
+        if not inspect.isgeneratorfunction(execute):
             def wrapper(self, *arguments, **parameters):
                 assert isinstance(self, cls)
-                generator = execute(self, *arguments, **parameters)
-                return list(generator)
-            update_wrapper(wrapper, execute)
-            setattr(cls, "execute", wrapper)
-        return super().__new__(cls)
+                carryover = [arguments[index] for index in indexes]
+                result = execute(self, *arguments, **parameters)
+                return *carryover, result if bool(cls.leading) else result, *carryover
 
-    def __init__(self, *args, **kwargs): assert not inspect.isgeneratorfunction(self.execute)
-    def __call__(self, *args, **kwargs): return self.execute(*args, **kwargs)
+        elif inspect.isgeneratorfunction(execute):
+            def wrapper(self, *arguments, **parameters):
+                assert isinstance(self, cls)
+                carryover = [arguments[index] for index in indexes]
+                for result in execute(self, *arguments, **parameters):
+                    yield *carryover, result if bool(cls.leading) else result, *carryover
+
+        update_wrapper(wrapper, execute)
+        setattr(cls, "execute", wrapper)
+        try: return super().__new__(cls, *args, **kwargs)
+        except TypeError: return super().__new__(cls)
+
+    @staticmethod
+    def parameters(signature): return signature[signature.index("args")+1:signature.index("kwargs")]
+    @staticmethod
+    def arguments(signature): return signature[signature.index("self")+1:signature.index("args")]
+
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
+
+
+class Function(ABC):
+    def __new__(cls, *args, **kwargs):
+        if not inspect.isgeneratorfunction(cls.execute):
+            return super().__new__(cls)
+        execute = cls.execute
+
+        def wrapper(self, *arguments, **parameters):
+            assert isinstance(self, cls)
+            generator = execute(self, *arguments, **parameters)
+            return list(generator)
+
+        update_wrapper(wrapper, execute)
+        setattr(cls, "execute", wrapper)
+        mro = list(cls.__mro__)
+        assert Generator not in mro
+        if Carryover in mro: assert mro.index(Carryover) > mro.index(Function)
+        try: return super().__new__(cls, *args, **kwargs)
+        except TypeError: return super().__new__(cls)
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
@@ -90,26 +127,32 @@ class Function(ABC):
 
 class Generator(ABC):
     def __new__(cls, *args, **kwargs):
-        generator = cls.generator
-        if not inspect.isgeneratorfunction(generator):
-            def wrapper(self, *arguments, **parameters):
-                assert isinstance(self, cls)
-                results = generator(self, *arguments, **parameters)
-                if results is not None: yield results
-            update_wrapper(wrapper, generator)
-            setattr(cls, "generator", wrapper)
-        return super().__new__(cls)
+        if inspect.isgeneratorfunction(cls.execute):
+            return super().__new__(cls)
+        execute = cls.execute
 
-    def __init__(self, *args, **kwargs): assert inspect.isgeneratorfunction(self.generator)
-    def __call__(self, *args, **kwargs): yield from self.generator(*args, **kwargs)
+        def wrapper(self, *arguments, **parameters):
+            assert isinstance(self, cls)
+            results = execute(self, *arguments, **parameters)
+            if results is not None: yield results
+
+        update_wrapper(wrapper, execute)
+        setattr(cls, "execute", wrapper)
+        mro = list(cls.__mro__)
+        assert Function not in mro
+        if Carryover in mro: assert mro.index(Carryover) > mro.index(Generator)
+        try: return super().__new__(cls, *args, **kwargs)
+        except TypeError: return super().__new__(cls)
 
     @abstractmethod
-    def generator(self, *args, **kwargs): pass
+    def execute(self, *args, **kwargs): pass
 
 
 class Logging(object):
     def __repr__(self): return str(self.name)
     def __init__(self, *args, **kwargs):
+        try: super().__init__(*args, **kwargs)
+        except TypeError: pass
         self.__name = kwargs.pop("name", self.__class__.__name__)
         self.__logger = __logger__
 
@@ -121,6 +164,8 @@ class Logging(object):
 
 class Publisher(object):
     def __init__(self, *args, **kwargs):
+        try: super().__init__(*args, **kwargs)
+        except TypeError: pass
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__subscribers = set()
 
@@ -148,6 +193,8 @@ class Publisher(object):
 
 class Subscriber(ABC):
     def __init__(self, *args, **kwargs):
+        try: super().__init__(*args, **kwargs)
+        except TypeError: pass
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__publishers = set()
 
