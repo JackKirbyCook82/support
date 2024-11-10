@@ -9,7 +9,6 @@ Created on Weds Jul 12 2023
 import time
 import types
 import inspect
-import logging
 from functools import reduce
 from abc import ABC, abstractmethod
 
@@ -20,7 +19,6 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-__logger__ = logging.getLogger(__name__)
 
 
 class Pipeline(ABC):
@@ -79,13 +77,6 @@ class ClosedPipeline(Pipeline):
 class Stage(Logging, ABC):
     @abstractmethod
     def execute(self, *args, **kwargs): pass
-
-    @staticmethod
-    def signature(execute): return list(inspect.signature(execute).parameters.keys())
-    @staticmethod
-    def parameters(signature): return signature[signature.index("args")+1:signature.index("kwargs")]
-    @staticmethod
-    def arguments(signature): return signature[signature.index("self")+1:signature.index("args")]
 
 
 class Source(Stage, ABC):

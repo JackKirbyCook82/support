@@ -62,7 +62,7 @@ class Sizing(object):
 class Carryover(ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
-        except TypeError: pass
+        except TypeError: super().__init_subclass__()
         carryover = kwargs.get("carryover", getattr(cls, "carryover", []))
         leading = kwargs.get("leading", getattr(cls, "leading", True))
         assert isinstance(carryover, (list, str)) and isinstance(leading, bool)
@@ -152,7 +152,7 @@ class Logging(object):
     def __repr__(self): return str(self.name)
     def __init__(self, *args, **kwargs):
         try: super().__init__(*args, **kwargs)
-        except TypeError: pass
+        except TypeError: super().__init__()
         self.__name = kwargs.pop("name", self.__class__.__name__)
         self.__logger = __logger__
 
@@ -165,7 +165,7 @@ class Logging(object):
 class Publisher(object):
     def __init__(self, *args, **kwargs):
         try: super().__init__(*args, **kwargs)
-        except TypeError: pass
+        except TypeError: super().__init__()
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__subscribers = set()
 
@@ -194,7 +194,7 @@ class Publisher(object):
 class Subscriber(ABC):
     def __init__(self, *args, **kwargs):
         try: super().__init__(*args, **kwargs)
-        except TypeError: pass
+        except TypeError: super().__init__()
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__publishers = set()
 
