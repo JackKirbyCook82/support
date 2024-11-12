@@ -35,12 +35,7 @@ class Ceiling(Criteria):
     def execute(self, content): return content[self.variable] <= self.threshold
 
 class Null(Criteria):
-    @typedispatcher
-    def execute(self, content): raise TypeError(type(content))
-    @execute.register(pd.DataFrame)
-    def execute_dataframe(self, content): return content[self.variable].notna()
-    @execute.register(xr.Dataset)
-    def execute_dataset(self, content): return content[self.variable].notnull()
+    def execute(self, content): return content[self.variable].notna()
 
 class Criterion(object):
     FLOOR = Floor
@@ -59,10 +54,10 @@ class Filter(Logging, Sizing, Emptying):
         self.__criterion = list(criterion)
 
     def execute(self, query, content, *args, **kwargs):
+        assert isinstance(content, pd.DataFrame)
         prior = self.size(content)
         content = self.filter(content)
-        if isinstance(content, pd.DataFrame):
-            content = content.reset_index(drop=True, inplace=False)
+        content = content.reset_index(drop=True, inplace=False)
         post = self.size(content)
         string = f"Filtered: {repr(self)}|{str(query)}[{prior:.0f}|{post:.0f}]"
         self.logger.info(string)
@@ -80,11 +75,9 @@ class Filter(Logging, Sizing, Emptying):
         return mask
 
     @typedispatcher
-    def where(self, content, mask=None): raise TypeError(type(content))
-    @where.register(xr.Dataset)
-    def where_dataset(self, dataset, mask=None): return dataset.where(mask, drop=True) if bool(mask is not None) else dataset
-    @where.register(pd.DataFrame)
-    def where_dataframe(self, dataframe, mask=None): return dataframe.where(mask).dropna(how="all", inplace=False) if bool(mask is not None) else dataframe
+    def where(self, dataframe, mask=None):
+        if bool(mask is None): return dataframe
+        else: return dataframe.where(mask).dropna(how="all", inplace=False)
 
     @property
     def criterion(self): return self.__criterion

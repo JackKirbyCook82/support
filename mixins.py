@@ -19,7 +19,7 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Logging", "Emptying", "Sizing", "Carryover", "Function", "Generator", "Publisher", "Subscriber"]
+__all__ = ["Logging", "Emptying", "Memory", "Sizing", "Carryover", "Function", "Generator", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -57,6 +57,19 @@ class Sizing(object):
     def size_series(self, series): return len(series.dropna(how="all", inplace=False).index)
     @size.register(types.NoneType)
     def size_nothing(self, *args, **kwargs): return 0
+
+
+class Memory(object):
+    @typedispatcher
+    def memory(self, content): raise TypeError(type(content))
+    @memory.register(dict)
+    def memory_mapping(self, mapping): return sum([self.memory(value) for value in mapping.values()])
+    @memory.register(list)
+    def memory_collection(self, collection): return sum([self.memory(value) for value in collection])
+    @memory.register(pd.Series, pd.DataFrame, xr.DataArray, xr.Dataset)
+    def memory_content(self, content): return content.nbytes
+    @memory.register(types.NoneType)
+    def memory_nothing(self, *args, **kwargs): return 0
 
 
 class Carryover(ABC):
@@ -103,15 +116,21 @@ class Carryover(ABC):
 
 
 class Function(ABC):
-    def __new__(cls, *args, **kwargs):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.combine = kwargs.get("combine", getattr(cls, "combine", None))
+
+    def __new__(cls, *args, combine, **kwargs):
         if not inspect.isgeneratorfunction(cls.execute):
             return super().__new__(cls)
+        assert callable(combine) or isinstance(combine, types.NoneType)
         execute = cls.execute
 
         def wrapper(self, *arguments, **parameters):
             assert isinstance(self, cls)
             generator = execute(self, *arguments, **parameters)
-            return list(generator)
+            collection = list(generator)
+            if combine is None: return collection
+            else: return combine(collection)
 
         update_wrapper(wrapper, execute)
         setattr(cls, "execute", wrapper)
