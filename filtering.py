@@ -6,8 +6,6 @@ Created on Weds Sept 18 2024
 
 """
 
-import pandas as pd
-import xarray as xr
 from functools import reduce
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
@@ -54,7 +52,7 @@ class Filter(Logging, Sizing, Emptying):
         self.__criterion = list(criterion)
 
     def execute(self, query, content, *args, **kwargs):
-        assert isinstance(content, pd.DataFrame)
+        if self.empty(content): return
         prior = self.size(content)
         content = self.filter(content)
         content = content.reset_index(drop=True, inplace=False)

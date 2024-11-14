@@ -116,10 +116,7 @@ class Carryover(ABC):
 
 
 class Function(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.combine = kwargs.get("combine", getattr(cls, "combine", None))
-
-    def __new__(cls, *args, combine, **kwargs):
+    def __new__(cls, *args, combine=None, **kwargs):
         if not inspect.isgeneratorfunction(cls.execute):
             return super().__new__(cls)
         assert callable(combine) or isinstance(combine, types.NoneType)
@@ -129,6 +126,7 @@ class Function(ABC):
             assert isinstance(self, cls)
             generator = execute(self, *arguments, **parameters)
             collection = list(generator)
+            if not bool(collection): return
             if combine is None: return collection
             else: return combine(collection)
 

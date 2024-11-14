@@ -24,7 +24,7 @@ __license__ = "MIT License"
 class Pipeline(ABC):
     def __init__(self, segments): self.segments = segments
     def __repr__(self):
-        string = ','.join(list(map(repr, self.segments)))
+        string = ', '.join(list(map(repr, self.segments)))
         return f"{self.__class__.__name__}[{string}]"
 
 

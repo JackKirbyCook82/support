@@ -7,7 +7,7 @@ Created on Sat Oct 19 2024
 """
 
 import time
-import types
+import logging
 from itertools import chain
 from abc import ABC, abstractmethod
 
@@ -18,38 +18,62 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["Source", "Process"]
 __copyright__ = "Copyright 2024, Jack Kirby Cook"
 __license__ = "MIT License"
+__logger__ = logging.getLogger(__name__)
 
 
 class Variables(object):
-    def __init__(self, contents): self.contents = contents
-    def __len__(self): return len(self.contents)
+    def __iter__(self):
+        for variable, value in self.domain.items():
+            if value is None: continue
+            else: yield variable, value
 
-    def __contains__(self, keys):
-        assert isinstance(keys, list) and len(keys) <= len(self)
-        return all([key in self.contents for key in keys])
+    def __init__(self, domain):
+        self.domain = dict.fromkeys(domain)
 
-    def __getitem__(self, keys): return self.get(keys)
-    def __setitem__(self, keys, values):
-        assert isinstance(keys, list) and isinstance(values, list) and len(keys) == len(values) and len(keys) <= len(self) and list(keys) in self
-        contents = dict(zip(keys, values))
-        self.contents.update(contents)
+    def __call__(self, domain):
+        variables = set(self.domain) - domain
+        for variable in variables:
+            del self.domain[variable]
+        return self
 
-    def get(self, keys):
-        assert isinstance(keys, list) and len(keys) <= len(self) and keys in self
-        values = list(map(self.contents.get, keys))
-        contents = dict(zip(keys, values))
-        return contents
+    def __iadd__(self, parameters):
+        assert isinstance(parameters, dict)
+        variables = set(self.domain)
+        for variable in variables:
+            value = parameters.get(variable, None)
+            self.domain[variable] = value
+        return self
 
-    def put(self, contents):
-        assert isinstance(contents, dict) and len(contents) <= len(self) and list(contents) in self
-        self.contents.update(contents)
 
-    @classmethod
-    def define(cls, domain): return cls(dict.fromkeys(domain))
-    def redefine(self, domain):
-        assert len(domain) <= len(self) and list(domain) in self
-        for key in set(self.contents) - set(domain):
-            del self.contents[key]
+class ProcessErrorMeta(type):
+    def __init__(cls, name, bases, attrs, *args, title=None, **kwargs):
+        assert str(name).endswith("Error")
+        super(ProcessErrorMeta, cls).__init__(name, bases, attrs)
+        cls.__logger__ = __logger__
+        cls.__title__ = title
+
+    def __call__(cls, process):
+        logger, title, name = cls.__logger__, cls.__title__, cls.__name__
+        instance = super(ProcessErrorMeta, cls).__call__(name, process)
+        logger.info(f"{cls.title}: {repr(instance.process)}")
+        return instance
+
+
+class ProcessError(Exception, metaclass=ProcessErrorMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
+    def __str__(self): return f"{self.name}|{repr(self.page)}"
+    def __init__(self, name, process):
+        self.__process = process
+        self.__name = name
+
+    @property
+    def process(self): return self.__process
+    @property
+    def name(self): return self.__name
+
+
+class CeasedProcessError(ProcessError, title="Ceased"): pass
+class TerminatedProcessError(ProcessError, title="Terminated"): pass
 
 
 class Pipeline(ABC):
@@ -60,7 +84,7 @@ class Pipeline(ABC):
         self.__source = source
 
     def __repr__(self):
-        string = ','.join(list(map(repr, [self.source] + self.processes)))
+        string = ', '.join(list(map(repr, [self.source] + self.processes)))
         return f"{self.__class__.__name__}[{string}]"
 
     def __add__(self, process):
@@ -71,16 +95,17 @@ class Pipeline(ABC):
     def __call__(self, *args, **kwargs):
         source = self.source(*args, **kwargs)
         for parameters in source:
-            assert isinstance(parameters, dict)
             domain = self.domain(index=0)
-            variables = Variables.define(domain)
-            variables.put(parameters)
+            variables = Variables(domain)
+            variables += parameters
             for index, process in enumerate(self.processes):
                 domain = self.domain(index=index)
-                variables.redefine(domain)
-                parameters = variables.get(process.domain)
-                parameters = process(parameters, *args, **kwargs)
-                variables.put(parameters)
+                variables = variables(domain)
+                parameters = dict(variables)
+                try: parameters = process(parameters, *args, **kwargs)
+                except CeasedProcessError: break
+                except TerminatedProcessError: break
+                variables += parameters
             del variables
 
     def domain(self, index=0):
@@ -114,16 +139,13 @@ class Source(Generator, Stage, ABC):
         source = self.execute(*args, **kwargs)
         start = time.time()
         for results in iter(source):
-
-            if isinstance(results, types.NoneType):
-                pass
-
+            assert results is not None
             arguments = [results] if not isinstance(results, tuple) else list(results)
             assert len(arguments) == len(self.arguments)
-            parameters = {key: value for key, value in zip(self.arguments, arguments)}
             elapsed = time.time() - start
             string = f"Sourced: {repr(self)}[{elapsed:.02f}s]"
             self.logger.info(string)
+            parameters = dict(zip(self.arguments, arguments))
             yield parameters
             start = time.time()
 
@@ -138,23 +160,19 @@ class Process(Function, Stage, ABC):
         cls.domain = domain
 
     def __call__(self, parameters, *args, **kwargs):
-        start = time.time()
         assert isinstance(parameters, dict)
-        assert len(parameters) >= len(self.domain)
-        domain = [parameters[key] for key in self.domain]
+        if not all([key in parameters for key in self.domain]): CeasedProcessError(self)
+        domain = list(map(parameters.get, self.domain))
+        start = time.time()
         results = self.execute(*domain, *args, **kwargs)
-
-        if isinstance(results, types.NoneType):
-            pass
-
+        if results is None: raise TerminatedProcessError(self)
         arguments = [results] if not isinstance(results, tuple) else list(results)
         assert len(arguments) == len(self.arguments)
-        parameters = {key: value for key, value in zip(self.arguments, arguments)}
         elapsed = time.time() - start
         string = f"Processed: {repr(self)}[{elapsed:.02f}s]"
         self.logger.info(string)
+        parameters = dict(zip(self.arguments, arguments))
         return parameters
-
 
 
 
