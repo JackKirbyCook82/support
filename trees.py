@@ -8,6 +8,7 @@ Created on Mon Nov 4 2024
 
 import logging
 from abc import ABC, abstractmethod
+from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
@@ -16,6 +17,27 @@ __all__ = ["SingleNode", "MultipleNode", "MixedNode"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
+
+
+Style = ntuple("Style", "branch terminate run blank")
+class Styles:
+    Double = Style("╠══", "╚══", "║  ", "   ")
+    Single = Style("├──", "└──", "│  ", "   ")
+    Curved = Style("├──", "╰──", "│  ", "   ")
+
+
+def renderer(node, layers=[], style=Styles.Single):
+    last = lambda indx, length: indx == length
+    prefix = lambda indx, length: style.terminate if last(indx, length) else style.blank
+    padding = lambda: "".join([style.blank if layer else style.run for layer in layers])
+    function = lambda indx, length: "".join([padding(), prefix(indx, length)])
+    if not layers: yield "", node
+    children = iter(node.items())
+    size = len(list(children))
+    for index, (key, values) in enumerate(children):
+        for value in [values] if not isinstance(values, (list, tuple)) else list(values):
+            yield function(index, size - 1), value
+            yield from renderer(value, layers=[*layers, last(index, size - 1)], style=style)
 
 
 class Node(ABC):
@@ -32,6 +54,11 @@ class Node(ABC):
     def keys(self): return self.nodes.keys()
     def values(self): return self.nodes.values()
     def items(self): return self.nodes.items()
+
+    def tree(self, *args, style=Styles.Single, **kwargs):
+        generator = renderer(self, style=style)
+        rows = [prefix + str() for prefix, value in iter(generator)]
+        return "\n".format(rows)
 
     @property
     def leafs(self): return [value for value in self.transverse() if not bool(value.children)]

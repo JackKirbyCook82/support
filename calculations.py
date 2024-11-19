@@ -12,9 +12,10 @@ import pandas as pd
 import xarray as xr
 from copy import copy
 from abc import ABC, ABCMeta, abstractmethod
+from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
-from support.dispatchers import kwargsdispatcher, typedispatcher
+from support.dispatchers import typedispatcher
 from support.meta import RegistryMeta
 from support.trees import SingleNode
 
@@ -25,22 +26,52 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-@kwargsdispatcher("datatype")
-def vectorize(*args, datatype, **kwargs): raise TypeError(datatype)
+AlgorithmType = ntuple("AlgorithmType", "vectorized datatype")
+VariableType = ntuple("VariableType", "calculated datatype")
 
-@vectorize.register.value(xr.DataArray)
-def vectorize_dataarray(execute, contents, constants, *args, varname, vartype, **kwargs):
-    dataarray = xr.apply_ufunc(execute, *contents, *constants, output_dtypes=[vartype], vectorize=True)
-    return dataarray.astype(vartype).rename(varname)
+unvectorized_table = AlgorithmType(False, pd.Series)
+unvectorized_array = AlgorithmType(False, xr.DataArray)
+vectorized_table = AlgorithmType(True, pd.Series)
+vectorized_array = AlgorithmType(True, xr.DataArray)
+uncalculated_constant = VariableType(False, types.NoneType)
+uncalculated_table = VariableType(False, pd.Series)
+uncalculated_array = VariableType(False, xr.DataArray)
+calculated_table = VariableType(True, pd.Series)
+calculated_array = VariableType(True, xr.DataArray)
 
-@vectorize.register.value(pd.Series)
-def vectorize_series(execute, contents, constants, *args, varname, vartype, **kwargs):
-    series = pd.concat(contents, axis=1).apply(execute, axis=1, raw=False, args=tuple(constants))
-    return series.astype(vartype).rename(varname)
 
-def calculate(execute, contents, constants, *args, varname, vartype, **kwargs):
-    content = execute(*contents, *constants)
-    return content.astype(vartype).rename(varname)
+class Algorithm(object, metaclass=RegistryMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
+    def __init__(self, execute, arguments, parameters):
+        self.__parameters = parameters
+        self.__arguments = arguments
+        self.__execute = execute
+
+    @property
+    def parameters(self): return self.__parameters
+    @property
+    def arguments(self): return self.__arguments
+    @property
+    def execute(self): return self.__execute
+
+
+class VectorizedAlgorithm(Algorithm): pass
+class UnVectorizedAlgorithm(Algorithm):
+    def __call__(self, *args, **kwargs):
+        return self.execute(list(self.arguments), dict(self.parameters))
+
+class TableUnVectorizedAlgorithm(UnVectorizedAlgorithm, register=unvectorized_table): pass
+class ArrayUnVectorizedAlgorithm(UnVectorizedAlgorithm, register=unvectorized_array): pass
+
+class TableVectorizedAlgorithm(VectorizedAlgorithm, register=vectorized_table):
+    def __call__(self, *args, **kwargs):
+        wrapper = lambda arguments, **parameters: self.execute(list(arguments), dict(parameters))
+        return pd.concat(self.arguments, axis=1).apply(wrapper, axis=1, raw=True, **self.parameters)
+
+class ArrayVectorizedAlgorithm(VectorizedAlgorithm, register=vectorized_array):
+    def __call__(self, *args, vartype, **kwargs):
+        wrapper = lambda *arguments, **parameters: self.execute(list(arguments), dict(parameters))
+        return xr.apply_ufunc(wrapper, *self.arguments, output_dtypes=[vartype], vectorize=True, kwargs=self.parameters)
 
 
 class Variable(SingleNode, ABC, metaclass=RegistryMeta):
@@ -50,7 +81,8 @@ class Variable(SingleNode, ABC, metaclass=RegistryMeta):
             return SingleNode.__new__(cls)
         function = kwargs.get("function", None)
         datatype = args[-1]
-        subclass = cls[(bool(function), datatype)]
+        vartype = VariableType(bool(function), datatype)
+        subclass = cls[vartype]
         return subclass(*args, **kwargs)
 
     def __init__(self, varkey, varname, vartype, datatype, *args, domain, **kwargs):
@@ -68,17 +100,20 @@ class Variable(SingleNode, ABC, metaclass=RegistryMeta):
     def __len__(self): return int(self.size)
 
     @property
-    def parameters(self): return dict(varname=self.varname, vartype=self.vartype, datatype=self.datatype)
-    @property
     def sources(self):
         generator = (variable for child in self.children for variable in child.sources)
         if bool(self): yield self
         else: yield from generator
 
+    @abstractmethod
+    def execute(self, order): pass
+
     @property
     def content(self): return self.__content
     @content.setter
-    def content(self, content): self.__content = content
+    def content(self, content):
+        if self.datatype in [types.NoneType]: self.__content = content
+        else: self.__content = content.rename(self.varname)
 
     @property
     def datatype(self): return self.__datatype
@@ -92,33 +127,38 @@ class Variable(SingleNode, ABC, metaclass=RegistryMeta):
     def domain(self): return self.__domain
 
 
-class Dependent(Variable, register=[(True, pd.Series), (True, xr.DataArray)]):
+class Dependent(Variable, register=[calculated_table, calculated_array]):
     def __init__(self, *args, function, **kwargs):
         domain = list(inspect.signature(function).parameters.keys())
         super().__init__(*args, domain=domain, **kwargs)
         self.__vectorize = kwargs.get("vectorize", False)
         self.__function = function
 
+    def __call__(self, *args, **kwargs):
+        if bool(self): return self.content
+        content = self.calculate(*args, **kwargs)
+        self.content = content
+        return self.content
+
+    def calculate(self, *args, **kwargs):
+        variables = list(set(self.sources))
+        independents = ODict([(variable, variable.content) for variable in variables if not isinstance(variable, Constant)])
+        constants = ODict([(variable, variable.content) for variable in variables if isinstance(variable, Constant)])
+        parameters = {str(variable): content for variable, content in constants.items()}
+        arguments = list(independents.values())
+        order = list(independents.keys())
+        execute = self.execute(order)
+        algorithm = (self.vectorize, self.datatype)
+        algorithm = Algorithm[algorithm](execute, arguments, parameters)
+        return algorithm(*args, vartype=self.vartype, **kwargs)
+
     def execute(self, order):
-        domains = [child.execute(order) for child in self.children]
-        calculating = lambda *contents: self.function(*[domain(*contents) for domain in domains])
-        sourcing = lambda *contents: contents[order.index(self)]
-        wrapper = sourcing if bool(self) else calculating
-        wrapper.__order__ = [str(variable) for variable in order]
+        execution = [child.execute(order) for child in self.children]
+        source = lambda arguments, parameters: parameters[str(self)] if str(self) in parameters else arguments[order.index(self)]
+        calculate = lambda arguments, parameters: self.function(*[execute(arguments, parameters) for execute in execution])
+        wrapper = source if bool(self) else calculate
         wrapper.__name__ = str(self)
         return wrapper
-
-    def calculation(self, *args, **kwargs):
-        sources = list(set(self.sources))
-        contents = ODict([(variable, variable.content) for variable in sources if not isinstance(variable, Constant)])
-        constants = ODict([(variable, variable.content) for variable in sources if isinstance(variable, Constant)])
-        order = list(contents.keys()) + list(constants.keys())
-        contents, constants = list(contents.values()), list(constants.values())
-        execute = self.execute(order)
-        calculation = vectorize if bool(self.vectorize) else calculate
-        content = calculation(execute, contents, constants, **self.parameters)
-        self.content = content
-        return content
 
     @property
     def vectorize(self): return self.__vectorize
@@ -126,14 +166,13 @@ class Dependent(Variable, register=[(True, pd.Series), (True, xr.DataArray)]):
     def function(self): return self.__function
 
 
-class NonDependent(Variable):
+class Source(Variable):
     def __init__(self, *args, locator, **kwargs):
         super().__init__(*args, domain=[], **kwargs)
         self.__locator = locator
 
     def execute(self, order):
-        wrapper = lambda *contents: contents[order.index(self)]
-        wrapper.__order__ = [str(variable) for variable in order]
+        wrapper = lambda arguments, parameters: parameters[str(self)] if str(self) in parameters else arguments[order.index(self)]
         wrapper.__name__ = str(self)
         return wrapper
 
@@ -141,8 +180,8 @@ class NonDependent(Variable):
     def locator(self): return self.__locator
 
 
-class Independent(NonDependent, register=[(False, pd.Series), (False, xr.DataArray)]): pass
-class Constant(NonDependent, register=(False, types.NoneType)): pass
+class Independent(Source, register=[uncalculated_table, uncalculated_array]): pass
+class Constant(Source, register=uncalculated_constant): pass
 
 
 class EquationMeta(ABCMeta):
@@ -183,13 +222,16 @@ class Equation(ABC, metaclass=EquationMeta):
         variables = {key: variable for key, variable in self.variables.items()}
         if attribute not in variables.keys():
             raise AttributeError(attribute)
-        return variables[attribute].calculation
+        return variables[attribute]
 
     def __getitem__(self, attribute):
         variables = {str(variable): variable for variable in self.variables.values()}
         if attribute not in variables.keys():
             raise AttributeError(attribute)
-        return variables[attribute].content
+        variable = variables[attribute]
+        if not bool(variable):
+            raise ValueError(attribute)
+        return variable.content
 
     @property
     def variables(self): return self.__variables

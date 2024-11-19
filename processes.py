@@ -40,7 +40,8 @@ class Variables(object):
         assert isinstance(parameters, dict)
         variables = set(self.domain)
         for variable in variables:
-            value = parameters.get(variable, None)
+            existing = self.domain[variable]
+            value = parameters.get(variable, existing)
             self.domain[variable] = value
         return self
 
@@ -55,7 +56,7 @@ class ProcessErrorMeta(type):
     def __call__(cls, process):
         logger, title, name = cls.__logger__, cls.__title__, cls.__name__
         instance = super(ProcessErrorMeta, cls).__call__(name, process)
-        logger.info(f"{cls.title}: {repr(instance.process)}")
+        logger.info(f"{title}: {repr(instance.process)}")
         return instance
 
 
