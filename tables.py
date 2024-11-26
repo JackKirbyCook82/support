@@ -13,6 +13,7 @@ from collections import namedtuple as ntuple
 
 from support.mixins import Logging, Emptying, Sizing, Sourcing
 from support.dispatchers import typedispatcher
+from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -99,7 +100,7 @@ class ViewDataframe(View, ABC, register=pd.DataFrame):
         return string
 
 
-class TableMeta(ABCMeta):
+class TableMeta(RegistryMeta, ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         if not any([type(base) is TableMeta for base in bases]):
             return super(TableMeta, mcs).__new__(mcs, name, bases, attrs)
@@ -167,10 +168,10 @@ class TableDataFrame(Table, register=pd.DataFrame):
         data = pd.DataFrame(columns=list(header))
         super().__init__(*args, data=data, **kwargs)
 
-    #    def combine(self, dataframe):
-    #        assert isinstance(dataframe, pd.DataFrame)
-    #        with self.mutex:
-    #            self.dataframe = pd.concat([self.dataframe, dataframe], axis=0) if bool(self) else dataframe
+#    def combine(self, dataframe):
+#        assert isinstance(dataframe, pd.DataFrame)
+#        with self.mutex:
+#            self.dataframe = pd.concat([self.dataframe, dataframe], axis=0) if bool(self) else dataframe
 
     def get(self, locator):
         index, columns = locator
