@@ -8,10 +8,10 @@ Created on Weds Jul 12 2023
 
 import queue
 from enum import StrEnum
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 
-from support.mixins import Logging
 from support.meta import RegistryMeta
+from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -20,30 +20,35 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-QueueTypes = StrEnum("Typing", ["FIFO", "LIFO", "HIPO", "LIPO"], start=1)
-class QueueMeta(RegistryMeta):
+QueueTypes = StrEnum("Typing", ["FIFO", "LIFO", "PIFO"], start=1)
+class QueueMeta(RegistryMeta, ABCMeta):
     def __init__(cls, *args, **kwargs):
-        super(QueueMeta, cls).__init__(*args, **kwargs)
-        cls.datatype = kwargs.get("datatype", getattr(cls, "datatype", None))
+        register = kwargs.get("queuetype", [])
+        super(QueueMeta, cls).__init__(*args, register=register, **kwargs)
+        cls.__queuetype__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
+        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
 
     def __call__(cls, *args, contents=[], capacity=None, **kwargs):
+        cls = cls[kwargs["queuetype"]] if cls.queuetype is None else cls
         capacity = capacity if capacity is not None else 0
         data = cls.datatype(maxsize=capacity)
         instance = super(QueueMeta, cls).__call__(*args, data=data, **kwargs)
-        for content in contents:
-            instance.write(content)
+        for content in contents: instance.write(content)
         return instance
 
+    @property
+    def queuetype(cls): return cls.__queuetype__
+    @property
+    def datatype(cls): return cls.__datatype__
 
-class Queue(ABC, metaclass=QueueMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
 
+class Queue(Logging, ABC, metaclass=QueueMeta):
     def __repr__(self): return f"{str(self.name)}[{len(self):.0f}]"
     def __bool__(self): return not bool(self.empty)
     def __len__(self): return int(self.size)
 
     def __init__(self, *args, data, timeout=None, **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
+        super().__init__(*args, **kwargs)
         self.__timeout = timeout
         self.__data = data
 
@@ -75,17 +80,13 @@ class StandardQueue(Queue):
         return content
 
 
-class PriorityQueue(Queue, datatype=queue.PriorityQueue):
-    def __init_subclass__(cls, *args, **kwargs):
-        Queue.__init_subclass__(cls, *args, **kwargs)
-        ascending = kwargs.get("ascending", getattr(cls, "__ascending__", True))
-        assert isinstance(ascending, bool)
-        cls.__ascending__ = ascending
-
-    def __init__(self, *args, priority, **kwargs):
-        assert callable(priority)
-        Queue.__init__(self, *args, **kwargs)
-        self.__ascending = self.__class__.__ascending__
+class FIFOQueue(StandardQueue, datatype=queue.Queue, queuetype=QueueTypes.FIFO): pass
+class LIFOQueue(StandardQueue, datatype=queue.LifoQueue, queuetype=QueueTypes.LIFO): pass
+class PIFOQueue(Queue, datatype=queue.PriorityQueue, queuetype=QueueTypes.PIFO):
+    def __init__(self, *args, priority, ascending, **kwargs):
+        assert callable(priority) and isinstance(ascending, bool)
+        super().__init__(*args, **kwargs)
+        self.__ascending = ascending
         self.__priority = priority
 
     def write(self, content, *args, **kwargs):
@@ -104,12 +105,6 @@ class PriorityQueue(Queue, datatype=queue.PriorityQueue):
     def ascending(self): return self.__ascending
     @property
     def priority(self): return self.__priority
-
-
-class FIFOQueue(StandardQueue, datatype=queue.Queue, register=QueueTypes.FIFO): pass
-class LIFOQueue(StandardQueue, datatype=queue.LifoQueue, register=QueueTypes.LIFO): pass
-class HIPOQueue(PriorityQueue, ascending=True, register=QueueTypes.HIPO): pass
-class LIPOQueue(PriorityQueue, ascending=False, register=QueueTypes.LIPO): pass
 
 
 class Dequeuer(Logging):

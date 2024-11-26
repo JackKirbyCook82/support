@@ -6,20 +6,17 @@ Created on Weds Jul 12 2023
 
 """
 
-import inspect
 import multiprocessing
 import pandas as pd
-import xarray as xr
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
-from support.mixins import Logging, Emptying, Sizing
+from support.mixins import Logging, Emptying, Sizing, Sourcing
 from support.dispatchers import typedispatcher
-from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Reader", "Writer", "Table", "Header", "View"]
+__all__ = ["Writer", "Reader", "Table", "View"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -102,19 +99,7 @@ class ViewDataframe(View, ABC, register=pd.DataFrame):
         return string
 
 
-class Header(ABC):
-    def __iter__(self): return iter(self.index + self.columns)
-    def __init__(self, *args, index, columns, **kwargs):
-        self.__columns = columns
-        self.__index = index
-
-    @property
-    def columns(self): return self.__columns
-    @property
-    def index(self): return self.__index
-
-
-class TableMeta(RegistryMeta):
+class TableMeta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         if not any([type(base) is TableMeta for base in bases]):
             return super(TableMeta, mcs).__new__(mcs, name, bases, attrs)
@@ -124,27 +109,28 @@ class TableMeta(RegistryMeta):
         return cls
 
     def __init__(cls, *args, **kwargs):
-        super(TableMeta, cls).__init__(*args, **kwargs)
-        cls.datatype = kwargs.get("datatype", getattr(cls, "datatype", None))
-        cls.viewtype = kwargs.get("viewtype", getattr(cls, "viewtype", None))
-        cls.headertype = kwargs.get("headertype", getattr(cls, "headertype", None))
+        if not any([type(base) is TableMeta for base in list(cls.__bases__)]):
+            return
+        cls.__headertype__ = kwargs.get("headertype", getattr(cls, "__headertype__", None))
+        cls.__viewtype__ = kwargs.get("viewtype", getattr(cls, "__viewtype__", None))
+        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
 
-    def __call__(cls, *args, **kwargs):
-        parameters = dict(datatype=cls.datatype, viewtype=cls.viewtype, headertype=cls.headertype)
-        data, view, header = cls.create(*args, **parameters, **kwargs)
-        instance = super(TableMeta, cls).__call__(*args, data=data, view=view, header=header, **kwargs)
-        return instance
+#    def __call__(cls, *args, **kwargs):
+#        instance = super(TableMeta, cls).__call__(*args, **kwargs)
+#        return instance
 
-    @abstractmethod
-    def create(cls, *args, datatype, viewtype, headertype, **kwargs): pass
+    @property
+    def headertype(cls): return cls.__headertype__
+    @property
+    def viewtype(cls): return cls.__viewtype__
+    @property
+    def datatype(cls): return cls.__datatype__
 
 
-class Table(ABC, metaclass=TableMeta):
-    def __init__(self, *args, data, view, header, **kwargs):
-        assert data is not None
-        self.__name = kwargs.get("name", self.__class__.__name__)
+class Table(Logging, ABC, metaclass=TableMeta):
+    def __init__(self, *args, data, view, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__mutex = multiprocessing.RLock()
-        self.__header = header
         self.__data = data
         self.__view = view
 
@@ -162,18 +148,11 @@ class Table(ABC, metaclass=TableMeta):
     def get(self, locator): pass
 
     @property
-    def data(self): return self.__data
-    @data.setter
-    def data(self, data): self.__data = data
-
-    @property
-    def header(self): return self.__header
+    def mutex(self): return self.__mutex
     @property
     def view(self): return self.__view
     @property
-    def mutex(self): return self.__mutex
-    @property
-    def name(self): return self.__name
+    def data(self): return self.__data
 
     @property
     @abstractmethod
@@ -184,6 +163,15 @@ class Table(ABC, metaclass=TableMeta):
 
 
 class TableDataFrame(Table, register=pd.DataFrame):
+    def __init__(self, *args, header, **kwargs):
+        data = pd.DataFrame(columns=list(header))
+        super().__init__(*args, data=data, **kwargs)
+
+    #    def combine(self, dataframe):
+    #        assert isinstance(dataframe, pd.DataFrame)
+    #        with self.mutex:
+    #            self.dataframe = pd.concat([self.dataframe, dataframe], axis=0) if bool(self) else dataframe
+
     def get(self, locator):
         index, columns = locator
         assert isinstance(index, slice) and isinstance(columns, (str, list))
@@ -195,11 +183,6 @@ class TableDataFrame(Table, register=pd.DataFrame):
         assert isinstance(index, slice) and isinstance(columns, (str, list))
         columns = self.locate(columns)
         self.dataframe.iloc[index, columns] = value
-
-    def combine(self, dataframe):
-        assert isinstance(dataframe, pd.DataFrame)
-        with self.mutex:
-            self.dataframe = pd.concat([self.dataframe, dataframe], axis=0) if bool(self) else dataframe
 
     def where(self, mask):
         if not bool(self): return
@@ -279,18 +262,6 @@ class TableDataFrame(Table, register=pd.DataFrame):
         column = list(self.columns).index(column)
         return column
 
-    @classmethod
-    def create(cls, *args, datatype, viewtype, headertype, **kwargs):
-        header = headertype(*args, **kwargs)
-        data = datatype(columns=list(header))
-        view = viewtype(*args, **kwargs)
-        return data, view, header
-
-    @property
-    def dataframe(self): return self.data
-    @dataframe.setter
-    def dataframe(self, dataframe): self.data = dataframe
-
     @property
     def stacking(self): return int(self.columns.nlevels) if bool(self.stacked) else 0
     @property
@@ -303,75 +274,48 @@ class TableDataFrame(Table, register=pd.DataFrame):
     def columns(self): return self.data.columns
     @property
     def index(self): return self.data.index
+    @property
+    def dataframe(self): return self.data
 
 
-class Writer(Logging, Sizing, Emptying, ABC):
+class Stream(Logging, Sizing, Emptying, Sourcing, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.query = kwargs.get("query", getattr(cls, "query", None))
+
     def __init__(self, *args, table, **kwargs):
-        assert not inspect.isgeneratorfunction(self.write)
         super().__init__(*args, **kwargs)
-        self.__table = table
+        self.table = table
 
-    def execute(self, query, content, *args, **kwargs):
-        if self.empty(content): return
+
+class Writer(Stream, ABC):
+    def execute(self, contents, *args, **kwargs):
+        if self.empty(contents): return
         with self.table.mutex:
-            self.write(query, content, *args, **kwargs)
-            size = self.size(content)
-            string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
-            self.logger.info(string)
+            for query, content in self.source(contents, *args, query=self.query, **kwargs):
+                self.write(content, *args, **kwargs)
+                size = self.size(content)
+                string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
+                self.logger.info(string)
 
     @abstractmethod
-    def write(self, query, content, *args, **kwargs): pass
-    @property
-    def table(self): return self.__table
+    def write(self, content, *args, **kwargs): pass
 
 
-class Reader(Logging, Sizing, Emptying, ABC):
-    def __init__(self, *args, table, query, **kwargs):
-        assert not inspect.isgeneratorfunction(self.read)
-        super().__init__(*args, **kwargs)
-        self.__query = query
-        self.__table = table
-
+class Reader(Stream, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex:
             contents = self.read(*args, **kwargs)
-            for query, content in self.source(contents):
-                query = self.query(query)
+            if self.empty(contents): return
+            for query, content in self.source(contents, *args, query=self.query, **kwargs):
                 size = self.size(content)
                 string = f"Read: {repr(self)}|{str(query)}[{size:.0f}]"
                 self.logger.info(string)
                 if self.empty(content): continue
-                yield query, content
-
-    @typedispatcher
-    def source(self, contents):
-        raise TypeError(type(contents))
-
-    @source.register(pd.DataFrame)
-    def source_dataframe(self, dataframe):
-        generator = dataframe.groupby(list(self.query))
-        for values, dataframe in iter(generator):
-            query = self.query(list(values))
-            yield query, dataframe
-
-    @source.register(xr.Dataset)
-    def source_dataset(self, dataset):
-        for field in list(self.query):
-            dataset = dataset.expand_dims(field)
-        dataset = dataset.stack(stack=list(self.query))
-        generator = dataset.groupby("stack")
-        for values, dataset in iter(generator):
-            query = self.query(list(values))
-            dataset = dataset.unstack().drop_vars("stack")
-            yield query, dataset
+                yield content
 
     @abstractmethod
     def read(self, *args, **kwargs): pass
-    @property
-    def query(self): return self.__query
-    @property
-    def table(self): return self.__table
 
 
 

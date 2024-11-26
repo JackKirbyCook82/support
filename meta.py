@@ -148,13 +148,20 @@ class SingletonMeta(Meta):
 
 
 class ParametersMeta(Meta):
-    def __iter__(cls): return iter(list(cls.parameters.items()))
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         function = lambda value: isinstance(value, types.LambdaType) or not isinstance(value, (types.MethodType, types.FunctionType))
         super(ParametersMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         existing = getattr(cls, "__parameters__", {})
         update = {key: value for key, value in attrs.items() if function(value)}
         cls.__parameters__ = existing | update
+
+    def __setitem__(cls, key, value): cls.parameters[key] = value
+    def __getitem__(cls, key): return cls.parameters[key]
+
+    def __iter__(cls): return iter(list(cls.parameters.items()))
+    def __call__(cls, *args, **kwargs):
+        instance = super(ParametersMeta, cls).__call__(cls.parameters, *args, **kwargs)
+        return instance
 
     @property
     def parameters(cls): return cls.__parameters__
@@ -171,6 +178,7 @@ class RegistryMeta(Meta):
             return
         register = kwargs.get("register", [])
         register = [register] if not isinstance(register, list) else register
+        register = list(filter(lambda value: value is not None, register))
         for key in register: cls[key] = cls
 
     def __setitem__(cls, key, value): cls.registry[key] = value

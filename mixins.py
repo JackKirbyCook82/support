@@ -19,7 +19,7 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Logging", "Emptying", "Memory", "Sizing", "Carryover", "Function", "Generator", "Publisher", "Subscriber"]
+__all__ = ["Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Pivoting", "Sourcing", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -76,49 +76,6 @@ class Memory(object):
     def memory_nothing(self, *args, **kwargs): return 0
 
 
-class Carryover(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        try: super().__init_subclass__(*args, **kwargs)
-        except TypeError: super().__init_subclass__()
-        carryover = kwargs.get("carryover", getattr(cls, "carryover", []))
-        leading = kwargs.get("leading", getattr(cls, "leading", True))
-        assert isinstance(carryover, (list, str)) and isinstance(leading, bool)
-        cls.carryover = [carryover] if isinstance(carryover, str) else carryover
-        cls.leading = leading
-
-    def __new__(cls, *args, **kwargs):
-        execute = cls.execute
-        signature = list(inspect.signature(execute).parameters.keys())
-        indexes = [cls.arguments(signature).index(argument) for argument in cls.carryover]
-
-        if not inspect.isgeneratorfunction(execute):
-            def wrapper(self, *arguments, **parameters):
-                assert isinstance(self, cls)
-                carryover = [arguments[index] for index in indexes]
-                result = execute(self, *arguments, **parameters)
-                return *carryover, result if bool(cls.leading) else result, *carryover
-
-        elif inspect.isgeneratorfunction(execute):
-            def wrapper(self, *arguments, **parameters):
-                assert isinstance(self, cls)
-                carryover = [arguments[index] for index in indexes]
-                for result in execute(self, *arguments, **parameters):
-                    yield *carryover, result if bool(cls.leading) else result, *carryover
-
-        update_wrapper(wrapper, execute)
-        setattr(cls, "execute", wrapper)
-        try: return super().__new__(cls, *args, **kwargs)
-        except TypeError: return super().__new__(cls)
-
-    @staticmethod
-    def parameters(signature): return signature[signature.index("args")+1:signature.index("kwargs")]
-    @staticmethod
-    def arguments(signature): return signature[signature.index("self")+1:signature.index("args")]
-
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
-
-
 class Function(ABC):
     def __new__(cls, *args, combine=None, **kwargs):
         if not inspect.isgeneratorfunction(cls.execute):
@@ -138,7 +95,6 @@ class Function(ABC):
         setattr(cls, "execute", wrapper)
         mro = list(cls.__mro__)
         assert Generator not in mro
-        if Carryover in mro: assert mro.index(Carryover) > mro.index(Function)
         try: return super().__new__(cls, *args, **kwargs)
         except TypeError: return super().__new__(cls)
 
@@ -161,12 +117,51 @@ class Generator(ABC):
         setattr(cls, "execute", wrapper)
         mro = list(cls.__mro__)
         assert Function not in mro
-        if Carryover in mro: assert mro.index(Carryover) > mro.index(Generator)
         try: return super().__new__(cls, *args, **kwargs)
         except TypeError: return super().__new__(cls)
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
+
+
+class Sourcing(object):
+    @typedispatcher
+    def source(self, content, *args, query, **kwargs): raise TypeError(type(content))
+
+    @typedispatcher.register(pd.DataFrame)
+    def source_dataframe(self, dataframe, *args, query, **kwargs):
+        generator = dataframe.groupby(list(query))
+        for values, dataframe in iter(generator):
+            yield query(list(values)), dataframe
+
+    @typedispatcher.register(xr.Dataset)
+    def source_dataset(self, dataset, *args, query, **kwargs):
+        for field in list(query):
+            dataset = dataset.expand_dims(field)
+        dataset = dataset.stack(stack=list(query))
+        generator = dataset.groupby("stack")
+        for values, dataset in iter(generator):
+            dataset = dataset.unstack().drop_vars("stack")
+            yield query(list(values)), dataset
+
+
+class Pivoting(object):
+    @staticmethod
+    def pivot(dataframe, *args, stacking=[], by, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame) and isinstance(stacking, list) and isinstance(by, str)
+        index = set(dataframe.columns) - ({by} | set(stacking))
+        dataframe = dataframe.pivot(index=list(index), columns=["scenario"])
+        dataframe = dataframe.reset_index(drop=False, inplace=False)
+        return dataframe
+
+    @staticmethod
+    def unpivot(dataframe, *args, unstacking=[], by, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame) and isinstance(unstacking, list) and isinstance(by, str)
+        index = set(dataframe.columns) - ({by} | set(unstacking))
+        dataframe = dataframe.set_index(list(index), drop=True, inplace=False)
+        dataframe = dataframe.stack()
+        dataframe = dataframe.reset_index(drop=False, inplace=False)
+        return dataframe
 
 
 class Logging(object):

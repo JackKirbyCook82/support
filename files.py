@@ -7,6 +7,7 @@ Created on Sun 14 2023
 """
 
 import os
+import inspect
 import logging
 import multiprocessing
 import pandas as pd
@@ -15,13 +16,13 @@ from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
-from support.mixins import Logging, Emptying, Sizing
+from support.mixins import Logging, Emptying, Sizing, Sourcing
 from support.dispatchers import kwargsdispatcher
 from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Directory", "Loader", "Saver", "File", "FileTypes", "FileTimings"]
+__all__ = ["Loader", "Saver", "File", "FileTypes", "FileTimings"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ class FileData(ABC):
 
 
 class FileDataframe(FileData, datatype=pd.DataFrame):
-    def __init__(self, *args, formatters, parsers, dates, types, **kwargs):
+    def __init__(self, *args, formatters={}, parsers={}, dates={}, types={}, **kwargs):
         super().__init__(*args, **kwargs)
         self.__formatters = formatters
         self.__parsers = parsers
@@ -113,27 +114,55 @@ class FileDataframe(FileData, datatype=pd.DataFrame):
 
 class FileMeta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        mixins = {subclass.datatype: subclass for subclass in FileData.__subclasses__()}
-        datatype = kwargs.get("datatype", None)
-        if datatype is not None: bases = tuple([mixins[datatype]] + list(bases))
-        cls = super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
-        return cls
+        if not any([type(base) is FileMeta for base in bases]):
+            return super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
+        elif not any([FileData not in list(base.__mro__) for base in bases]):
+            datatype = kwargs.get("datatype", None)
+            assert datatype is not None
+            mixins = {subclass.datatype: subclass for subclass in FileData.__subclasses__()}
+            signature = inspect.signature(mixins[datatype].__init__)
+            exclude = [value for value in signature.parameters.values() if value.kind == value.KEYWORD_ONLY]
+            bases = tuple([mixins[datatype]] + list(bases))
+            attrs = {key: value for key, value in attrs.items() if key not in exclude}
+            return super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
+        else:
+            datatypes = set([base.datatype for base in bases if type(base) is FileMeta])
+            assert len(datatypes) == 1 and "datatype" not in kwargs.keys()
+            mixins = {subclass.datatype: subclass for subclass in FileData.__subclasses__()}
+            signature = inspect.signature(mixins[datatypes[0]].__init__)
+            exclude = [value for value in signature.parameters.values() if value.kind == value.KEYWORD_ONLY]
+            attrs = {key: value for key, value in attrs.items() if key not in exclude}
+            return super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
 
-    def __init__(cls, *args, **kwargs):
-        if not any([type(base) is FileMeta for base in cls.__bases__]):
-            cls.__parameters__ = kwargs["parameters"]
-        for parameter, default in cls.__parameters__.items():
-            existing = getattr(cls, f"__{parameter}__", default)
-            updated = kwargs.get(parameter, existing)
-            setattr(cls, f"__{parameter}__", updated)
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        cls.__parameters__ = kwargs.get("parameters", getattr(cls, "__parameters__", {}))
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
+        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
+        if not any([type(base) is FileMeta for base in bases]):
+            return
+        assert cls.datatype is not None
+        mixins = {subclass.datatype: subclass for subclass in FileData.__subclasses__()}
+        signature = inspect.signature(mixins[cls.datatype].__init__)
+        default = lambda value: value.default if value.default is not value.empty else None
+        required = {value.name: default(value) for value in signature.parameters.values() if value.kind == value.KEYWORD_ONLY}
+        existing = {key: cls.parameters.get(key, default) for key, default in required.items()}
+        parameters = {key: attrs.get(key, default) for key, default in existing.items()}
+        cls.parameters.update(parameters)
 
     def __call__(cls, *args, **kwargs):
-        parameters = {parameter: getattr(cls, f"__{parameter}__") for parameter in cls.__parameters__}
-        instance = super(FileMeta, cls).__call__(*args, **parameters, mutex=FileLock(), **kwargs)
+        parameters = dict(mutex=FileLock(), folder=cls.variable) | dict(cls.parameters)
+        instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
+    @property
+    def parameters(cls): return cls.__parameters__
+    @property
+    def variable(cls): return cls.__variable__
+    @property
+    def datatype(cls): return cls.__datatype__
 
-class File(Logging, ABC, metaclass=FileMeta, parameters={"variable": None, "formatters": {}, "parsers": {}, "types": {}, "dates": {}}):
+
+class File(Logging, ABC, metaclass=FileMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, repository, **kwargs):
         instance = super().__new__(cls)
@@ -141,24 +170,30 @@ class File(Logging, ABC, metaclass=FileMeta, parameters={"variable": None, "form
             os.mkdir(repository)
         return instance
 
-    def __bool__(self): return bool(os.listdir(os.path.join(self.repository, str(self.variable))))
-    def __len__(self): return len(os.listdir(os.path.join(self.repository, str(self.variable))))
+    def __bool__(self): return bool(os.listdir(os.path.join(self.repository, str(self.folder))))
+    def __len__(self): return len(os.listdir(os.path.join(self.repository, str(self.folder))))
     def __repr__(self): return f"{self.name}[{len(self):.0f}]"
 
-    def __init__(self, *args, filetiming, filetype, repository, variable, mutex, **kwargs):
-        Logging.__init__(self, *args, **kwargs)
+    def __init__(self, *args, filetiming, filetype, repository, folder, mutex, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__repository = repository
         self.__filetiming = filetiming
         self.__filetype = filetype
-        self.__variable = variable
+        self.__folder = folder
         self.__mutex = mutex
 
+    def __iter__(self):
+        directory = os.path.join(self.repository, str(self.folder))
+        for filename in os.listdir(directory):
+            filename = str(filename).split(".")[0]
+            yield filename
+
     def read(self, *args, mode="r", **kwargs):
-        assert ("file" in kwargs.keys() or "query" in kwargs.keys()) and mode == "r"
         method = FileMethod(self.filetype, self.filetiming)
-        directory = os.path.join(self.repository, str(self.variable))
+        directory = os.path.join(self.repository, str(self.folder))
         extension = str(self.filetype.name).lower()
-        filename = self.filename(*args, **kwargs)
+        try: filename = kwargs["file"]
+        except KeyError: filename = self.filename(*args, **kwargs)
         file = os.path.join(directory, ".".join([filename, extension]))
         if not os.path.exists(file): return
         with self.mutex[file]:
@@ -167,11 +202,11 @@ class File(Logging, ABC, metaclass=FileMeta, parameters={"variable": None, "form
         return content
 
     def write(self, content, *args, mode, **kwargs):
-        assert ("file" in kwargs.keys() or "query" in kwargs.keys())
         method = FileMethod(self.filetype, self.filetiming)
-        directory = os.path.join(self.repository, str(self.variable))
+        directory = os.path.join(self.repository, str(self.folder))
         extension = str(self.filetype.name).lower()
-        filename = self.filename(*args, **kwargs)
+        try: filename = kwargs["file"]
+        except KeyError: filename = self.filename(*args, **kwargs)
         file = os.path.join(directory, ".".join([filename, extension]))
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
@@ -179,21 +214,9 @@ class File(Logging, ABC, metaclass=FileMeta, parameters={"variable": None, "form
         string = f"Saved: {str(file)}"
         self.logger.info(string)
 
-    @property
-    def directory(self):
-        directory = os.path.join(self.repository, str(self.variable))
-        for filename in os.listdir(directory):
-            filename = str(filename).split(".")[0]
-            parameters = self.parameters(filename=filename)
-            assert isinstance(parameters, dict)
-            yield parameters, filename
-
     @staticmethod
     @abstractmethod
-    def filename(*args, **kwargs): pass
-    @staticmethod
-    @abstractmethod
-    def parameters(*args, **kwargs): pass
+    def filename(self, *args, **kwargs): pass
 
     @property
     def filetiming(self): return self.__filetiming
@@ -202,80 +225,42 @@ class File(Logging, ABC, metaclass=FileMeta, parameters={"variable": None, "form
     @property
     def repository(self): return self.__repository
     @property
-    def variable(self): return self.__variable
+    def folder(self): return self.__folder
     @property
     def mutex(self): return self.__mutex
 
 
-class Saver(Logging, Sizing, Emptying):
+class Stream(Logging, Sizing, Emptying, Sourcing, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.query = kwargs.get("query", getattr(cls, "query", None))
+
     def __init__(self, *args, file, mode, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__file = file
-        self.__mode = mode
-
-    def execute(self, query, content, *args, **kwargs):
-        if self.empty(content): return
-        self.file.write(content, *args, query=query, mode=self.mode, **kwargs)
-        size = self.size(content)
-        string = f"Saved: {repr(self)}|{str(query)}[{size:.0f}]"
-        self.logger.info(string)
-
-    @property
-    def file(self): return self.__file
-    @property
-    def mode(self): return self.__mode
+        self.file = file
+        self.mode = mode
 
 
-class Loader(Logging, Sizing, Emptying):
-    def __init__(self, *args, query, file, mode="r", **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__query = query
-        self.__file = file
-        self.__mode = mode
-
-    def execute(self, query, *args, **kwargs):
-        if not bool(self.file): return
-        content = self.file.read(*args, query=query, mode=self.mode, **kwargs)
-        size = self.size(content)
-        string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
-        self.logger.info(string)
-        if self.empty(content): return
-        return content
-
-    @property
-    def query(self): return self.__query
-    @property
-    def file(self): return self.__file
-    @property
-    def mode(self): return self.__mode
+class Saver(Stream):
+    def execute(self, contents, *args, **kwargs):
+        if self.empty(contents): return
+        for query, content in self.source(contents, *args, query=self.query, **kwargs):
+            self.file.write(content, *args, query=query, mode=self.mode, **kwargs)
+            size = self.size(content)
+            string = f"Saved: {repr(self)}|{str(query)}[{size:.0f}]"
+            self.logger.info(string)
 
 
-class Directory(Logging, Sizing, Emptying):
-    def __init__(self, *args, query, file, mode="r", **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__query = query
-        self.__file = file
-        self.__mode = mode
-
+class Loader(Stream):
     def execute(self, *args, **kwargs):
         if not bool(self.file): return
-        for parameters, filename in self.file.directory:
-            query = self.query(parameters)
-            content = self.file.read(*args, query=query, mode=self.mode, **kwargs)
-            size = self.size(content)
-            string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
-            self.logger.info(string)
-            if self.empty(content): continue
-            yield query, content
-
-    @property
-    def query(self): return self.__query
-    @property
-    def file(self): return self.__file
-    @property
-    def mode(self): return self.__mode
-
-
+        for file in iter(self.file):
+            contents = self.file.read(*args, file=file, mode=self.mode, **kwargs)
+            for query, content in self.source(contents, *args, query=self.query, **kwargs):
+                size = self.size(content)
+                string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
+                self.logger.info(string)
+                if self.empty(content): continue
+                yield content
 
 
 

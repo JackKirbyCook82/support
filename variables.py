@@ -6,15 +6,32 @@ Created on Mon Oct 14 2024
 
 """
 
+import pandas as pd
 from abc import ABC, ABCMeta
 from enum import Enum, EnumMeta
+from datetime import date as Date
+from datetime import datetime as Datetime
+from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["VariablesMeta", "Variables", "Variable"]
+__all__ = ["DateRange", "VariablesMeta", "Variables", "Variable"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
+
+
+class DateRange(ntuple("DateRange", "minimum maximum")):
+    def __contains__(self, date): return self.minimum <= date <= self.maximum
+    def __new__(cls, dates):
+        assert isinstance(dates, list)
+        assert all([isinstance(date, (Date, Datetime)) for date in dates])
+        return super().__new__(cls, min(dates), max(dates)) if dates else None
+
+    def __iter__(self): return (date for date in pd.date_range(start=self.minimum, end=self.maximum))
+    def __str__(self): return f"{str(self.minimum)}|{str(self.maximum)}"
+    def __bool__(self): return self.minimum < self.maximum
+    def __len__(self): return (self.maximum - self.minimum).days
 
 
 class VariableMeta(EnumMeta):
