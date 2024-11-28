@@ -17,8 +17,8 @@ from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
 from support.mixins import Logging, Emptying, Sizing, Sourcing
+from support.meta import SingletonMeta, RegistryMeta
 from support.dispatchers import kwargsdispatcher
-from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -30,7 +30,7 @@ __logger__ = logging.getLogger(__name__)
 
 FileTypes = Enum("Typing", ["NC", "HDF", "CSV"], start=1)
 FileTimings = Enum("Timing", ["EAGER", "LAZY"], start=1)
-FileMethod = ntuple("FileMethod", "filetype filetiming")
+FileMethod = ntuple("Method", "filetype filetiming")
 
 csv_eager = FileMethod(FileTypes.CSV, FileTimings.EAGER)
 csv_lazy = FileMethod(FileTypes.CSV, FileTimings.LAZY)
@@ -46,19 +46,25 @@ class FileLock(dict, metaclass=SingletonMeta):
         return super().__getitem__(file)
 
 
-class FileData(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.datatype = kwargs.get("datatype", getattr(cls, "datatype", None))
-
+class FileData(ABC, metaclass=RegistryMeta):
     @abstractmethod
     def load(self, *args, file, mode, **kwargs): pass
     @abstractmethod
     def save(self, content, *args, file, mode, **kwargs): pass
 
+    @classmethod
+    def parameters(cls, datatype):
+        assert datatype is not None
+        keyword = lambda value: value.kind == value.KEYWORD_ONLY
+        default = lambda value: value.default if value.default is not value.empty else None
+        signature = inspect.signature(cls[datatype].__init__)
+        keywords = list(map(keyword, signature.parameters.values()))
+        parameters = {keyword.name: default(keyword) for keyword in keywords}
+        return parameters
 
-class FileDataframe(FileData, datatype=pd.DataFrame):
+
+class FileDataframe(FileData, register=pd.DataFrame):
     def __init__(self, *args, formatters={}, parsers={}, dates={}, types={}, **kwargs):
-        super().__init__(*args, **kwargs)
         self.__formatters = formatters
         self.__parsers = parsers
         self.__dates = dates
@@ -112,45 +118,46 @@ class FileDataframe(FileData, datatype=pd.DataFrame):
     def dates(self): return self.__dates
 
 
-class FileMeta(ABCMeta):
+class FileMeta(RegistryMeta, ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         if not any([type(base) is FileMeta for base in bases]):
             return super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
-        elif not any([FileData not in list(base.__mro__) for base in bases]):
-            datatype = kwargs.get("datatype", None)
-            assert datatype is not None
-            mixins = {subclass.datatype: subclass for subclass in FileData.__subclasses__()}
-            signature = inspect.signature(mixins[datatype].__init__)
-            exclude = [value for value in signature.parameters.values() if value.kind == value.KEYWORD_ONLY]
-            bases = tuple([mixins[datatype]] + list(bases))
-            attrs = {key: value for key, value in attrs.items() if key not in exclude}
-            return super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
-        else:
-            datatypes = set([base.datatype for base in bases if type(base) is FileMeta])
-            assert len(datatypes) == 1 and "datatype" not in kwargs.keys()
-            mixins = {subclass.datatype: subclass for subclass in FileData.__subclasses__()}
-            signature = inspect.signature(mixins[datatypes[0]].__init__)
-            exclude = [value for value in signature.parameters.values() if value.kind == value.KEYWORD_ONLY]
-            attrs = {key: value for key, value in attrs.items() if key not in exclude}
-            return super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
+        datatype = kwargs.get("datatype", None)
+        if datatype is not None:
+            bases = tuple(list(bases) + [FileData[datatype]])
+            for key in FileData.parameters(datatype): attrs.pop(key)
+
+
+
+
+#        elif not any([FileData not in list(base.__mro__) for base in bases]):
+#            datatype = kwargs.get("datatype", None)
+#            assert datatype is not None
+#            bases = tuple([mixins[datatype]] + list(bases))
+#            attrs = {key: value for key, value in attrs.items() if key not in exclude}
+#            return super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
+#        else:
+#            datatypes = set([base.datatype for base in bases if type(base) is FileMeta])
+#            assert len(datatypes) == 1 and "datatype" not in kwargs.keys()
+#            mixins = {subclass.datatype: subclass for subclass in FileData.__subclasses__()}
+#            signature = inspect.signature(mixins[datatypes[0]].__init__)
+#            exclude = [value for value in signature.parameters.values() if value.kind == value.KEYWORD_ONLY]
+#            attrs = {key: value for key, value in attrs.items() if key not in exclude}
+#            return super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        cls.__parameters__ = kwargs.get("parameters", getattr(cls, "__parameters__", {}))
-        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
-        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
         if not any([type(base) is FileMeta for base in bases]):
             return
-        assert cls.datatype is not None
-        mixins = {subclass.datatype: subclass for subclass in FileData.__subclasses__()}
-        signature = inspect.signature(mixins[cls.datatype].__init__)
-        default = lambda value: value.default if value.default is not value.empty else None
-        required = {value.name: default(value) for value in signature.parameters.values() if value.kind == value.KEYWORD_ONLY}
-        existing = {key: cls.parameters.get(key, default) for key, default in required.items()}
-        parameters = {key: attrs.get(key, default) for key, default in existing.items()}
-        cls.parameters.update(parameters)
+        datatype = kwargs.get("datatype", getattr(cls, "__datatype__", None))
+        variable = kwargs.get("variable", getattr(cls, "__variable__", None))
+        parameters = getattr(cls, "__parameters__", FileData.parameters(datatype))
+        parameters = {key: attrs.get(key, value) for key, value in parameters.items()}
+        cls.__parameters__ = parameters
+        cls.__variable__ = variable
+        cls.__datatype__ = datatype
 
     def __call__(cls, *args, **kwargs):
-        parameters = dict(mutex=FileLock(), folder=cls.variable) | dict(cls.parameters)
+        parameters = cls.parameters | dict(mutex=FileLock(), folder=cls.variable)
         instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
@@ -174,11 +181,12 @@ class File(Logging, ABC, metaclass=FileMeta):
     def __len__(self): return len(os.listdir(os.path.join(self.repository, str(self.folder))))
     def __repr__(self): return f"{self.name}[{len(self):.0f}]"
 
-    def __init__(self, *args, filetiming, filetype, repository, folder, mutex, **kwargs):
+    def __init__(self, *args, filetiming, filetype, filename, repository, folder, mutex, **kwargs):
         super().__init__(*args, **kwargs)
         self.__repository = repository
         self.__filetiming = filetiming
         self.__filetype = filetype
+        self.__filename = filename
         self.__folder = folder
         self.__mutex = mutex
 
@@ -192,8 +200,8 @@ class File(Logging, ABC, metaclass=FileMeta):
         method = FileMethod(self.filetype, self.filetiming)
         directory = os.path.join(self.repository, str(self.folder))
         extension = str(self.filetype.name).lower()
-        try: filename = kwargs["file"]
-        except KeyError: filename = self.filename(*args, **kwargs)
+#        try: filename = kwargs["file"]
+#        except KeyError: filename = self.filename(*args, **kwargs)
         file = os.path.join(directory, ".".join([filename, extension]))
         if not os.path.exists(file): return
         with self.mutex[file]:
@@ -205,8 +213,8 @@ class File(Logging, ABC, metaclass=FileMeta):
         method = FileMethod(self.filetype, self.filetiming)
         directory = os.path.join(self.repository, str(self.folder))
         extension = str(self.filetype.name).lower()
-        try: filename = kwargs["file"]
-        except KeyError: filename = self.filename(*args, **kwargs)
+#        try: filename = kwargs["file"]
+#        except KeyError: filename = self.filename(*args, **kwargs)
         file = os.path.join(directory, ".".join([filename, extension]))
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode, method=method)
@@ -214,14 +222,12 @@ class File(Logging, ABC, metaclass=FileMeta):
         string = f"Saved: {str(file)}"
         self.logger.info(string)
 
-    @staticmethod
-    @abstractmethod
-    def filename(self, *args, **kwargs): pass
-
     @property
     def filetiming(self): return self.__filetiming
     @property
     def filetype(self): return self.__filetype
+    @property
+    def filename(self): return self.__filename
     @property
     def repository(self): return self.__repository
     @property
@@ -253,8 +259,8 @@ class Saver(Stream):
 class Loader(Stream):
     def execute(self, *args, **kwargs):
         if not bool(self.file): return
-        for file in iter(self.file):
-            contents = self.file.read(*args, file=file, mode=self.mode, **kwargs)
+        for filename in iter(self.file):
+            contents = self.file.read(*args, file=filename, mode=self.mode, **kwargs)
             for query, content in self.source(contents, *args, query=self.query, **kwargs):
                 size = self.size(content)
                 string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"

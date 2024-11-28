@@ -7,7 +7,6 @@ Created on Weds Jul 12 2023
 """
 
 import queue
-from enum import StrEnum
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.meta import RegistryMeta
@@ -15,29 +14,25 @@ from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Dequeuer", "Queue", "QueueTypes"]
+__all__ = ["Dequeuer", "Queue"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-QueueTypes = StrEnum("Typing", ["FIFO", "LIFO", "PIFO"], start=1)
 class QueueMeta(RegistryMeta, ABCMeta):
     def __init__(cls, *args, **kwargs):
-        register = kwargs.get("queuetype", [])
+        register = kwargs.get("datatype", None)
         super(QueueMeta, cls).__init__(*args, register=register, **kwargs)
-        cls.__queuetype__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
 
+    def __bool__(cls): return cls.datatype is not None
     def __call__(cls, *args, contents=[], capacity=None, **kwargs):
-        cls = cls[kwargs["queuetype"]] if cls.queuetype is None else cls
-        capacity = capacity if capacity is not None else 0
-        data = cls.datatype(maxsize=capacity)
+        assert bool(cls)
+        data = cls.datatype(maxsize=capacity if capacity is not None else 0)
         instance = super(QueueMeta, cls).__call__(*args, data=data, **kwargs)
         for content in contents: instance.write(content)
         return instance
 
-    @property
-    def queuetype(cls): return cls.__queuetype__
     @property
     def datatype(cls): return cls.__datatype__
 
@@ -80,9 +75,9 @@ class StandardQueue(Queue):
         return content
 
 
-class FIFOQueue(StandardQueue, datatype=queue.Queue, queuetype=QueueTypes.FIFO): pass
-class LIFOQueue(StandardQueue, datatype=queue.LifoQueue, queuetype=QueueTypes.LIFO): pass
-class PIFOQueue(Queue, datatype=queue.PriorityQueue, queuetype=QueueTypes.PIFO):
+class LIFOQueue(StandardQueue, datatype=queue.LifoQueue): pass
+class FIFOQueue(StandardQueue, datatype=queue.Queue): pass
+class PIFOQueue(Queue, datatype=queue.PriorityQueue):
     def __init__(self, *args, priority, ascending, **kwargs):
         assert callable(priority) and isinstance(ascending, bool)
         super().__init__(*args, **kwargs)
