@@ -29,51 +29,51 @@ class Emptying(object):
     @typedispatcher
     def empty(self, content, *args, **kwargs): raise TypeError(type(content))
     @empty.register(dict)
-    def empty_mapping(self, mapping, *args, **kwargs): return all([self.empty(value, *args, **kwargs) for value in mapping.values()]) if bool(mapping) else True
+    def __mapping(self, mapping, *args, **kwargs): return all([self.empty(value, *args, **kwargs) for value in mapping.values()]) if bool(mapping) else True
     @empty.register(list)
-    def empty_collection(self, collection, *args, **kwargs): return all([self.empty(value, *args, **kwargs) for value in collection]) if bool(collection) else True
+    def __collection(self, collection, *args, **kwargs): return all([self.empty(value, *args, **kwargs) for value in collection]) if bool(collection) else True
     @empty.register(xr.Dataset)
-    def empty_dataset(self, dataset, key, *args, **kwargs): return self.empty([dataset[key]], *args, **kwargs)
+    def __dataset(self, dataset, key, *args, **kwargs): return self.empty([dataset[key]], *args, **kwargs)
     @empty.register(xr.DataArray)
-    def empty_dataarray(self, dataarray, *args, **kwargs): return not bool(np.count_nonzero(~np.isnan(dataarray.values)))
+    def __dataarray(self, dataarray, *args, **kwargs): return not bool(np.count_nonzero(~np.isnan(dataarray.values)))
     @empty.register(pd.DataFrame)
-    def empty_dataframe(self, dataframe, *args, **kwargs): return bool(dataframe.empty)
+    def __dataframe(self, dataframe, *args, **kwargs): return bool(dataframe.empty)
     @empty.register(pd.Series)
-    def empty_series(self, series, *args, **kwargs): return bool(series.empty)
+    def __series(self, series, *args, **kwargs): return bool(series.empty)
     @empty.register(types.NoneType)
-    def empty_nothing(self, *args, **kwargs): return True
+    def __nothing(self, *args, **kwargs): return True
 
 
 class Sizing(object):
     @typedispatcher
     def size(self, content, *args, **kwargs): raise TypeError(type(content))
     @size.register(dict)
-    def size_mapping(self, mapping, *args, **kwargs): return sum([self.size(value) for value in mapping.values()])
+    def __mapping(self, mapping, *args, **kwargs): return sum([self.size(value) for value in mapping.values()])
     @size.register(list)
-    def size_collection(self, collection, *args, **kwargs): return sum([self.size(value) for value in collection])
+    def __collection(self, collection, *args, **kwargs): return sum([self.size(value) for value in collection])
     @size.register(xr.Dataset)
-    def empty_dataset(self, dataset, key, *args, **kwargs): return self.size([dataset[key]], *args, **kwargs)
+    def __dataset(self, dataset, key, *args, **kwargs): return self.size([dataset[key]], *args, **kwargs)
     @size.register(xr.DataArray)
-    def size_dataarray(self, dataarray, *args, **kwargs): return np.count_nonzero(~np.isnan(dataarray.values))
+    def __dataarray(self, dataarray, *args, **kwargs): return np.count_nonzero(~np.isnan(dataarray.values))
     @size.register(pd.DataFrame)
-    def size_dataframe(self, dataframe, *args, **kwargs): return len(dataframe.dropna(how="all", inplace=False).index)
+    def __dataframe(self, dataframe, *args, **kwargs): return len(dataframe.dropna(how="all", inplace=False).index)
     @size.register(pd.Series)
-    def size_series(self, series, *args, **kwargs): return len(series.dropna(how="all", inplace=False).index)
+    def __series(self, series, *args, **kwargs): return len(series.dropna(how="all", inplace=False).index)
     @size.register(types.NoneType)
-    def size_nothing(self, *args, **kwargs): return 0
+    def __nothing(self, *args, **kwargs): return 0
 
 
 class Memory(object):
     @typedispatcher
     def memory(self, content, *args, **kwargs): raise TypeError(type(content))
     @memory.register(dict)
-    def memory_mapping(self, mapping, *args, **kwargsg): return sum([self.memory(value) for value in mapping.values()])
+    def __mapping(self, mapping, *args, **kwargsg): return sum([self.memory(value) for value in mapping.values()])
     @memory.register(list)
-    def memory_collection(self, collection, *args, **kwargs): return sum([self.memory(value) for value in collection])
+    def __collection(self, collection, *args, **kwargs): return sum([self.memory(value) for value in collection])
     @memory.register(pd.Series, pd.DataFrame, xr.DataArray, xr.Dataset)
-    def memory_content(self, content, *args, **kwargs): return content.nbytes
+    def __content(self, content, *args, **kwargs): return content.nbytes
     @memory.register(types.NoneType)
-    def memory_nothing(self, *args, **kwargs): return 0
+    def __nothing(self, *args, **kwargs): return 0
 
 
 class Function(ABC):
@@ -129,13 +129,13 @@ class Sourcing(object):
     def source(self, content, *args, query, **kwargs): raise TypeError(type(content))
 
     @typedispatcher.register(pd.DataFrame)
-    def source_dataframe(self, dataframe, *args, query, **kwargs):
+    def __dataframe(self, dataframe, *args, query, **kwargs):
         generator = dataframe.groupby(list(query))
         for values, dataframe in iter(generator):
             yield query(list(values)), dataframe
 
     @typedispatcher.register(xr.Dataset)
-    def source_dataset(self, dataset, *args, query, **kwargs):
+    def __dataset(self, dataset, *args, query, **kwargs):
         for field in list(query):
             dataset = dataset.expand_dims(field)
         dataset = dataset.stack(stack=list(query))

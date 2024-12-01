@@ -7,9 +7,10 @@ Created on Weds Jul 12 2023
 """
 
 import queue
+from enum import StrEnum
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.meta import RegistryMeta
+from support.meta import AttributeMeta
 from support.mixins import Logging
 
 __version__ = "1.0.0"
@@ -19,20 +20,28 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class QueueMeta(RegistryMeta, ABCMeta):
-    def __init__(cls, *args, **kwargs):
-        register = kwargs.get("datatype", None)
-        super(QueueMeta, cls).__init__(*args, register=register, **kwargs)
-        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
+QueueTypes = StrEnum("QueueTypes", "LIFO FIFO PIFO")
+class QueueMeta(AttributeMeta, ABCMeta):
+    def __init__(cls, name, bases, attrs, *args, queuetype=None, datatype=None, **kwargs):
+        if not any([type(base) is QueueMeta for base in bases]):
+            super(QueueMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+            return
+        if ABC in bases:
+            return
+        assert all([queuetype is not None, datatype is not None])
+        super(QueueMeta, cls).__init__(name, bases, attrs, *args, attribute=str(queuetype), **kwargs)
+        cls.__queuetype__ = queuetype
+        cls.__datatype__ = datatype
 
-    def __bool__(cls): return cls.datatype is not None
     def __call__(cls, *args, contents=[], capacity=None, **kwargs):
-        assert bool(cls)
+        assert all([cls.queuetype is not None, cls.datatype is not None])
         data = cls.datatype(maxsize=capacity if capacity is not None else 0)
         instance = super(QueueMeta, cls).__call__(*args, data=data, **kwargs)
         for content in contents: instance.write(content)
         return instance
 
+    @property
+    def queuetype(cls): return cls.__queuetype__
     @property
     def datatype(cls): return cls.__datatype__
 
@@ -66,7 +75,7 @@ class Queue(Logging, ABC, metaclass=QueueMeta):
     def name(self): return self.__name
 
 
-class StandardQueue(Queue):
+class StandardQueue(Queue, ABC):
     def write(self, content, *args, **kwargs):
         self.data.put(content, timeout=self.timeout)
 

@@ -16,7 +16,7 @@ from support.mixins import Function, Generator, Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Producer", "Processor", "Consumer"]
+__all__ = ["Routine", "Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -92,6 +92,16 @@ class Source(Stage, ABC):
             start = time.time()
 
 
+class Routine(Stage, ABC):
+    def __call__(self, *args, **kwargs):
+        start = time.time()
+        assert not inspect.isgeneratorfunction(self.execute)
+        self.execute(*args, **kwargs)
+        elapsed = time.time() - start
+        string = f"Routined: {repr(self)}[{elapsed:.02f}s]"
+        self.logger.info(string)
+
+
 class Producer(Generator, Source, ABC):
     def __add__(self, other):
         assert isinstance(other, (Processor, Consumer))
@@ -118,8 +128,7 @@ class Consumer(Function, Stage, ABC):
         for content in source:
             start = time.time()
             assert not inspect.isgeneratorfunction(self.execute)
-            if not isinstance(content, tuple): self.execute(content, *args, **kwargs)
-            else: self.execute(*content, *args, **kwargs)
+            self.execute(*content, *args, **kwargs)
             elapsed = time.time() - start
             string = f"Consumed: {repr(self)}[{elapsed:.02f}s]"
             self.logger.info(string)

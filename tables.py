@@ -9,7 +9,6 @@ Created on Weds Jul 12 2023
 import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
-from collections import namedtuple as ntuple
 
 from support.mixins import Logging, Emptying, Sizing, Sourcing
 from support.dispatchers import typedispatcher
@@ -17,87 +16,65 @@ from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Writer", "Reader", "Table", "View"]
+__all__ = ["Reader", "Routine", "Writer", "Process", "Table", "View"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class ViewField(ntuple("Field", "attribute key value")):
-    def __call__(self, value): return type(self)(self.attribute, self.key, value)
-
-
-class ViewMeta(RegistryMeta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        if not any([type(base) is ViewMeta for base in bases]):
-            return super(ViewMeta, mcs).__new__(mcs, name, bases, attrs)
-        datatype = kwargs.get("datatype", None)
-        if datatype is not None: bases = tuple([View[datatype]] + list(bases))
-        exclude = [key for key, value in attrs.items() if isinstance(value, ViewField)]
-        attrs = {key: value for key, value in attrs.items() if key not in exclude}
-        cls = super(ViewMeta, mcs).__new__(mcs, name, bases, attrs)
-        return cls
-
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(ViewMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        if not any([type(base) is ViewMeta for base in cls.__bases__]):
-            return
-        order = kwargs.get("order", getattr(cls, "__order__", []))
-        fields = {key: value for key, value in attrs.items() if isinstance(value, ViewField)}
-        fields = getattr(cls, "__fields__", {}) | fields
-        update = {attribute: field(kwargs[attribute]) for attribute, field in fields.items() if attribute in kwargs.keys()}
-        cls.__fields__ = fields | update
-        cls.__order__ = order
+class ViewMeta(RegistryMeta, ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        super(ViewMeta, cls).__init__(*args, **kwargs)
+        cls.__layouttype__ = kwargs.get("layouttype", getattr(cls, "__layouttype__", None))
 
     def __call__(cls, *args, **kwargs):
-        assert "order" not in kwargs.keys() and "fields" not in kwargs.keys()
-        fields, order = list(cls.__fields__.values()), list(cls.__order__)
-        fields = {attr: ViewField(attr, key, kwargs.get(attr, value)) for (attr, key, value) in fields}
-        parameters = dict(order=order, fields=fields)
-        return super(ViewMeta, cls).__call__(*args, **parameters, **kwargs)
+        layout = cls.layouttype(*args, **kwargs)
+        parameters = dict(layout=layout)
+        instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
+        return instance
+
+    @property
+    def layouttype(cls): return cls.__layouttype__
 
 
-class View(ABC, metaclass=ViewMeta):
-    def __init__(self, *args, order=[], fields=[], **kwargs):
-        self.__name = kwargs.get("name", self.__class__.__name__)
-        self.__fields = dict(fields)
-        self.__order = list(order)
+class View(Logging, Sizing, Emptying, ABC, metaclass=ViewMeta):
+    def __init__(self, *args, layout, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__layout = layout
 
     def __repr__(self): return f"{str(self.name)}"
     def __call__(self, table, *args, **kwargs):
+        if self.empty(table): return ""
         table = self.execute(table, *args, **kwargs)
-        assert isinstance(table, (str, type(None)))
+        assert isinstance(table, str)
         string = "\n".join(["=" * 250, table, "=" * 250]) if table is not None else ""
         return string + "\n" if bool(string) else string
 
     @abstractmethod
     def execute(self, table, *args, **kwargs): pass
-
     @property
-    def fields(self): return self.__fields
-    @property
-    def order(self): return self.__order
-    @property
-    def name(self): return self.__name
+    def layout(self): return self.__layout
 
 
-class ViewDataframe(View, ABC, register=pd.DataFrame):
-    numbers = ViewField("numbers", "float_format", lambda column: f"{column:.02f}")
-    formats = ViewField("formats", "formatters", {})
-    columns = ViewField("columns", "max_cols", 30)
-    width = ViewField("width", "line_width", 250)
-    rows = ViewField("rows", "max_rows", 30)
-
+class ViewDataframe(View, register=pd.DataFrame):
     def execute(self, dataframe, *args, **kwargs):
-        if bool(dataframe.empty): return
-        overlaps = lambda label, column: label in column if isinstance(column, tuple) else label is column
-        order = [column for label in self.order for column in dataframe.columns if overlaps(label, column)]
-        formats = self.fields.get("formats", {}).value.items()
-        formats = {column: function for column in order for label, function in formats if overlaps(label, column)}
-        assert len(list(formats.keys())) == len(set(formats.keys()))
-        fields = self.fields | {"formats": self.fields["formats"](formats)}
-        parameters = {key: value for (attr, key, value) in fields.values()}
+        stacking = self.stacking(dataframe)
+        order = [self.stack(column, stacking) for column in getattr(self.layout, "order", [])]
+        formats = {"formatters": {self.stack(key, stacking): value for key, value in getattr(self.layout, "formats", {}).items()}}
+        numbers = {"float_format": getattr(self.layout, "numbers", lambda column: f"{column:.02f}")}
+        width = {"line_width": getattr(self.layout, "width", 250)}
+        columns = {"max_cols", getattr(self.layout, "columns", 30)}
+        rows = {"max_rows": getattr(self.layout, "rows", 30)}
+        parameters = formats | numbers | width | columns | rows
         string = dataframe[order].to_string(**parameters, show_dimensions=True)
         return string
+
+    @staticmethod
+    def stacking(dataframe): return int(dataframe.columns.nlevels) if isinstance(dataframe.columns, pd.MultiIndex) else 0
+    @staticmethod
+    def stack(column, stacking):
+        if not bool(stacking): return column
+        column = tuple([column]) if not isinstance(column, tuple) else column
+        return column + tuple([""]) * (int(stacking) - len(column))
 
 
 class TableMeta(RegistryMeta, ABCMeta):
@@ -110,15 +87,19 @@ class TableMeta(RegistryMeta, ABCMeta):
         return cls
 
     def __init__(cls, *args, **kwargs):
-        if not any([type(base) is TableMeta for base in list(cls.__bases__)]):
-            return
+        super(TableMeta, cls).__init__(*args, **kwargs)
         cls.__headertype__ = kwargs.get("headertype", getattr(cls, "__headertype__", None))
         cls.__viewtype__ = kwargs.get("viewtype", getattr(cls, "__viewtype__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
 
-#    def __call__(cls, *args, **kwargs):
-#        instance = super(TableMeta, cls).__call__(*args, **kwargs)
-#        return instance
+    def __call__(cls, *args, **kwargs):
+        header = cls.headertype(*args, **kwargs)
+        view = cls.viewtype(*args, **kwargs)
+        data = cls.datatype(columns=list(header))
+        mutex = multiprocessing.RLock()
+        parameters = dict(mutex=mutex, header=header, view=view, data=data)
+        instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
+        return instance
 
     @property
     def headertype(cls): return cls.__headertype__
@@ -129,11 +110,12 @@ class TableMeta(RegistryMeta, ABCMeta):
 
 
 class Table(Logging, ABC, metaclass=TableMeta):
-    def __init__(self, *args, data, view, **kwargs):
+    def __init__(self, *args, data, view, header, mutex, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__mutex = multiprocessing.RLock()
-        self.__data = data
+        self.__mutex = mutex
+        self.__header = header
         self.__view = view
+        self.__data = data
 
     def __repr__(self): return f"{str(self.name)}[{len(self):.0f}]"
     def __len__(self): return int(self.size) if bool(self) else 0
@@ -151,9 +133,13 @@ class Table(Logging, ABC, metaclass=TableMeta):
     @property
     def mutex(self): return self.__mutex
     @property
+    def header(self): return self.__header
+    @property
     def view(self): return self.__view
     @property
     def data(self): return self.__data
+    @data.setter
+    def data(self, data): self.__data = data
 
     @property
     @abstractmethod
@@ -164,14 +150,10 @@ class Table(Logging, ABC, metaclass=TableMeta):
 
 
 class TableDataFrame(Table, register=pd.DataFrame):
-    def __init__(self, *args, header, **kwargs):
-        data = pd.DataFrame(columns=list(header))
-        super().__init__(*args, data=data, **kwargs)
-
-#    def combine(self, dataframe):
-#        assert isinstance(dataframe, pd.DataFrame)
-#        with self.mutex:
-#            self.dataframe = pd.concat([self.dataframe, dataframe], axis=0) if bool(self) else dataframe
+    def combine(self, dataframe):
+        assert isinstance(dataframe, pd.DataFrame)
+        with self.mutex:
+            self.dataframe = pd.concat([self.dataframe, dataframe], axis=0) if bool(self) else dataframe
 
     def get(self, locator):
         index, columns = locator
@@ -256,12 +238,17 @@ class TableDataFrame(Table, register=pd.DataFrame):
     @typedispatcher
     def locate(self, columns): raise TypeError(type(columns))
     @locate.register(list)
-    def locate_multiple(self, columns): return [self.locate(column) for column in columns]
+    def __multiple(self, columns): return [self.locate(column) for column in columns]
     @locate.register(str)
-    def locate_single(self, column):
+    def __single(self, column):
         column = self.stack(column)
         column = list(self.columns).index(column)
         return column
+
+    @property
+    def dataframe(self): return self.data
+    @dataframe.setter
+    def dataframe(self, dataframe): self.data = dataframe
 
     @property
     def stacking(self): return int(self.columns.nlevels) if bool(self.stacked) else 0
@@ -275,34 +262,23 @@ class TableDataFrame(Table, register=pd.DataFrame):
     def columns(self): return self.data.columns
     @property
     def index(self): return self.data.index
-    @property
-    def dataframe(self): return self.data
 
 
-class Stream(Logging, Sizing, Emptying, Sourcing, ABC):
+class Process(Logging, Sizing, Emptying, Sourcing, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         cls.query = kwargs.get("query", getattr(cls, "query", None))
 
     def __init__(self, *args, table, **kwargs):
         super().__init__(*args, **kwargs)
-        self.table = table
-
-
-class Writer(Stream, ABC):
-    def execute(self, contents, *args, **kwargs):
-        if self.empty(contents): return
-        with self.table.mutex:
-            for query, content in self.source(contents, *args, query=self.query, **kwargs):
-                self.write(content, *args, **kwargs)
-                size = self.size(content)
-                string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
-                self.logger.info(string)
+        self.__table = table
 
     @abstractmethod
-    def write(self, content, *args, **kwargs): pass
+    def execute(self, *args, **kwargs): pass
+    @property
+    def table(self): return self.__table
 
 
-class Reader(Stream, ABC):
+class Reader(Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex:
@@ -317,6 +293,32 @@ class Reader(Stream, ABC):
 
     @abstractmethod
     def read(self, *args, **kwargs): pass
+
+
+class Routine(Process, ABC):
+    def execute(self, *args, **kwargs):
+        if not bool(self.table): return
+        with self.table.mutex:
+            self.routine(*args, **kwargs)
+
+    @abstractmethod
+    def routine(self, *args, **kwargs): pass
+
+
+class Writer(Process, ABC):
+    def execute(self, contents, *args, **kwargs):
+        if self.empty(contents): return
+        with self.table.mutex:
+            for query, content in self.source(contents, *args, query=self.query, **kwargs):
+                self.write(content, *args, **kwargs)
+                size = self.size(content)
+                string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
+                self.logger.info(string)
+
+    @abstractmethod
+    def write(self, content, *args, **kwargs): pass
+
+
 
 
 
