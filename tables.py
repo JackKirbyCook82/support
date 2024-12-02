@@ -22,6 +22,14 @@ __license__ = "MIT License"
 
 
 class ViewMeta(RegistryMeta, ABCMeta):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        if not any([type(base) is ViewMeta for base in bases]):
+            return super(ViewMeta, mcs).__new__(mcs, name, bases, attrs)
+        datatype = kwargs.get("datatype", None)
+        if datatype is not None: bases = tuple([View[datatype]] + list(bases))
+        cls = super(ViewMeta, mcs).__new__(mcs, name, bases, attrs)
+        return cls
+
     def __init__(cls, *args, **kwargs):
         super(ViewMeta, cls).__init__(*args, **kwargs)
         cls.__layouttype__ = kwargs.get("layouttype", getattr(cls, "__layouttype__", None))
@@ -29,7 +37,7 @@ class ViewMeta(RegistryMeta, ABCMeta):
     def __call__(cls, *args, **kwargs):
         layout = cls.layouttype(*args, **kwargs)
         parameters = dict(layout=layout)
-        instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
+        instance = super(ViewMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
     @property
@@ -95,7 +103,7 @@ class TableMeta(RegistryMeta, ABCMeta):
     def __call__(cls, *args, **kwargs):
         header = cls.headertype(*args, **kwargs)
         view = cls.viewtype(*args, **kwargs)
-        data = cls.datatype(columns=list(header))
+        data = cls.datatype()
         mutex = multiprocessing.RLock()
         parameters = dict(mutex=mutex, header=header, view=view, data=data)
         instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
@@ -150,22 +158,37 @@ class Table(Logging, ABC, metaclass=TableMeta):
 
 
 class TableDataFrame(Table, register=pd.DataFrame):
+#    def combine(self, dataframe):
+#        assert isinstance(dataframe, pd.DataFrame)
+#        with self.mutex:
+#            self.dataframe = pd.concat([self.dataframe, dataframe], axis=0) if bool(self) else dataframe
+
     def combine(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
-        with self.mutex:
-            self.dataframe = pd.concat([self.dataframe, dataframe], axis=0) if bool(self) else dataframe
+
+        print(dataframe)
+        print(dataframe.columns)
+        print(self.dataframe)
+        raise Exception()
+
 
     def get(self, locator):
-        index, columns = locator
-        assert isinstance(index, slice) and isinstance(columns, (str, list))
-        columns = self.locate(columns)
+        index, columns = self.locate(locator)
         return self.dataframe.iloc[index, columns]
 
     def set(self, locator, value):
-        index, columns = locator
-        assert isinstance(index, slice) and isinstance(columns, (str, list))
-        columns = self.locate(columns)
+        index, columns = self.locate(locator)
         self.dataframe.iloc[index, columns] = value
+
+    def locate(self, locator):
+        if not isinstance(locator, tuple): index, columns = slice(None, None, None), locator
+        elif locator in self.columns: index, columns = slice(None, None, None), locator
+        elif len(locator) == 2: index, columns = list(locator)
+        else: raise ValueError(locator)
+        stack = lambda column: self.stack(column)
+        locate = lambda column: list(self.columns).index(stack(column))
+        if not isinstance(columns, list): return index, locate(columns)
+        else: return index, [locate(column) for column in columns]
 
     def where(self, mask):
         if not bool(self): return
@@ -235,21 +258,6 @@ class TableDataFrame(Table, register=pd.DataFrame):
         column = tuple([column]) if not isinstance(column, tuple) else column
         return column + tuple([""]) * (int(self.stacking) - len(column))
 
-    @typedispatcher
-    def locate(self, columns): raise TypeError(type(columns))
-    @locate.register(list)
-    def __multiple(self, columns): return [self.locate(column) for column in columns]
-    @locate.register(str)
-    def __single(self, column):
-        column = self.stack(column)
-        column = list(self.columns).index(column)
-        return column
-
-    @property
-    def dataframe(self): return self.data
-    @dataframe.setter
-    def dataframe(self, dataframe): self.data = dataframe
-
     @property
     def stacking(self): return int(self.columns.nlevels) if bool(self.stacked) else 0
     @property
@@ -262,6 +270,11 @@ class TableDataFrame(Table, register=pd.DataFrame):
     def columns(self): return self.data.columns
     @property
     def index(self): return self.data.index
+
+    @property
+    def dataframe(self): return self.data
+    @dataframe.setter
+    def dataframe(self, dataframe): self.data = dataframe
 
 
 class Process(Logging, Sizing, Emptying, Sourcing, ABC):

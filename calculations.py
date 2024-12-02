@@ -28,16 +28,15 @@ __license__ = "MIT License"
 
 AlgorithmType = ntuple("AlgorithmType", "vectorized datatype")
 VariableType = ntuple("VariableType", "calculated datatype")
-
-unvectorized_table = AlgorithmType(False, pd.Series)
-unvectorized_array = AlgorithmType(False, xr.DataArray)
-vectorized_table = AlgorithmType(True, pd.Series)
-vectorized_array = AlgorithmType(True, xr.DataArray)
-uncalculated_constant = VariableType(False, types.NoneType)
-uncalculated_table = VariableType(False, pd.Series)
-uncalculated_array = VariableType(False, xr.DataArray)
-calculated_table = VariableType(True, pd.Series)
-calculated_array = VariableType(True, xr.DataArray)
+NonVectorizedTable = AlgorithmType(False, pd.Series)
+NonVectorizedArray = AlgorithmType(False, xr.DataArray)
+VectorizedTable = AlgorithmType(True, pd.Series)
+VectorizedArray = AlgorithmType(True, xr.DataArray)
+NonCalculatedConstant = VariableType(False, types.NoneType)
+NonCalculatedTable = VariableType(False, pd.Series)
+NonCalculatedArray = VariableType(False, xr.DataArray)
+CalculatedTable = VariableType(True, pd.Series)
+CalculatedArray = VariableType(True, xr.DataArray)
 
 
 class Algorithm(object, metaclass=RegistryMeta):
@@ -60,15 +59,15 @@ class UnVectorizedAlgorithm(Algorithm):
     def __call__(self, *args, **kwargs):
         return self.execute(list(self.arguments), dict(self.parameters))
 
-class TableUnVectorizedAlgorithm(UnVectorizedAlgorithm, register=unvectorized_table): pass
-class ArrayUnVectorizedAlgorithm(UnVectorizedAlgorithm, register=unvectorized_array): pass
+class TableUnVectorizedAlgorithm(UnVectorizedAlgorithm, register=NonVectorizedTable): pass
+class ArrayUnVectorizedAlgorithm(UnVectorizedAlgorithm, register=NonVectorizedArray): pass
 
-class TableVectorizedAlgorithm(VectorizedAlgorithm, register=vectorized_table):
+class TableVectorizedAlgorithm(VectorizedAlgorithm, register=VectorizedTable):
     def __call__(self, *args, **kwargs):
         wrapper = lambda arguments, **parameters: self.execute(list(arguments), dict(parameters))
         return pd.concat(self.arguments, axis=1).apply(wrapper, axis=1, raw=True, **self.parameters)
 
-class ArrayVectorizedAlgorithm(VectorizedAlgorithm, register=vectorized_array):
+class ArrayVectorizedAlgorithm(VectorizedAlgorithm, register=VectorizedArray):
     def __call__(self, *args, vartype, **kwargs):
         wrapper = lambda *arguments, **parameters: self.execute(list(arguments), dict(parameters))
         return xr.apply_ufunc(wrapper, *self.arguments, output_dtypes=[vartype], vectorize=True, kwargs=self.parameters)
@@ -127,7 +126,7 @@ class Variable(SingleNode, ABC, metaclass=RegistryMeta):
     def domain(self): return self.__domain
 
 
-class Dependent(Variable, register=[calculated_table, calculated_array]):
+class Dependent(Variable, register=[CalculatedTable, CalculatedArray]):
     def __init__(self, *args, function, **kwargs):
         domain = list(inspect.signature(function).parameters.keys())
         super().__init__(*args, domain=domain, **kwargs)
@@ -180,8 +179,8 @@ class Source(Variable):
     def locator(self): return self.__locator
 
 
-class Independent(Source, register=[uncalculated_table, uncalculated_array]): pass
-class Constant(Source, register=uncalculated_constant): pass
+class Independent(Source, register=[NonCalculatedTable, NonCalculatedArray]): pass
+class Constant(Source, register=NonCalculatedConstant): pass
 
 
 class EquationMeta(ABCMeta):

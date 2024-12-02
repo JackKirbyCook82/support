@@ -7,60 +7,38 @@ Created on Weds Sept 18 2024
 """
 
 from functools import reduce
-from abc import ABC, abstractmethod
-from collections import namedtuple as ntuple
 
 from support.dispatchers import typedispatcher
-from support.mixins import Logging, Sizing, Emptying
+from support.mixins import Logging, Sizing, Emptying, Sourcing
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Filter", "Criterion"]
+__all__ = ["Filter"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Criteria(ntuple("Criteria", "variable threshold"), ABC):
-    def __call__(self, content): return self.execute(content)
+class Filter(Logging, Sizing, Emptying, Sourcing):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.query = kwargs.get("query", getattr(cls, "query", None))
 
-    @abstractmethod
-    def execute(self, content): pass
-
-class Floor(Criteria):
-    def execute(self, content): return content[self.variable] >= self.threshold
-
-class Ceiling(Criteria):
-    def execute(self, content): return content[self.variable] <= self.threshold
-
-class Null(Criteria):
-    def execute(self, content): return content[self.variable].notna()
-
-class Criterion(object):
-    FLOOR = Floor
-    CEILING = Ceiling
-    NULL = Null
-
-
-class Filter(Logging, Sizing, Emptying):
-    def __init__(self, *args, criterion={}, **kwargs):
+    def __init__(self, *args, criterion=[], **kwargs):
+        assert isinstance(criterion, list) or callable(criterion)
+        assert all([callable(function) for function in criterion]) if isinstance(criterion, list) else True
         super().__init__(*args, **kwargs)
-        assert isinstance(criterion, dict)
-        assert all([issubclass(criteria, Criteria) for criteria in criterion.keys()])
-        assert all([isinstance(parameter, (list, dict)) for parameter in criterion.values()])
-        criterion = {criteria: parameters if isinstance(parameters, dict) else dict.fromkeys(parameters) for criteria, parameters in criterion.items()}
-        criterion = [criteria(variable, threshold) for criteria, parameters in criterion.items() for variable, threshold in parameters.items()]
-        self.__criterion = list(criterion)
+        self.criterion = list(criterion) if isinstance(criterion, list) else [criterion]
 
-    def execute(self, query, content, *args, **kwargs):
-        if self.empty(content): return
-        prior = self.size(content)
-        content = self.filter(content)
-        content = content.reset_index(drop=True, inplace=False)
-        post = self.size(content)
-        string = f"Filtered: {repr(self)}|{str(query)}[{prior:.0f}|{post:.0f}]"
-        self.logger.info(string)
-        if self.empty(content): return
-        return content
+    def execute(self, contents, *args, **kwargs):
+        if self.empty(contents): return
+        for query, content in self.source(contents, *args, query=self.query, **kwargs):
+            prior = self.size(content)
+            content = self.filter(content)
+            content = content.reset_index(drop=True, inplace=False)
+            post = self.size(content)
+            string = f"Filtered: {repr(self)}|{str(query)}[{prior:.0f}|{post:.0f}]"
+            self.logger.info(string)
+            if self.empty(content): continue
+            yield content
 
     def filter(self, content):
         mask = self.mask(content)
@@ -77,8 +55,6 @@ class Filter(Logging, Sizing, Emptying):
         if bool(mask is None): return dataframe
         else: return dataframe.where(mask).dropna(how="all", inplace=False)
 
-    @property
-    def criterion(self): return self.__criterion
 
 
 

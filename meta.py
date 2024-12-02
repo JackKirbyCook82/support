@@ -37,11 +37,12 @@ astype = lambda base, meta: meta(base.__name__, (base,), {})
 
 class Meta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        return super(Meta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+        try: return super(Meta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+        except TypeError: return super(Meta, mcs).__new__(mcs, name, bases, attrs)
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(Meta, cls).__init__(name, bases, attrs, *args, **kwargs)
-
+        try: super(Meta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        except TypeError: super(Meta, cls).__init__(name, bases, attrs, *args, **kwargs)
 
 class VariantKeyError(Exception):
     def __str__(self): return f"{self.name}[{self.key}]"

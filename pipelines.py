@@ -128,7 +128,7 @@ class Consumer(Function, Stage, ABC):
         for content in source:
             start = time.time()
             assert not inspect.isgeneratorfunction(self.execute)
-            self.execute(*content, *args, **kwargs)
+            self.execute(content, *args, **kwargs)
             elapsed = time.time() - start
             string = f"Consumed: {repr(self)}[{elapsed:.02f}s]"
             self.logger.info(string)

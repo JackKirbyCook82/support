@@ -128,13 +128,13 @@ class Sourcing(object):
     @typedispatcher
     def source(self, content, *args, query, **kwargs): raise TypeError(type(content))
 
-    @typedispatcher.register(pd.DataFrame)
+    @source.register(pd.DataFrame)
     def __dataframe(self, dataframe, *args, query, **kwargs):
         generator = dataframe.groupby(list(query))
         for values, dataframe in iter(generator):
             yield query(list(values)), dataframe
 
-    @typedispatcher.register(xr.Dataset)
+    @source.register(xr.Dataset)
     def __dataset(self, dataset, *args, query, **kwargs):
         for field in list(query):
             dataset = dataset.expand_dims(field)
@@ -148,7 +148,7 @@ class Sourcing(object):
 class Pivoting(object):
     @staticmethod
     def pivot(dataframe, *args, stacking=[], by, **kwargs):
-        assert isinstance(dataframe, pd.DataFrame) and isinstance(stacking, list) and isinstance(by, str)
+        assert isinstance(dataframe, pd.DataFrame) and isinstance(stacking, list)
         index = set(dataframe.columns) - ({by} | set(stacking))
         dataframe = dataframe.pivot(index=list(index), columns=["scenario"])
         dataframe = dataframe.reset_index(drop=False, inplace=False)
