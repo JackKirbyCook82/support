@@ -161,7 +161,7 @@ class ParametersMeta(Meta):
 
     def __iter__(cls): return iter(list(cls.parameters.items()))
     def __call__(cls, *args, **kwargs):
-        instance = super(ParametersMeta, cls).__call__(cls.parameters, *args, **kwargs)
+        instance = super(ParametersMeta, cls).__call__(*args, **cls.parameters, **kwargs)
         return instance
 
     @property

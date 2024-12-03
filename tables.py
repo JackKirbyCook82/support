@@ -11,78 +11,13 @@ import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.mixins import Logging, Emptying, Sizing, Sourcing
-from support.dispatchers import typedispatcher
 from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Reader", "Routine", "Writer", "Process", "Table", "View"]
+__all__ = ["Reader", "Routine", "Writer", "Process", "Table"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-
-
-class ViewMeta(RegistryMeta, ABCMeta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        if not any([type(base) is ViewMeta for base in bases]):
-            return super(ViewMeta, mcs).__new__(mcs, name, bases, attrs)
-        datatype = kwargs.get("datatype", None)
-        if datatype is not None: bases = tuple([View[datatype]] + list(bases))
-        cls = super(ViewMeta, mcs).__new__(mcs, name, bases, attrs)
-        return cls
-
-    def __init__(cls, *args, **kwargs):
-        super(ViewMeta, cls).__init__(*args, **kwargs)
-        cls.__layouttype__ = kwargs.get("layouttype", getattr(cls, "__layouttype__", None))
-
-    def __call__(cls, *args, **kwargs):
-        layout = cls.layouttype(*args, **kwargs)
-        parameters = dict(layout=layout)
-        instance = super(ViewMeta, cls).__call__(*args, **parameters, **kwargs)
-        return instance
-
-    @property
-    def layouttype(cls): return cls.__layouttype__
-
-
-class View(Logging, Sizing, Emptying, ABC, metaclass=ViewMeta):
-    def __init__(self, *args, layout, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__layout = layout
-
-    def __repr__(self): return f"{str(self.name)}"
-    def __call__(self, table, *args, **kwargs):
-        if self.empty(table): return ""
-        table = self.execute(table, *args, **kwargs)
-        assert isinstance(table, str)
-        string = "\n".join(["=" * 250, table, "=" * 250]) if table is not None else ""
-        return string + "\n" if bool(string) else string
-
-    @abstractmethod
-    def execute(self, table, *args, **kwargs): pass
-    @property
-    def layout(self): return self.__layout
-
-
-class ViewDataframe(View, register=pd.DataFrame):
-    def execute(self, dataframe, *args, **kwargs):
-        stacking = self.stacking(dataframe)
-        order = [self.stack(column, stacking) for column in getattr(self.layout, "order", [])]
-        formats = {"formatters": {self.stack(key, stacking): value for key, value in getattr(self.layout, "formats", {}).items()}}
-        numbers = {"float_format": getattr(self.layout, "numbers", lambda column: f"{column:.02f}")}
-        width = {"line_width": getattr(self.layout, "width", 250)}
-        columns = {"max_cols", getattr(self.layout, "columns", 30)}
-        rows = {"max_rows": getattr(self.layout, "rows", 30)}
-        parameters = formats | numbers | width | columns | rows
-        string = dataframe[order].to_string(**parameters, show_dimensions=True)
-        return string
-
-    @staticmethod
-    def stacking(dataframe): return int(dataframe.columns.nlevels) if isinstance(dataframe.columns, pd.MultiIndex) else 0
-    @staticmethod
-    def stack(column, stacking):
-        if not bool(stacking): return column
-        column = tuple([column]) if not isinstance(column, tuple) else column
-        return column + tuple([""]) * (int(stacking) - len(column))
 
 
 class TableMeta(RegistryMeta, ABCMeta):
@@ -96,39 +31,29 @@ class TableMeta(RegistryMeta, ABCMeta):
 
     def __init__(cls, *args, **kwargs):
         super(TableMeta, cls).__init__(*args, **kwargs)
-        cls.__headertype__ = kwargs.get("headertype", getattr(cls, "__headertype__", None))
-        cls.__viewtype__ = kwargs.get("viewtype", getattr(cls, "__viewtype__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
 
     def __call__(cls, *args, **kwargs):
-        header = cls.headertype(*args, **kwargs)
-        view = cls.viewtype(*args, **kwargs)
-        data = cls.datatype()
-        mutex = multiprocessing.RLock()
-        parameters = dict(mutex=mutex, header=header, view=view, data=data)
+        parameters = dict(mutex=multiprocessing.RLock())
         instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
-    @property
-    def headertype(cls): return cls.__headertype__
-    @property
-    def viewtype(cls): return cls.__viewtype__
     @property
     def datatype(cls): return cls.__datatype__
 
 
 class Table(Logging, ABC, metaclass=TableMeta):
-    def __init__(self, *args, data, view, header, mutex, **kwargs):
+    def __init__(self, *args, data, header, layout, mutex, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__mutex = mutex
         self.__header = header
-        self.__view = view
+        self.__layout = layout
+        self.__mutex = mutex
         self.__data = data
 
     def __repr__(self): return f"{str(self.name)}[{len(self):.0f}]"
     def __len__(self): return int(self.size) if bool(self) else 0
-    def __str__(self): return str(self.view(self.data))
     def __bool__(self): return not bool(self.empty)
+    def __str__(self): return str(self.view)
 
     def __setitem__(self, locator, value): self.set(locator, value)
     def __getitem__(self, locator): return self.get(locator)
@@ -139,16 +64,28 @@ class Table(Logging, ABC, metaclass=TableMeta):
     def get(self, locator): pass
 
     @property
-    def mutex(self): return self.__mutex
+    def view(self):
+        boundary = "=" * int(self.layout.width)
+        string = self.string if not self.empty else ""
+        assert isinstance(string, str)
+        strings = [boundary, string, boundary] if bool(string) else []
+        string = "\n".join(strings) + "\n" if bool(strings) else ""
+        return string
+
+    @property
+    def layout(self): return self.__layout
     @property
     def header(self): return self.__header
     @property
-    def view(self): return self.__view
+    def mutex(self): return self.__mutex
     @property
     def data(self): return self.__data
     @data.setter
     def data(self, data): self.__data = data
 
+    @property
+    @abstractmethod
+    def string(self): pass
     @property
     @abstractmethod
     def empty(self): pass
@@ -158,53 +95,54 @@ class Table(Logging, ABC, metaclass=TableMeta):
 
 
 class TableDataFrame(Table, register=pd.DataFrame):
-#    def combine(self, dataframe):
-#        assert isinstance(dataframe, pd.DataFrame)
-#        with self.mutex:
-#            self.dataframe = pd.concat([self.dataframe, dataframe], axis=0) if bool(self) else dataframe
+    def __init__(self, *args, header, layout, **kwargs):
+        assert all([hasattr(layout, attribute) for attribute in ("order", "numbers", "width", "columns", "rows")])
+        data = pd.DataFrame(columns=list(header))
+        parameters = dict(data=data, header=header, layout=layout)
+        super().__init__(*args, **parameters, **kwargs)
 
-    def combine(self, dataframe):
+    def append(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
-
-        print(dataframe)
-        print(dataframe.columns)
-        print(self.dataframe)
-        raise Exception()
-
+        with self.mutex:
+            dataframe = dataframe[list(self.header)]
+            if bool(self.dataframe.empty): self.dataframe = dataframe
+            else: self.dataframe = pd.concat([self.dataframe, dataframe], axis=0, ignore_index=True)
 
     def get(self, locator):
-        index, columns = self.locate(locator)
-        return self.dataframe.iloc[index, columns]
+        with self.mutex:
+            index, columns = self.locate(locator)
+            return self.dataframe.iloc[index, columns]
 
     def set(self, locator, value):
-        index, columns = self.locate(locator)
-        self.dataframe.iloc[index, columns] = value
+        with self.mutex:
+            index, columns = self.locate(locator)
+            self.dataframe.iloc[index, columns] = value
 
     def locate(self, locator):
+        stack = lambda column: self.stack(column)
+        locate = lambda column: list(self.columns).index(stack(column))
         if not isinstance(locator, tuple): index, columns = slice(None, None, None), locator
         elif locator in self.columns: index, columns = slice(None, None, None), locator
         elif len(locator) == 2: index, columns = list(locator)
         else: raise ValueError(locator)
-        stack = lambda column: self.stack(column)
-        locate = lambda column: list(self.columns).index(stack(column))
         if not isinstance(columns, list): return index, locate(columns)
         else: return index, [locate(column) for column in columns]
 
-    def where(self, mask):
+    def retain(self, mask):
         if not bool(self): return
         assert isinstance(mask, pd.Series)
         with self.mutex:
             self.dataframe.where(mask, inplace=True)
             self.dataframe.dropna(how="all", inplace=True)
 
-    def remove(self, mask):
+    def discard(self, mask):
         if not bool(self): return
         assert isinstance(mask, pd.Series)
         with self.mutex:
             self.dataframe.where(~mask, inplace=True)
             self.dataframe.dropna(how="all", inplace=True)
 
-    def extract(self, mask):
+    def take(self, mask):
         if not bool(self): return
         assert isinstance(mask, pd.Series)
         with self.mutex:
@@ -214,7 +152,7 @@ class TableDataFrame(Table, register=pd.DataFrame):
             self.dataframe.dropna(how="all", inplace=True)
             return dataframe
 
-    def change(self, mask, column, value):
+    def modify(self, mask, column, value):
         if not bool(self): return
         assert isinstance(mask, pd.Series)
         with self.mutex:
@@ -242,21 +180,27 @@ class TableDataFrame(Table, register=pd.DataFrame):
             parameters = dict(ascending=ascending, axis=0, ignore_index=False, inplace=True)
             self.dataframe.sort_values(columns, **parameters)
 
-    def reset(self):
+    def reindex(self):
         if not bool(self): return
         with self.mutex:
             self.dataframe.reset_index(drop=True, inplace=True)
-
-    def clear(self):
-        if not bool(self): return
-        with self.mutex:
-            index = self.index
-            self.dataframe.drop(index, inplace=True)
 
     def stack(self, column):
         if not bool(self.stacked): return column
         column = tuple([column]) if not isinstance(column, tuple) else column
         return column + tuple([""]) * (int(self.stacking) - len(column))
+
+    @property
+    def string(self):
+        order = [self.stack(column) for column in self.layout.order]
+        formats = {"formatters": {self.stack(column): value for column, value in self.layout.formats.items()}}
+        numbers = {"float_format": self.layout.numbers}
+        width = {"line_width": self.layout.width}
+        columns = {"max_cols": self.layout.columns}
+        rows = {"max_rows": self.layout.rows}
+        parameters = formats | numbers | width | columns | rows
+        string = self.dataframe[order].to_string(**parameters, show_dimensions=True)
+        return string
 
     @property
     def stacking(self): return int(self.columns.nlevels) if bool(self.stacked) else 0

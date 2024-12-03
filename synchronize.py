@@ -42,8 +42,8 @@ class Thread(Logging):
         return self
 
     def run(self):
+        self.active = True
         try:
-            self.active = True
             self.logger.info(f"Running: {repr(self)}")
             self.process(*self.arguments, **self.parameters)
         except BaseException as error:
@@ -52,8 +52,7 @@ class Thread(Logging):
             traceback.print_exception(error_type, error_value, error_traceback)
         else:
             self.logger.info(f"Completed: {repr(self)}")
-        finally:
-            self.active = False
+        self.active = False
 
     def process(self, *args, **kwargs):
         routine = self.routine.__call__ if hasattr(self.routine, "__call__") else self.routine
