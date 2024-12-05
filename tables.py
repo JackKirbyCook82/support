@@ -6,8 +6,10 @@ Created on Weds Jul 12 2023
 
 """
 
+import types
 import multiprocessing
 import pandas as pd
+from functools import update_wrapper
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.mixins import Logging, Emptying, Sizing, Sourcing

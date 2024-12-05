@@ -8,16 +8,17 @@ Created on Fri Aug 27 2021
 
 import time
 import types
+import inspect
 import multiprocessing
 from abc import ABCMeta
-from inspect import isclass
+from itertools import chain
 from functools import update_wrapper
 from datetime import datetime as Datetime
 from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["VariantMeta", "DelayerMeta", "SingletonMeta", "ParametersMeta", "AttributeMeta", "RegistryMeta"]
+__all__ = ["DelayerMeta", "SingletonMeta", "ParametersMeta", "AttributeMeta", "RegistryMeta", "NamedMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -28,10 +29,10 @@ remove = lambda x, j: [i for i in x if i is not j]
 flatten = lambda y: [i for x in y for i in x]
 unique = lambda x: list(ODict.fromkeys(x))
 insert = lambda x, i, j: x[:x.index(i)] + [j] + x[x.index(i):]
+isnamed = lambda x: issubclass(x, tuple) and hasattr(x, "_fields") and all([isinstance(field, str) for field in getattr(x, "_fields")])
 ismeta = lambda x, m: type(x) is m or issubclass(type(x), m)
 isdunder = lambda x: str(x).startswith('__') and str(x).endswith('__')
 isenum = lambda x: str(x).upper() == str(x) and not isdunder(x)
-mrostr = lambda x: ", ".join(list(map(lambda i: i.__name__, x.__mro__)))
 astype = lambda base, meta: meta(base.__name__, (base,), {})
 
 
@@ -44,68 +45,11 @@ class Meta(ABCMeta):
         try: super(Meta, cls).__init__(name, bases, attrs, *args, **kwargs)
         except TypeError: super(Meta, cls).__init__(name, bases, attrs, *args, **kwargs)
 
-class VariantKeyError(Exception):
-    def __str__(self): return f"{self.name}[{self.key}]"
-    def __init__(self, key):
-        self.__key = key.__name__ if isclass(key) else type(key).__name__
-        self.__name = self.__class__.__name__
-
-    @property
-    def name(self): return self.__name
-    @property
-    def key(self): return self.__key
-
-
-class VariantValueError(Exception):
-    def __str__(self): return f"{self.name}[{self.value}]"
-    def __init__(self, value):
-        self.__value = mrostr(value)
-        self.__name = self.__class__.__name__
-
-    @property
-    def name(self): return self.__name
-    @property
-    def value(self): return self.__value
-
-
-class VariantMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        assert all([attr not in attrs.keys() for attr in ("variant", "variants")])
-        super(VariantMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        if not any([ismeta(base, VariantMeta) for base in bases]):
-            cls.__variants__ = dict()
-            cls.__variant__ = False
-            return
-        variants = [kwargs.get("variant", None)] + kwargs.get("variants", [])
-        variants = list(filter(None, variants))
-        variant = any([base.variant for base in bases if type(base) is VariantMeta]) or bool(variants)
-        variants = cls.variants | {key: cls for key in variants}
-        cls.__variants__ = variants
-        cls.__variant__ = variant
-
-    def __call__(cls, *args, variant, **kwargs):
-        assert variant is not None
-        if variant not in cls.variants.keys():
-            raise VariantKeyError(variant)
-        base = cls.variants[variant]
-        if not bool(cls.variant):
-            cls = type(cls)(cls.__name__, (cls, base), {}, *args, **kwargs)
-        try:
-            instance = super(VariantMeta, cls).__call__(*args, **kwargs)
-            return instance
-        except TypeError:
-            raise VariantValueError(cls)
-
-    @property
-    def variants(cls): return cls.__variants__
-    @property
-    def variant(cls): return cls.__variant__
-
 
 class DelayerMeta(Meta):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(DelayerMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        cls.__delay__ = kwargs.get("delay", getattr(cls, "delay", None))
+        cls.__delay__ = kwargs.get("delay", getattr(cls, "__delay__", None))
         cls.__mutex__ = multiprocessing.Lock()
         cls.__timer__ = None
 
@@ -148,26 +92,6 @@ class SingletonMeta(Meta):
         return SingletonMeta.__instances__[cls]
 
 
-class ParametersMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        function = lambda value: isinstance(value, types.LambdaType) or not isinstance(value, (types.MethodType, types.FunctionType))
-        super(ParametersMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        existing = getattr(cls, "__parameters__", {})
-        update = {key: value for key, value in attrs.items() if function(value)}
-        cls.__parameters__ = existing | update
-
-    def __setitem__(cls, key, value): cls.parameters[key] = value
-    def __getitem__(cls, key): return cls.parameters[key]
-
-    def __iter__(cls): return iter(list(cls.parameters.items()))
-    def __call__(cls, *args, **kwargs):
-        instance = super(ParametersMeta, cls).__call__(*args, **cls.parameters, **kwargs)
-        return instance
-
-    @property
-    def parameters(cls): return cls.__parameters__
-
-
 class RegistryMeta(Meta):
     def __iter__(cls): return iter(list(cls.registry.items()))
     def __init__(cls, name, bases, attrs, *args, **kwargs):
@@ -204,6 +128,70 @@ class AttributeMeta(Meta):
 
     @property
     def root(cls): return cls.__root__
+
+
+class ParametersMeta(Meta):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        function = lambda value: isinstance(value, types.LambdaType) or not isinstance(value, (types.MethodType, types.FunctionType))
+        super(ParametersMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        existing = getattr(cls, "__parameters__", {})
+        update = {key: value for key, value in attrs.items() if function(value)}
+        cls.__parameters__ = existing | update
+
+    def __iter__(cls): return iter(list(cls.parameters.items()))
+    def __call__(cls, *args, **kwargs):
+        instance = super(ParametersMeta, cls).__call__(*args, **cls.parameters, **kwargs)
+        return instance
+
+    @property
+    def parameters(cls): return cls.__parameters__
+
+
+class NamedMeta(Meta):
+    def __init__(cls, *args, **kwargs):
+        super(NamedMeta, cls).__init__(*args, **kwargs)
+        fields = getattr(cls, "__fields__", []) + kwargs.get("fields", [])
+        named = getattr(cls, "__named__", {}) | kwargs.get("named", {})
+        assert all([inspect.isclass(value) and ismeta(value, NamedMeta) for value in named.values()])
+        cls.__fields__ = fields
+        cls.__named__ = named
+
+    def __iter__(cls): return chain(cls.fields, cls.named.keys())
+    def __call__(cls, contents, *args, **kwargs):
+        assert isinstance(contents, dict) and all([key in contents.keys() for key in iter(cls)])
+        instance = super(NamedMeta, cls).__call__(*args, **kwargs)
+        for attribute, named in cls.named.items():
+            value = named(contents[attribute], *args, **kwargs)
+            setattr(instance, attribute, value)
+        for attribute in cls.fields:
+            value = contents[attribute]
+            setattr(instance, attribute, value)
+        return instance
+
+    @property
+    def fields(cls): return cls.__fields__
+    @property
+    def named(cls): return cls.__named__
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

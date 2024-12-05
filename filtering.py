@@ -53,7 +53,7 @@ class Filter(Logging, Sizing, Emptying, Sourcing):
     @typedispatcher
     def where(self, dataframe, mask=None):
         if bool(mask is None): return dataframe
-        else: return dataframe.where(mask).dropna(how="all", inplace=False)
+        else: return dataframe.where(mask, axis=0).dropna(how="all", inplace=False)
 
 
 
