@@ -19,7 +19,7 @@ from support.dispatchers import typedispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Pivoting", "Sourcing", "Publisher", "Subscriber"]
+__all__ = ["Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Sourcing", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -143,25 +143,6 @@ class Sourcing(object):
         for values, dataset in iter(generator):
             dataset = dataset.unstack().drop_vars("stack")
             yield query(list(values)), dataset
-
-
-class Pivoting(object):
-    @staticmethod
-    def pivot(dataframe, *args, stacking=[], by, **kwargs):
-        assert isinstance(dataframe, pd.DataFrame) and isinstance(stacking, list)
-        index = set(dataframe.columns) - ({by} | set(stacking))
-        dataframe = dataframe.pivot(index=list(index), columns=["scenario"])
-        dataframe = dataframe.reset_index(drop=False, inplace=False)
-        return dataframe
-
-    @staticmethod
-    def unpivot(dataframe, *args, unstacking=[], by, **kwargs):
-        assert isinstance(dataframe, pd.DataFrame) and isinstance(unstacking, list) and isinstance(by, str)
-        index = set(dataframe.columns) - ({by} | set(unstacking))
-        dataframe = dataframe.set_index(list(index), drop=True, inplace=False)
-        dataframe = dataframe.stack()
-        dataframe = dataframe.reset_index(drop=False, inplace=False)
-        return dataframe
 
 
 class Logging(object):
