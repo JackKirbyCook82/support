@@ -12,21 +12,22 @@ import logging
 import numpy as np
 import pandas as pd
 import xarray as xr
+from itertools import chain
 from abc import ABC, abstractmethod
 from functools import update_wrapper
 
-from support.dispatchers import typedispatcher
+from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Sourcing", "Publisher", "Subscriber"]
+__all__ = ["Naming", "Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Sourcing", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
 class Emptying(object):
-    @typedispatcher
+    @TypeDispatcher(locator=0)
     def empty(self, content, *args, **kwargs): raise TypeError(type(content))
     @empty.register(dict)
     def __mapping(self, mapping, *args, **kwargs): return all([self.empty(value, *args, **kwargs) for value in mapping.values()]) if bool(mapping) else True
@@ -45,7 +46,7 @@ class Emptying(object):
 
 
 class Sizing(object):
-    @typedispatcher
+    @TypeDispatcher(locator=0)
     def size(self, content, *args, **kwargs): raise TypeError(type(content))
     @size.register(dict)
     def __mapping(self, mapping, *args, **kwargs): return sum([self.size(value) for value in mapping.values()])
@@ -64,7 +65,7 @@ class Sizing(object):
 
 
 class Memory(object):
-    @typedispatcher
+    @TypeDispatcher(locator=0)
     def memory(self, content, *args, **kwargs): raise TypeError(type(content))
     @memory.register(dict)
     def __mapping(self, mapping, *args, **kwargsg): return sum([self.memory(value) for value in mapping.values()])
@@ -74,6 +75,27 @@ class Memory(object):
     def __content(self, content, *args, **kwargs): return content.nbytes
     @memory.register(types.NoneType)
     def __nothing(self, *args, **kwargs): return 0
+
+
+class Sourcing(object):
+    @TypeDispatcher(locator=0)
+    def source(self, content, *args, query, **kwargs): raise TypeError(type(content))
+
+    @source.register(pd.DataFrame)
+    def __dataframe(self, dataframe, *args, query, **kwargs):
+        generator = dataframe.groupby(list(query))
+        for values, dataframe in iter(generator):
+            yield query(list(values)), dataframe
+
+    @source.register(xr.Dataset)
+    def __dataset(self, dataset, *args, query, **kwargs):
+        for field in list(query):
+            dataset = dataset.expand_dims(field)
+        dataset = dataset.stack(stack=list(query))
+        generator = dataset.groupby("stack")
+        for values, dataset in iter(generator):
+            dataset = dataset.unstack().drop_vars("stack")
+            yield query(list(values)), dataset
 
 
 class Function(ABC):
@@ -124,27 +146,6 @@ class Generator(ABC):
     def execute(self, *args, **kwargs): pass
 
 
-class Sourcing(object):
-    @typedispatcher
-    def source(self, content, *args, query, **kwargs): raise TypeError(type(content))
-
-    @source.register(pd.DataFrame)
-    def __dataframe(self, dataframe, *args, query, **kwargs):
-        generator = dataframe.groupby(list(query))
-        for values, dataframe in iter(generator):
-            yield query(list(values)), dataframe
-
-    @source.register(xr.Dataset)
-    def __dataset(self, dataset, *args, query, **kwargs):
-        for field in list(query):
-            dataset = dataset.expand_dims(field)
-        dataset = dataset.stack(stack=list(query))
-        generator = dataset.groupby("stack")
-        for values, dataset in iter(generator):
-            dataset = dataset.unstack().drop_vars("stack")
-            yield query(list(values)), dataset
-
-
 class Logging(object):
     def __repr__(self): return str(self.name)
     def __init__(self, *args, **kwargs):
@@ -157,6 +158,26 @@ class Logging(object):
     def logger(self): return self.__logger
     @property
     def name(self): return self.__name
+
+
+class Naming(object):
+    def __init_subclass__(cls, *args, **kwargs):
+        try: super().__init_subclass__(*args, **kwargs)
+        except TypeError: super().__init_subclass__()
+        cls.fields = getattr(cls, "fields", []) + kwargs.get("fields", [])
+        cls.named = getattr(cls, "named", {}) | kwargs.get("named", {})
+
+    def __new__(cls, contents, *args, **kwargs):
+        keys = chain(cls.fields, cls.named.keys())
+        assert isinstance(contents, dict) and all([key in contents.keys() for key in keys])
+        instance = super().__new__(cls)
+        for attribute, value in cls.named.items():
+            value = value(contents[attribute], *args, **kwargs)
+            setattr(instance, attribute, value)
+        for attribute in cls.fields:
+            value = contents[attribute]
+            setattr(instance, attribute, value)
+        return instance
 
 
 class Publisher(object):
@@ -205,10 +226,6 @@ class Subscriber(ABC):
     def publishers(self): return self.__publishers
     @property
     def name(self): return self.__name
-
-
-
-
 
 
 

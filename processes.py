@@ -1,181 +1,90 @@
 # -*- coding: utf-8 -*-
 """
-Created on Sat Oct 19 2024
-@name:   Process Objects
+Created on Weds Sept 18 2024
+@name:   Operation Objects
 @author: Jack Kirby Cook
 
 """
 
-import time
-import logging
-from itertools import chain
+import pandas as pd
+from functools import reduce
 from abc import ABC, abstractmethod
 
-from support.mixins import Function, Generator, Logging
+from support.mixins import Logging, Sizing, Emptying, Sourcing
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Source", "Process"]
-__copyright__ = "Copyright 2024, Jack Kirby Cook"
+__all__ = ["Filter", "Pivot", "Unpivot"]
+__copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-__logger__ = logging.getLogger(__name__)
 
 
-class Variables(object):
-    def __iter__(self):
-        for variable, value in self.domain.items():
-            if value is None: continue
-            else: yield variable, value
+class Process(Logging, Sizing, Emptying, Sourcing, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        cls.title = kwargs.get("title", getattr(cls, "title", None))
+        cls.query = kwargs.get("query", getattr(cls, "query", None))
 
-    def __init__(self, domain):
-        self.domain = dict.fromkeys(domain)
-
-    def __call__(self, domain):
-        variables = set(self.domain) - domain
-        for variable in variables:
-            del self.domain[variable]
-        return self
-
-    def __iadd__(self, parameters):
-        assert isinstance(parameters, dict)
-        variables = set(self.domain)
-        for variable in variables:
-            existing = self.domain[variable]
-            value = parameters.get(variable, existing)
-            self.domain[variable] = value
-        return self
-
-
-class ProcessErrorMeta(type):
-    def __init__(cls, name, bases, attrs, *args, title=None, **kwargs):
-        assert str(name).endswith("Error")
-        super(ProcessErrorMeta, cls).__init__(name, bases, attrs)
-        cls.__logger__ = __logger__
-        cls.__title__ = title
-
-    def __call__(cls, process):
-        logger, title, name = cls.__logger__, cls.__title__, cls.__name__
-        instance = super(ProcessErrorMeta, cls).__call__(name, process)
-        logger.info(f"{title}: {repr(instance.process)}")
-        return instance
-
-
-class ProcessError(Exception, metaclass=ProcessErrorMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
-    def __str__(self): return f"{self.name}|{repr(self.page)}"
-    def __init__(self, name, process):
-        self.__process = process
-        self.__name = name
-
-    @property
-    def process(self): return self.__process
-    @property
-    def name(self): return self.__name
-
-
-class CeasedProcessError(ProcessError, title="Ceased"): pass
-class TerminatedProcessError(ProcessError, title="Terminated"): pass
-
-
-class Pipeline(ABC):
-    def __init__(self, source, processes):
-        assert isinstance(source, Source) and isinstance(processes, list)
-        assert all([isinstance(process, Process) for process in processes])
-        self.__processes = processes
-        self.__source = source
-
-    def __repr__(self):
-        string = ', '.join(list(map(repr, [self.source] + self.processes)))
-        return f"{self.__class__.__name__}[{string}]"
-
-    def __add__(self, process):
-        assert isinstance(process, Process)
-        processes = self.processes + [process]
-        return Pipeline(self.source, processes)
-
-    def __call__(self, *args, **kwargs):
-        source = self.source(*args, **kwargs)
-        for parameters in source:
-            domain = self.domain(index=0)
-            variables = Variables(domain)
-            variables += parameters
-            for index, process in enumerate(self.processes):
-                domain = self.domain(index=index)
-                variables = variables(domain)
-                parameters = dict(variables)
-                try: parameters = process(parameters, *args, **kwargs)
-                except CeasedProcessError: break
-                except TerminatedProcessError: break
-                variables += parameters
-            del variables
-
-    def domain(self, index=0):
-        domain = [process.domain for process in self.processes[index:]]
-        domain = set(chain(*domain))
-        return domain
-
-    @property
-    def processes(self): return self.__processes
-    @property
-    def source(self): return self.__source
-
-
-class Stage(Logging, ABC):
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
-
-
-class Source(Generator, Stage, ABC):
-    def __init_subclass__(cls, *args, arguments=[], **kwargs):
-        try: super().__init_subclass__(*args, **kwargs)
-        except TypeError: super().__init_subclass__()
-        assert isinstance(arguments, list)
-        cls.arguments = arguments
-
-    def __add__(self, process):
-        assert isinstance(process, Process)
-        return Pipeline(self, [process])
-
-    def __call__(self, *args, **kwargs):
-        source = self.execute(*args, **kwargs)
-        start = time.time()
-        for results in iter(source):
-            assert results is not None
-            arguments = [results] if not isinstance(results, tuple) else list(results)
-            assert len(arguments) == len(self.arguments)
-            elapsed = time.time() - start
-            string = f"Sourced: {repr(self)}[{elapsed:.02f}s]"
+    def execute(self, contents, *args, **kwargs):
+        if self.empty(contents): return
+        for query, content in self.source(contents, *args, query=self.query, **kwargs):
+            prior = self.size(content)
+            content = self.calculate(content, *args, **kwargs)
+            content = content.reset_index(drop=True, inplace=False)
+            post = self.size(content)
+            string = f"{str(self.title)}: {repr(self)}|{str(query)}[{prior:.0f}|{post:.0f}]"
             self.logger.info(string)
-            parameters = dict(zip(self.arguments, arguments))
-            yield parameters
-            start = time.time()
+            if self.empty(content): continue
+            yield content
+
+    @abstractmethod
+    def calculate(self, content, *args, **kwargs): pass
 
 
-class Process(Function, Stage, ABC):
-    def __init_subclass__(cls, *args, domain=[], arguments=[], **kwargs):
-        try: super().__init_subclass__(*args, **kwargs)
-        except TypeError: super().__init_subclass__()
-        assert isinstance(arguments, list)
-        assert isinstance(domain, list)
-        cls.arguments = arguments
-        cls.domain = domain
+class Filter(Process, title="Filtered"):
+    def __init__(self, *args, criterion, **kwargs):
+        assert isinstance(criterion, list) or callable(criterion)
+        assert all([callable(function) for function in criterion]) if isinstance(criterion, list) else callable(criterion)
+        super().__init__(*args, **kwargs)
+        self.criterion = list(criterion) if isinstance(criterion, list) else [criterion]
 
-    def __call__(self, parameters, *args, **kwargs):
-        assert isinstance(parameters, dict)
-        if not all([key in parameters for key in self.domain]): CeasedProcessError(self)
-        domain = list(map(parameters.get, self.domain))
-        start = time.time()
-        results = self.execute(*domain, *args, **kwargs)
-        if results is None: raise TerminatedProcessError(self)
-        arguments = [results] if not isinstance(results, tuple) else list(results)
-        assert len(arguments) == len(self.arguments)
-        elapsed = time.time() - start
-        string = f"Processed: {repr(self)}[{elapsed:.02f}s]"
-        self.logger.info(string)
-        parameters = dict(zip(self.arguments, arguments))
-        return parameters
+    def calculate(self, dataframe, *args, **kwargs):
+        criterion = [criteria(dataframe) for criteria in self.criterion]
+        mask = reduce(lambda x, y: x & y, criterion) if bool(criterion) else None
+        if bool(mask is None): return dataframe
+        else: return dataframe.where(mask, axis=0).dropna(how="all", inplace=False)
 
 
+class Pivot(Process, title="Pivoted"):
+    def __init__(self, *args, pivot, **kwargs):
+        super().__init__(*args, **kwargs)
+        index, columns = pivot
+        self.columns = columns
+        self.index = index
+
+    def calculate(self, dataframe, *args, **kwargs):
+        assert isinstance(dataframe, pd.DataFrame)
+        index = set(dataframe.columns) - ({self.index} | set(self.columns))
+        dataframe = dataframe.pivot(index=list(index), columns=[self.index])
+        dataframe = dataframe.reset_index(drop=False, inplace=False)
+        return dataframe
+
+
+class Unpivot(Process, title="UnPivoted"):
+    def __init__(self, *args, unpivot, **kwargs):
+        super().__init__(*args, **kwargs)
+        index, columns = unpivot
+        self.columns = columns
+        self.index = index
+
+    def calculate(self, dataframe, *args, **kwargs):
+        dataframe.index.name = "index"
+        level = list(dataframe.columns.names).index(self.index)
+        index = set(dataframe.columns) - set(self.columns)
+        columns = set([values for values in dataframe.columns.values if bool(values[level])])
+        index = dataframe[list(index)].stack().reset_index(drop=False, inplace=False).drop(columns=self.index)
+        columns = dataframe[list(columns)].stack().reset_index(drop=False, inplace=False)
+        dataframe = pd.merge(index, columns, how="outer", on="index").drop(columns="index")
+        return dataframe
 
 
 

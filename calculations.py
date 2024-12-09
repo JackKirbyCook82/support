@@ -15,7 +15,7 @@ from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
-from support.dispatchers import typedispatcher
+from support.decorators import TypeDispatcher
 from support.meta import RegistryMeta
 from support.trees import SingleNode
 
@@ -250,7 +250,7 @@ class Calculation(ABC):
         content = self.combine(contents[0], *contents[1:])
         return content
 
-    @typedispatcher
+    @TypeDispatcher(locator=0)
     def combine(self, content, *contents): raise TypeError(type(content))
     @combine.register(xr.DataArray)
     def dataarray(self, content, *contents): return xr.merge([content] + list(contents))

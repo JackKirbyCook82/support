@@ -29,7 +29,7 @@ class QueueMeta(AttributeMeta, ABCMeta):
         if ABC in bases:
             return
         assert all([queuetype is not None, datatype is not None])
-        super(QueueMeta, cls).__init__(name, bases, attrs, *args, attribute=str(queuetype), **kwargs)
+        super(QueueMeta, cls).__init__(name, bases, attrs, *args, attribute=str(queuetype.name), **kwargs)
         cls.__queuetype__ = queuetype
         cls.__datatype__ = datatype
 
@@ -84,9 +84,9 @@ class StandardQueue(Queue, ABC):
         return content
 
 
-class LIFOQueue(StandardQueue, datatype=queue.LifoQueue): pass
-class FIFOQueue(StandardQueue, datatype=queue.Queue): pass
-class PIFOQueue(Queue, datatype=queue.PriorityQueue):
+class LIFOQueue(StandardQueue, datatype=queue.LifoQueue, queuetype=QueueTypes.LIFO): pass
+class FIFOQueue(StandardQueue, datatype=queue.Queue, queuetype=QueueTypes.FIFO): pass
+class PIFOQueue(Queue, datatype=queue.PriorityQueue, queuetype=QueueTypes.PIFO):
     def __init__(self, *args, priority, ascending, **kwargs):
         assert callable(priority) and isinstance(ascending, bool)
         super().__init__(*args, **kwargs)

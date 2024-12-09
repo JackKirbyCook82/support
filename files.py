@@ -18,7 +18,7 @@ from collections import namedtuple as ntuple
 
 from support.mixins import Logging, Emptying, Sizing, Sourcing
 from support.meta import SingletonMeta, RegistryMeta
-from support.dispatchers import kwargsdispatcher
+from support.decorators import ValueDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -78,17 +78,17 @@ class FileTableStream(FileData, ABC):
 
 
 class FileTableLoading(FileTableStream, ABC):
-    @kwargsdispatcher("method")
+    @ValueDispatcher(locator="method")
     def load(self, *args, file, mode, method, **kwargs): raise ValueError(method)
 
-    @load.register.value(EagerTableCSV)
+    @load.register(EagerTableCSV)
     def __eagercsv(self, *args, file, mode="r", **kwargs):
         assert mode == "r"
         parameters = dict(infer_datetime_format=False, parse_dates=list(self.dates.keys()), date_format=self.dates, dtype=self.types, converters=self.parsers)
         dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
         return dataframe
 
-    @load.register.value(LazyTableCSV)
+    @load.register(LazyTableCSV)
     def __lazycsv(self, *args, file, mode="r", size, **kwargs):
         assert mode == "r"
         parameters = dict(infer_datetime_format=False, parse_dates=list(self.dates.keys()), date_format=self.dates, dtype=self.types, converters=self.parsers)
@@ -97,10 +97,10 @@ class FileTableLoading(FileTableStream, ABC):
 
 
 class FileTableSaving(FileTableStream, ABC):
-    @kwargsdispatcher("method")
+    @ValueDispatcher(locator="method")
     def save(self, dataframe, args, file, mode, method, **kwargs): raise ValueError(method)
 
-    @save.register.value(EagerTableCSV)
+    @save.register(EagerTableCSV)
     def __eagercsv(self, dataframe, *args, file, mode, **kwargs):
         dataframe = dataframe.copy()
         for column, formatter in self.formatters.items():
@@ -109,7 +109,7 @@ class FileTableSaving(FileTableStream, ABC):
             dataframe[column] = dataframe[column].dt.strftime(dateformat)
         dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
-    @save.register.value(LazyTableCSV)
+    @save.register(LazyTableCSV)
     def __lazycsv(self, dataframe, *args, file, mode, **kwargs):
         dataframe = dataframe.copy()
         for column, formatter in self.formatters.items():
@@ -244,6 +244,9 @@ class File(Logging, ABC, metaclass=FileMeta):
 
 class Process(Logging, Sizing, Emptying, Sourcing, ABC):
     def __init_subclass__(cls, *args, **kwargs):
+        try: super().__init_subclass__(*args, **kwargs)
+        except TypeError: super().__init_subclass__()
+        cls.title = kwargs.get("title", getattr(cls, "title", None))
         cls.query = kwargs.get("query", getattr(cls, "query", None))
 
     def __init__(self, *args, file, mode, **kwargs):
@@ -253,44 +256,45 @@ class Process(Logging, Sizing, Emptying, Sourcing, ABC):
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
+
     @property
     def file(self): return self.__file
     @property
     def mode(self): return self.__mode
 
 
-class Directory(Process):
+class Directory(Process, title="Loaded"):
     def execute(self, *args, **kwargs):
         if not bool(self.file): return
         for filename in iter(self.file):
             contents = self.file.read(*args, filename=filename, mode=self.mode, **kwargs)
             for query, content in self.source(contents, *args, query=self.query, **kwargs):
                 size = self.size(content)
-                string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
+                string = f"{str(self.title)}: {repr(self)}|{str(query)}[{size:.0f}]"
                 self.logger.info(string)
                 if self.empty(content): continue
                 yield content
 
 
-class Loader(Process):
+class Loader(Process, title="Loaded"):
     def execute(self, query, *args, **kwargs):
         if query is None: return
         query = self.query(query)
         content = self.file.read(*args, query=query, mode=self.mode, **kwargs)
         size = self.size(content)
-        string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
+        string = f"{str(self.title)}: {repr(self)}|{str(query)}[{size:.0f}]"
         self.logger.info(string)
         if self.empty(content): return
         return content
 
 
-class Saver(Process):
+class Saver(Process, title="Saved"):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
         for query, content in self.source(contents, *args, query=self.query, **kwargs):
             self.file.write(content, *args, query=query, mode=self.mode, **kwargs)
             size = self.size(content)
-            string = f"Saved: {repr(self)}|{str(query)}[{size:.0f}]"
+            string = f"{str(self.title)}: {repr(self)}|{str(query)}[{size:.0f}]"
             self.logger.info(string)
 
 

@@ -6,10 +6,8 @@ Created on Weds Jul 12 2023
 
 """
 
-import types
 import multiprocessing
 import pandas as pd
-from functools import update_wrapper
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.mixins import Logging, Emptying, Sizing, Sourcing
@@ -225,6 +223,9 @@ class TableDataFrame(Table, register=pd.DataFrame):
 
 class Process(Logging, Sizing, Emptying, Sourcing, ABC):
     def __init_subclass__(cls, *args, **kwargs):
+        try: super().__init_subclass__(*args, **kwargs)
+        except TypeError: super().__init_subclass__()
+        cls.title = kwargs.get("title", getattr(cls, "title", None))
         cls.query = kwargs.get("query", getattr(cls, "query", None))
 
     def __init__(self, *args, table, **kwargs):
@@ -237,7 +238,7 @@ class Process(Logging, Sizing, Emptying, Sourcing, ABC):
     def table(self): return self.__table
 
 
-class Reader(Process, ABC):
+class Reader(Process, ABC, title="Read"):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex:
@@ -245,7 +246,7 @@ class Reader(Process, ABC):
             if self.empty(contents): return
             for query, content in self.source(contents, *args, query=self.query, **kwargs):
                 size = self.size(content)
-                string = f"Read: {repr(self)}|{str(query)}[{size:.0f}]"
+                string = f"{str(self.title)}: {repr(self)}|{str(query)}[{size:.0f}]"
                 self.logger.info(string)
                 if self.empty(content): continue
                 yield content
@@ -254,7 +255,7 @@ class Reader(Process, ABC):
     def read(self, *args, **kwargs): pass
 
 
-class Routine(Process, ABC):
+class Routine(Process, ABC, title="Performed"):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex:
@@ -264,14 +265,14 @@ class Routine(Process, ABC):
     def routine(self, *args, **kwargs): pass
 
 
-class Writer(Process, ABC):
+class Writer(Process, ABC, title="Wrote"):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
         with self.table.mutex:
             for query, content in self.source(contents, *args, query=self.query, **kwargs):
                 self.write(content, *args, **kwargs)
                 size = self.size(content)
-                string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
+                string = f"{str(self.title)}: {repr(self)}|{str(query)}[{size:.0f}]"
                 self.logger.info(string)
 
     @abstractmethod

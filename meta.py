@@ -8,7 +8,6 @@ Created on Fri Aug 27 2021
 
 import time
 import types
-import inspect
 import multiprocessing
 from abc import ABCMeta
 from itertools import chain
@@ -18,7 +17,7 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DelayerMeta", "SingletonMeta", "ParametersMeta", "AttributeMeta", "RegistryMeta", "NamedMeta"]
+__all__ = ["DelayerMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "NamingMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -130,38 +129,19 @@ class AttributeMeta(Meta):
     def root(cls): return cls.__root__
 
 
-class ParametersMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        function = lambda value: isinstance(value, types.LambdaType) or not isinstance(value, (types.MethodType, types.FunctionType))
-        super(ParametersMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        existing = getattr(cls, "__parameters__", {})
-        update = {key: value for key, value in attrs.items() if function(value)}
-        cls.__parameters__ = existing | update
-
-    def __iter__(cls): return iter(list(cls.parameters.items()))
-    def __call__(cls, *args, **kwargs):
-        instance = super(ParametersMeta, cls).__call__(*args, **cls.parameters, **kwargs)
-        return instance
-
-    @property
-    def parameters(cls): return cls.__parameters__
-
-
-class NamedMeta(Meta):
+class NamingMeta(Meta):
     def __init__(cls, *args, **kwargs):
-        super(NamedMeta, cls).__init__(*args, **kwargs)
-        fields = getattr(cls, "__fields__", []) + kwargs.get("fields", [])
-        named = getattr(cls, "__named__", {}) | kwargs.get("named", {})
-        assert all([inspect.isclass(value) and ismeta(value, NamedMeta) for value in named.values()])
-        cls.__fields__ = fields
-        cls.__named__ = named
+        super(NamingMeta, cls).__init__(*args, **kwargs)
+        cls.__fields__ = getattr(cls, "__fields__", []) + kwargs.get("fields", [])
+        cls.__named__ = getattr(cls, "__named__", {}) | kwargs.get("named", {})
 
     def __iter__(cls): return chain(cls.fields, cls.named.keys())
     def __call__(cls, contents, *args, **kwargs):
-        assert isinstance(contents, dict) and all([key in contents.keys() for key in iter(cls)])
-        instance = super(NamedMeta, cls).__call__(*args, **kwargs)
-        for attribute, named in cls.named.items():
-            value = named(contents[attribute], *args, **kwargs)
+        keys = chain(cls.fields, cls.named.keys())
+        assert isinstance(contents, dict) and all([key in contents.keys() for key in keys])
+        instance = super(NamingMeta, cls).__call__(*args, **kwargs)
+        for attribute, value in cls.named.items():
+            value = value(contents[attribute], *args, **kwargs)
             setattr(instance, attribute, value)
         for attribute in cls.fields:
             value = contents[attribute]
@@ -172,12 +152,6 @@ class NamedMeta(Meta):
     def fields(cls): return cls.__fields__
     @property
     def named(cls): return cls.__named__
-
-
-
-
-
-
 
 
 
