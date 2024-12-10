@@ -16,13 +16,13 @@ from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 
-from support.mixins import Logging, Emptying, Sizing, Sourcing
-from support.meta import SingletonMeta, RegistryMeta
+from support.mixins import Logging, Emptying, Sizing, Separating
 from support.decorators import ValueDispatcher
+from support.meta import SingletonMeta, RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Directory", "Loader", "Saver", "Process", "File", "FileTypes", "FileTimings"]
+__all__ = ["Loader", "Saver", "Process", "File", "FileTypes", "FileTimings"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -242,60 +242,47 @@ class File(Logging, ABC, metaclass=FileMeta):
     def mutex(self): return self.__mutex
 
 
-class Process(Logging, Sizing, Emptying, Sourcing, ABC):
+class Filer(Logging, Sizing, Emptying, Separating, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
         except TypeError: super().__init_subclass__()
-        cls.title = kwargs.get("title", getattr(cls, "title", None))
         cls.query = kwargs.get("query", getattr(cls, "query", None))
 
     def __init__(self, *args, file, mode, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__file = file
-        self.__mode = mode
+        try: super().__init__(*args, **kwargs)
+        except TypeError: super().__init__()
+        self.file = file
+        self.mode = mode
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
-    @property
-    def file(self): return self.__file
-    @property
-    def mode(self): return self.__mode
 
-
-class Directory(Process, title="Loaded"):
+class Loader(Filer):
     def execute(self, *args, **kwargs):
         if not bool(self.file): return
         for filename in iter(self.file):
             contents = self.file.read(*args, filename=filename, mode=self.mode, **kwargs)
-            for query, content in self.source(contents, *args, query=self.query, **kwargs):
+            for group, content in self.separate(contents, *args, keys=list(self.query), **kwargs):
+                query = self.query(group)
                 size = self.size(content)
-                string = f"{str(self.title)}: {repr(self)}|{str(query)}[{size:.0f}]"
+                string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
                 self.logger.info(string)
                 if self.empty(content): continue
                 yield content
 
 
-class Loader(Process, title="Loaded"):
-    def execute(self, query, *args, **kwargs):
-        if query is None: return
-        query = self.query(query)
-        content = self.file.read(*args, query=query, mode=self.mode, **kwargs)
-        size = self.size(content)
-        string = f"{str(self.title)}: {repr(self)}|{str(query)}[{size:.0f}]"
-        self.logger.info(string)
-        if self.empty(content): return
-        return content
-
-
-class Saver(Process, title="Saved"):
+class Saver(Filer):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
-        for query, content in self.source(contents, *args, query=self.query, **kwargs):
+        for group, content in self.source(contents, *args, keys=list(self.query), **kwargs):
+            query = self.query(group)
             self.file.write(content, *args, query=query, mode=self.mode, **kwargs)
             size = self.size(content)
-            string = f"{str(self.title)}: {repr(self)}|{str(query)}[{size:.0f}]"
+            string = f"Saved: {repr(self)}|{str(query)}[{size:.0f}]"
             self.logger.info(string)
+
+
 
 
 

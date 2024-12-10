@@ -36,10 +36,10 @@ class OpenPipeline(Pipeline):
         self.__processors = processors
         self.__source = source
 
-    def __add__(self, segment):
-        assert isinstance(segment, (Processor, Consumer))
-        if isinstance(segment, Processor): return OpenPipeline(self.source, self.processors + [segment])
-        else: return ClosedPipeline(self.source, self.processors, segment)
+    def __add__(self, other):
+        assert isinstance(other, (Processor, Consumer))
+        if isinstance(other, Processor): return OpenPipeline(self.source, self.processors + [other])
+        else: return ClosedPipeline(self.source, self.processors, other)
 
     def __call__(self, *args, **kwargs):
         source = self.source(*args, **kwargs)
@@ -82,9 +82,9 @@ class Stage(Logging, ABC):
 class Source(Stage, ABC):
     def generator(self, *args, **kwargs):
         assert inspect.isgeneratorfunction(self.execute)
-        generator = self.execute(*args, **kwargs)
+        source = self.execute(*args, **kwargs)
         start = time.time()
-        for content in generator:
+        for content in source:
             elapsed = time.time() - start
             string = f"Produced: {repr(self)}[{elapsed:.02f}s]"
             self.logger.info(string)

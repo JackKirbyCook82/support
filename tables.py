@@ -10,7 +10,7 @@ import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.mixins import Logging, Emptying, Sizing, Sourcing
+from support.mixins import Logging, Emptying, Sizing, Separating
 from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
@@ -221,59 +221,56 @@ class TableDataFrame(Table, register=pd.DataFrame):
     def dataframe(self, dataframe): self.data = dataframe
 
 
-class Process(Logging, Sizing, Emptying, Sourcing, ABC):
+class Tabular(Logging, Sizing, Emptying, Separating, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
         except TypeError: super().__init_subclass__()
-        cls.title = kwargs.get("title", getattr(cls, "title", None))
         cls.query = kwargs.get("query", getattr(cls, "query", None))
 
     def __init__(self, *args, table, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__table = table
+        try: super().__init__(*args, **kwargs)
+        except TypeError: super().__init__()
+        self.table = table
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
-    @property
-    def table(self): return self.__table
 
 
-class Reader(Process, ABC, title="Read"):
+class Reader(Tabular, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
-        with self.table.mutex:
-            contents = self.read(*args, **kwargs)
-            if self.empty(contents): return
-            for query, content in self.source(contents, *args, query=self.query, **kwargs):
-                size = self.size(content)
-                string = f"{str(self.title)}: {repr(self)}|{str(query)}[{size:.0f}]"
-                self.logger.info(string)
-                if self.empty(content): continue
-                yield content
+        with self.table.mutux: contents = self.read(*args, **kwargs)
+        if self.empty(contents): return
+        for group, content in self.source(contents, *args, keys=list(self.query), **kwargs):
+            query = self.query(group)
+            size = self.size(content)
+            string = f"Read: {repr(self)}|{str(query)}[{size:.0f}]"
+            self.logger.info(string)
+            if self.empty(content): continue
+            yield content
 
     @abstractmethod
     def read(self, *args, **kwargs): pass
 
 
-class Routine(Process, ABC, title="Performed"):
+class Routine(Tabular, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
-        with self.table.mutex:
-            self.routine(*args, **kwargs)
+        with self.table.mutex: self.invoke(*args, **kwargs)
 
     @abstractmethod
-    def routine(self, *args, **kwargs): pass
+    def invoke(self, *args, **kwargs): pass
 
 
-class Writer(Process, ABC, title="Wrote"):
+class Writer(Tabular, ABC):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
-        with self.table.mutex:
-            for query, content in self.source(contents, *args, query=self.query, **kwargs):
-                self.write(content, *args, **kwargs)
-                size = self.size(content)
-                string = f"{str(self.title)}: {repr(self)}|{str(query)}[{size:.0f}]"
-                self.logger.info(string)
+        for group, content in self.separate(contents, *args, keys=list(self.query), **kwargs):
+            query = self.query(group)
+            with self.table.mutex: self.write(content, *args, **kwargs)
+            size = self.size(content)
+            string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
+            self.logger.info(string)
 
     @abstractmethod
     def write(self, content, *args, **kwargs): pass
