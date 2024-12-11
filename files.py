@@ -7,36 +7,20 @@ Created on Sun 14 2023
 """
 
 import os
-import inspect
 import logging
 import multiprocessing
 import pandas as pd
-import dask.dataframe as dk
-from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
-from collections import namedtuple as ntuple
 
 from support.mixins import Logging, Emptying, Sizing, Separating
-from support.decorators import ValueDispatcher
-from support.meta import SingletonMeta, RegistryMeta
+from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Loader", "Saver", "Process", "File", "FileTypes", "FileTimings"]
+__all__ = ["Loader", "Saver", "File"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
-
-
-FileTimings = Enum("Timing", ["EAGER", "LAZY"], start=1)
-FileTypes = Enum("Typing", ["NC", "HDF", "CSV"], start=1)
-FileMethod = ntuple("Method", "filetype filetiming datatype")
-EagerTableCSV = FileMethod(FileTimings.EAGER, pd.DataFrame, FileTypes.CSV)
-LazyTableCSV = FileMethod(FileTimings.LAZY, pd.DataFrame, FileTypes.CSV)
-EagerTableHDF = FileMethod(FileTimings.EAGER, pd.DataFrame, FileTypes.HDF)
-LazyTableHDF = FileMethod(FileTimings.LAZY, pd.DataFrame, FileTypes.HDF)
-EagerTableNC = FileMethod(FileTimings.EAGER, pd.DataFrame, FileTypes.NC)
-LazyTableNC = FileMethod(FileTimings.LAZY, pd.DataFrame, FileTypes.NC)
 
 
 class FileLock(dict, metaclass=SingletonMeta):
@@ -45,136 +29,47 @@ class FileLock(dict, metaclass=SingletonMeta):
         return super().__getitem__(file)
 
 
-class FileData(ABC, metaclass=RegistryMeta):
-    @abstractmethod
-    def load(self, *args, file, mode, **kwargs): pass
-    @abstractmethod
-    def save(self, content, *args, file, mode, **kwargs): pass
-
-    @classmethod
-    def defaults(cls, datatype):
-        assert datatype is not None
-        keyword = lambda value: value.kind == value.KEYWORD_ONLY
-        default = lambda value: value.default if value.default is not value.empty else None
-        signature = inspect.signature(cls[datatype].__init__)
-        keywords = list(filter(keyword, signature.parameters.values()))
-        parameters = {keyword.name: default(keyword) for keyword in keywords}
-        return parameters
-
-
-class FileTableStream(FileData, ABC):
-    @property
-    @abstractmethod
-    def formatters(self): pass
-    @property
-    @abstractmethod
-    def parsers(self): pass
-    @property
-    @abstractmethod
-    def types(self): pass
-    @property
-    @abstractmethod
-    def dates(self): pass
-
-
-class FileTableLoading(FileTableStream, ABC):
-    @ValueDispatcher(locator="method")
-    def load(self, *args, file, mode, method, **kwargs): raise ValueError(method)
-
-    @load.register(EagerTableCSV)
-    def __eagercsv(self, *args, file, mode="r", **kwargs):
-        assert mode == "r"
-        parameters = dict(infer_datetime_format=False, parse_dates=list(self.dates.keys()), date_format=self.dates, dtype=self.types, converters=self.parsers)
-        dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
-        return dataframe
-
-    @load.register(LazyTableCSV)
-    def __lazycsv(self, *args, file, mode="r", size, **kwargs):
-        assert mode == "r"
-        parameters = dict(infer_datetime_format=False, parse_dates=list(self.dates.keys()), date_format=self.dates, dtype=self.types, converters=self.parsers)
-        dataframe = dk.read_csv(file, blocksize=size, index_col=None, header=0, **parameters)
-        return dataframe
-
-
-class FileTableSaving(FileTableStream, ABC):
-    @ValueDispatcher(locator="method")
-    def save(self, dataframe, args, file, mode, method, **kwargs): raise ValueError(method)
-
-    @save.register(EagerTableCSV)
-    def __eagercsv(self, dataframe, *args, file, mode, **kwargs):
-        dataframe = dataframe.copy()
-        for column, formatter in self.formatters.items():
-            dataframe[column] = dataframe[column].apply(formatter)
-        for column, dateformat in self.dates.items():
-            dataframe[column] = dataframe[column].dt.strftime(dateformat)
-        dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
-
-    @save.register(LazyTableCSV)
-    def __lazycsv(self, dataframe, *args, file, mode, **kwargs):
-        dataframe = dataframe.copy()
-        for column, formatter in self.formatters.items():
-            dataframe[column] = dataframe[column].apply(formatter)
-        for column, dateformat in self.dates.items():
-            dataframe[column] = dataframe[column].dt.strftime(dateformat)
-        parameters = dict(compute=True, single_file=True, header_first_partition_only=True)
-        dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w", **parameters)
-
-
-class FileTable(FileTableLoading, FileTableSaving, register=pd.DataFrame):
-    def __init__(self, *args, formatters={}, parsers={}, dates={}, types={}, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__formatters = formatters
-        self.__parsers = parsers
-        self.__dates = dates
-        self.__types = types
-
-    @property
-    def formatters(self): return self.__formatters
-    @property
-    def parsers(self): return self.__parsers
-    @property
-    def types(self): return self.__types
-    @property
-    def dates(self): return self.__dates
-
-
-class FileMeta(RegistryMeta, ABCMeta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        if not any([type(base) is FileMeta for base in bases]):
-            return super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
-        datatype = kwargs.get("datatype", None)
-        if datatype is not None:
-            bases = tuple([FileData[datatype]] + list(bases))
-            exclude = FileData.defaults(datatype).keys()
-            attrs = {key: value for key, value in attrs.items() if key not in exclude}
-        return super(FileMeta, mcs).__new__(mcs, name, bases, attrs)
-
-    def __init__(cls, name, bases, attrs, *args, datatype=None, variable=None, **kwargs):
-        super(FileMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        if not any([type(base) is FileMeta for base in bases]):
-            return
-        if variable is not None:
-            cls.__variable__ = variable
-        if datatype is not None:
-            parameters = FileData.defaults(datatype)
-            parameters = {key: attrs.get(key, value) for key, value in parameters.items()}
-            cls.__parameters__ = parameters
-            cls.__datatype__ = datatype
+class FileMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        cls.__variable__ = kwargs.get("variable", getattr(cls, "__variable__", None))
 
     def __call__(cls, *args, **kwargs):
         parameters = cls.parameters | dict(mutex=FileLock(), folder=cls.variable)
         instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
-    @property
-    def parameters(cls): return cls.__parameters__
+    def load(cls, *args, file, mode, **kwargs):
+        assert mode == "r"
+        parameters = dict(infer_datetime_format=False, parse_dates=list(cls.dates.keys()), date_format=cls.dates, dtype=cls.types, converters=cls.parsers)
+        dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
+        return dataframe
+
+    def save(cls, dataframe, args, file, mode, **kwargs):
+        dataframe = dataframe.copy()
+        for column, formatter in cls.formatters.items():
+            dataframe[column] = dataframe[column].apply(formatter)
+        for column, dateformat in cls.dates.items():
+            dataframe[column] = dataframe[column].dt.strftime(dateformat)
+        dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
+
     @property
     def variable(cls): return cls.__variable__
+
     @property
-    def datatype(cls): return cls.__datatype__
+    @abstractmethod
+    def formatters(cls): pass
+    @property
+    @abstractmethod
+    def parsers(cls): pass
+    @property
+    @abstractmethod
+    def types(cls): pass
+    @property
+    @abstractmethod
+    def dates(cls): pass
 
 
-class File(Logging, ABC, metaclass=FileMeta):
+class File(Logging, metaclass=FileMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, repository, **kwargs):
         instance = super().__new__(cls)
@@ -189,9 +84,9 @@ class File(Logging, ABC, metaclass=FileMeta):
     def __init__(self, *args, filetiming, filetype, repository, folder, mutex, **kwargs):
         super().__init__(*args, **kwargs)
         self.__repository = repository
+        self.__folder = folder
         self.__filetiming = filetiming
         self.__filetype = filetype
-        self.__folder = folder
         self.__mutex = mutex
 
     def __iter__(self):
@@ -201,7 +96,6 @@ class File(Logging, ABC, metaclass=FileMeta):
             yield filename
 
     def read(self, *args, mode="r", **kwargs):
-        method = FileMethod(self.filetiming, type(self).datatype, self.filetype)
         directory = os.path.join(self.repository, str(self.folder))
         extension = str(self.filetype.name).lower()
         try: filename = kwargs["filename"]
@@ -209,19 +103,18 @@ class File(Logging, ABC, metaclass=FileMeta):
         file = os.path.join(directory, ".".join([filename, extension]))
         if not os.path.exists(file): return
         with self.mutex[file]:
-            parameters = dict(file=str(file), mode=mode, method=method)
+            parameters = dict(file=str(file), mode=mode)
             content = self.load(*args, **parameters, **kwargs)
         return content
 
     def write(self, content, *args, mode, **kwargs):
-        method = FileMethod(self.filetiming, type(self).datatype, self.filetype)
         directory = os.path.join(self.repository, str(self.folder))
         extension = str(self.filetype.name).lower()
         try: filename = kwargs["filename"]
         except KeyError: filename = self.filename(*args, **kwargs)
         file = os.path.join(directory, ".".join([filename, extension]))
         with self.mutex[file]:
-            parameters = dict(file=str(file), mode=mode, method=method)
+            parameters = dict(file=str(file), mode=mode)
             self.save(content, *args, **parameters, **kwargs)
         string = f"Saved: {str(file)}"
         self.logger.info(string)
@@ -242,7 +135,7 @@ class File(Logging, ABC, metaclass=FileMeta):
     def mutex(self): return self.__mutex
 
 
-class Filer(Logging, Sizing, Emptying, Separating, ABC):
+class Process(Logging, Sizing, Emptying, Separating, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
         except TypeError: super().__init_subclass__()
@@ -258,7 +151,7 @@ class Filer(Logging, Sizing, Emptying, Separating, ABC):
     def execute(self, *args, **kwargs): pass
 
 
-class Loader(Filer):
+class Loader(Process):
     def execute(self, *args, **kwargs):
         if not bool(self.file): return
         for filename in iter(self.file):
@@ -272,7 +165,7 @@ class Loader(Filer):
                 yield content
 
 
-class Saver(Filer):
+class Saver(Process):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
         for group, content in self.source(contents, *args, keys=list(self.query), **kwargs):

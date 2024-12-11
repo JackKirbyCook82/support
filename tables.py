@@ -8,47 +8,25 @@ Created on Weds Jul 12 2023
 
 import multiprocessing
 import pandas as pd
-from abc import ABC, ABCMeta, abstractmethod
+from abc import ABC, abstractmethod
 
 from support.mixins import Logging, Emptying, Sizing, Separating
-from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Reader", "Routine", "Writer", "Process", "Table"]
+__all__ = ["Reader", "Routine", "Writer", "Table"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class TableMeta(RegistryMeta, ABCMeta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        if not any([type(base) is TableMeta for base in bases]):
-            return super(TableMeta, mcs).__new__(mcs, name, bases, attrs)
-        datatype = kwargs.get("datatype", None)
-        if datatype is not None: bases = tuple([Table[datatype]] + list(bases))
-        cls = super(TableMeta, mcs).__new__(mcs, name, bases, attrs)
-        return cls
-
-    def __init__(cls, *args, **kwargs):
-        super(TableMeta, cls).__init__(*args, **kwargs)
-        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
-
-    def __call__(cls, *args, **kwargs):
-        parameters = dict(mutex=multiprocessing.RLock())
-        instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
-        return instance
-
-    @property
-    def datatype(cls): return cls.__datatype__
-
-
-class Table(Logging, ABC, metaclass=TableMeta):
-    def __init__(self, *args, data, header, layout, mutex, **kwargs):
+class Table(Logging, ABC):
+    def __init__(self, *args, header, layout, **kwargs):
+        assert all([hasattr(layout, attribute) for attribute in ("order", "numbers", "width", "columns", "rows")])
         super().__init__(*args, **kwargs)
+        self.__mutex = multiprocessing.RLock()
+        self.__data = pd.DataFrame(columns=list(header))
         self.__header = header
         self.__layout = layout
-        self.__mutex = mutex
-        self.__data = data
 
     def __repr__(self): return f"{str(self.name)}[{len(self):.0f}]"
     def __len__(self): return int(self.size) if bool(self) else 0
@@ -58,48 +36,21 @@ class Table(Logging, ABC, metaclass=TableMeta):
     def __setitem__(self, locator, value): self.set(locator, value)
     def __getitem__(self, locator): return self.get(locator)
 
-    @abstractmethod
-    def set(self, locator, value): pass
-    @abstractmethod
-    def get(self, locator): pass
-
-    @property
-    def view(self):
+    def draw(self, *args, **kwargs):
+        if self.empty: return ""
+        order = [self.stack(column) for column in self.layout.order]
+        formats = {self.stack(column): value for column, value in self.layout.formats.items()}
+        formats = {"formatters": kwargs.get("formats", formats)}
+        numbers = {"float_format": kwargs.get("numbers", self.layout.numbers)}
+        width = {"line_width": kwargs.get("width", self.layout.width)}
+        columns = {"max_cols": kwargs.get("columns", self.layout.columns)}
+        rows = {"max_rows": kwargs.get("rows", self.layout.rows)}
+        parameters = formats | numbers | width | columns | rows
+        string = self.dataframe[order].to_string(**parameters, show_dimensions=True)
         boundary = "=" * int(self.layout.width)
-        string = self.string if not self.empty else ""
-        assert isinstance(string, str)
         strings = [boundary, string, boundary] if bool(string) else []
         string = "\n".join(strings) + "\n" if bool(strings) else ""
         return string
-
-    @property
-    def layout(self): return self.__layout
-    @property
-    def header(self): return self.__header
-    @property
-    def mutex(self): return self.__mutex
-    @property
-    def data(self): return self.__data
-    @data.setter
-    def data(self, data): self.__data = data
-
-    @property
-    @abstractmethod
-    def string(self): pass
-    @property
-    @abstractmethod
-    def empty(self): pass
-    @property
-    @abstractmethod
-    def size(self): pass
-
-
-class TableDataFrame(Table, register=pd.DataFrame):
-    def __init__(self, *args, header, layout, **kwargs):
-        assert all([hasattr(layout, attribute) for attribute in ("order", "numbers", "width", "columns", "rows")])
-        data = pd.DataFrame(columns=list(header))
-        parameters = dict(data=data, header=header, layout=layout)
-        super().__init__(*args, **parameters, **kwargs)
 
     def append(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
@@ -191,16 +142,20 @@ class TableDataFrame(Table, register=pd.DataFrame):
         return column + tuple([""]) * (int(self.stacking) - len(column))
 
     @property
-    def string(self):
-        order = [self.stack(column) for column in self.layout.order]
-        formats = {"formatters": {self.stack(column): value for column, value in self.layout.formats.items()}}
-        numbers = {"float_format": self.layout.numbers}
-        width = {"line_width": self.layout.width}
-        columns = {"max_cols": self.layout.columns}
-        rows = {"max_rows": self.layout.rows}
-        parameters = formats | numbers | width | columns | rows
-        string = self.dataframe[order].to_string(**parameters, show_dimensions=True)
-        return string
+    def layout(self): return self.__layout
+    @property
+    def header(self): return self.__header
+    @property
+    def mutex(self): return self.__mutex
+
+    @property
+    def data(self): return self.__data
+    @data.setter
+    def data(self, data): self.__data = data
+    @property
+    def dataframe(self): return self.data
+    @dataframe.setter
+    def dataframe(self, dataframe): self.data = dataframe
 
     @property
     def stacking(self): return int(self.columns.nlevels) if bool(self.stacked) else 0
@@ -215,13 +170,8 @@ class TableDataFrame(Table, register=pd.DataFrame):
     @property
     def index(self): return self.data.index
 
-    @property
-    def dataframe(self): return self.data
-    @dataframe.setter
-    def dataframe(self, dataframe): self.data = dataframe
 
-
-class Tabular(Logging, Sizing, Emptying, Separating, ABC):
+class Process(Logging, Sizing, Emptying, Separating, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
         except TypeError: super().__init_subclass__()
@@ -236,7 +186,7 @@ class Tabular(Logging, Sizing, Emptying, Separating, ABC):
     def execute(self, *args, **kwargs): pass
 
 
-class Reader(Tabular, ABC):
+class Reader(Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutux: contents = self.read(*args, **kwargs)
@@ -253,7 +203,7 @@ class Reader(Tabular, ABC):
     def read(self, *args, **kwargs): pass
 
 
-class Routine(Tabular, ABC):
+class Routine(Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex: self.invoke(*args, **kwargs)
@@ -262,7 +212,7 @@ class Routine(Tabular, ABC):
     def invoke(self, *args, **kwargs): pass
 
 
-class Writer(Tabular, ABC):
+class Writer(Process, ABC):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
         for group, content in self.separate(contents, *args, keys=list(self.query), **kwargs):
