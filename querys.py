@@ -182,21 +182,21 @@ class Query(ABCMeta):
         instance = super(Query, cls).__call__(contents, delimiter=cls.delimiter)
         return instance
 
-    def __call__(cls, values):
-        if isinstance(values, str):
-            strings = str(values).split(cls.delimiter)
+    def __call__(cls, parameters):
+        if isinstance(parameters, str):
+            strings = str(parameters).split(cls.delimiter)
             assert len(strings) == len(cls.datafields)
             contents = [field[string] for field, string in zip(cls.datafields.values(), strings)]
-        elif isinstance(values, list):
-            assert len(values) == len(cls.datafields)
-            contents = [field(value) for field, value in zip(cls.datafields.values(), values)]
-        elif isinstance(values, dict):
-            assert len(values) >= len(cls.datafields)
+        elif isinstance(parameters, list):
+            assert len(parameters) == len(cls.datafields)
+            contents = [field(value) for field, value in zip(cls.datafields.values(), parameters)]
+        elif isinstance(parameters, dict):
+            assert len(parameters) >= len(cls.datafields)
+            contents = [field(parameters[name]) for name, field in cls.datafields.items()]
+        elif isinstance(parameters, QueryBase):
+            values = ODict(parameters.items())
             contents = [field(values[name]) for name, field in cls.datafields.items()]
-        elif isinstance(values, QueryBase):
-            values = ODict(values.items())
-            contents = [field(values[name]) for name, field in cls.datafields.items()]
-        else: raise TypeError(type(values))
+        else: raise TypeError(type(parameters))
         instance = super(Query, cls).__call__(contents, delimiter=cls.delimiter)
         return instance
 

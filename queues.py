@@ -7,7 +7,7 @@ Created on Weds Jul 12 2023
 """
 
 import queue
-from enum import StrEnum
+from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.meta import AttributeMeta
@@ -20,7 +20,7 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-QueueTypes = StrEnum("QueueTypes", "LIFO FIFO PIFO")
+QueueTypes = Enum("QueueTypes", "LIFO FIFO PIFO")
 class QueueMeta(AttributeMeta, ABCMeta):
     def __init__(cls, name, bases, attrs, *args, queuetype=None, datatype=None, **kwargs):
         if not any([type(base) is QueueMeta for base in bases]):

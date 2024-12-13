@@ -21,17 +21,17 @@ class Filter(Logging, Sizing, Emptying, Separating):
     def __init_subclass__(cls, *args, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
         except TypeError: super().__init_subclass__()
-        cls.query = kwargs.get("query", getattr(cls, "query", None))
+        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
 
     def __init__(self, *args, criterion, **kwargs):
         assert isinstance(criterion, list) or callable(criterion)
         assert all([callable(function) for function in criterion]) if isinstance(criterion, list) else callable(criterion)
         super().__init__(*args, **kwargs)
-        self.criterion = list(criterion) if isinstance(criterion, list) else [criterion]
+        self.__criterion = list(criterion) if isinstance(criterion, list) else [criterion]
 
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
-        for group, content in self.separate(contents, *args, keys=list(self.query), **kwargs):
+        for group, content in self.separate(contents, *args, fields=self.fields, **kwargs):
             query = self.query(group)
             prior = self.size(content)
             content = self.calculate(content, *args, **kwargs)
@@ -48,5 +48,10 @@ class Filter(Logging, Sizing, Emptying, Separating):
         if bool(mask is None): return content
         else: return content.where(mask, axis=0).dropna(how="all", inplace=False)
 
-
+    @property
+    def fields(self): return list(type(self).__query__)
+    @property
+    def query(self): return type(self).__query__
+    @property
+    def criterion(self): return self.__criterion
 

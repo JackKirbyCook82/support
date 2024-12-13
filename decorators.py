@@ -12,9 +12,39 @@ from functools import update_wrapper
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Decorator", "TypeDispatcher", "ValueDispatcher"]
+__all__ = ["Wrapper", "Decorator", "TypeDispatcher", "ValueDispatcher"]
 __copyright__ = "Copyright 2018, Jack Kirby Cook"
 __license__ = "MIT License"
+
+
+class Wrapper(object):
+    def __init__(self, function):
+        update_wrapper(self, function)
+        self.__wrapped__ = function
+        self.__self__ = None
+
+    def __call__(self, *args, **kwargs):
+        if self.instance is None: return self.wrapper(*args, **kwargs)
+        else: return self.wrapper(self.instance, *args, **kwargs)
+
+    def __get__(self, instance, owner):
+        if instance is None: return self
+        bounded = copy.copy(self)
+        bounded.instance = instance
+        update_wrapper(bounded, self.function)
+        attribute = self.function.__name__
+        setattr(instance, attribute, bounded)
+        return bounded
+
+    def wrapper(self, *args, **kwargs):
+        return self.function(*args, **kwargs)
+
+    @property
+    def function(self): return self.__wrapped__
+    @property
+    def instance(self): return self.__self__
+    @instance.setter
+    def instance(self, instance): self.__self__ = instance
 
 
 class Decorator(object):

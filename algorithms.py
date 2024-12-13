@@ -7,9 +7,10 @@ Created on Sat Oct 19 2024
 """
 
 import time
+import inspect
 from abc import ABC, abstractmethod
 
-from support.mixins import Logging
+from support.mixins import Function, Generator, Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -74,12 +75,13 @@ class Stage(Logging, ABC):
     def execute(self, *args, **kwargs): pass
 
 
-class Source(Stage, ABC):
+class Source(Generator, Stage, ABC):
     def __add__(self, other):
         assert isinstance(other, Algorithm)
         return Pipeline(self, [other])
 
     def __call__(self, *args, **kwargs):
+        assert inspect.isgeneratorfunction(self.execute)
         source = self.execute(*args, **kwargs)
         start = time.time()
         for contents in iter(source):
@@ -94,12 +96,13 @@ class Source(Stage, ABC):
             start = time.time()
 
 
-class Algorithm(Stage, ABC):
+class Algorithm(Function, Stage, ABC):
     def __call__(self, parameters, *args, **kwargs):
         assert isinstance(parameters, dict)
         if not all([key in parameters for key in self.domain]): PriorAlgorithmError(self)
         domain = list(map(parameters.get, self.domain))
         start = time.time()
+        assert not inspect.isgeneratorfunction(self.execute)
         contents = self.execute(*domain, *args, **kwargs)
         if contents is None: raise PostAlgorithmError(self)
         contents = [contents] if not isinstance(contents, tuple) else list(contents)
@@ -109,8 +112,6 @@ class Algorithm(Stage, ABC):
         self.logger.info(string)
         parameters = dict(zip(self.range, contents))
         return parameters
-
-
 
 
 

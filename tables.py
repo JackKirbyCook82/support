@@ -11,6 +11,7 @@ import pandas as pd
 from abc import ABC, abstractmethod
 
 from support.mixins import Logging, Emptying, Sizing, Separating
+from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -19,9 +20,23 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
+def render(dataframe, *args, style, order, formats, numbers, width, columns, rows, **kwargs):
+    boundary = str(style) * int(width)
+    formats = {"formatters": kwargs.get("formats", formats)}
+    numbers = {"float_format": kwargs.get("numbers", numbers)}
+    width = {"line_width": kwargs.get("width", width)}
+    columns = {"max_cols": kwargs.get("columns", columns)}
+    rows = {"max_rows": kwargs.get("rows", rows)}
+    parameters = formats | numbers | width | columns | rows
+    string = dataframe[order].to_string(**parameters, show_dimensions=True)
+    strings = [boundary, string, boundary] if bool(string) else []
+    string = ("\n".join(strings) + "\n") if bool(strings) else ""
+    return string
+
+
 class Table(Logging, ABC):
     def __init__(self, *args, header, layout, **kwargs):
-        assert all([hasattr(layout, attribute) for attribute in ("order", "numbers", "width", "columns", "rows")])
+        assert all([hasattr(layout, attribute) for attribute in ("order", "formats", "numbers", "width", "columns", "rows")])
         super().__init__(*args, **kwargs)
         self.__mutex = multiprocessing.RLock()
         self.__data = pd.DataFrame(columns=list(header))
@@ -31,26 +46,21 @@ class Table(Logging, ABC):
     def __repr__(self): return f"{str(self.name)}[{len(self):.0f}]"
     def __len__(self): return int(self.size) if bool(self) else 0
     def __bool__(self): return not bool(self.empty)
-    def __str__(self): return str(self.view)
+    def __str__(self): return self.render() if not self.empty else ""
 
     def __setitem__(self, locator, value): self.set(locator, value)
     def __getitem__(self, locator): return self.get(locator)
 
-    def draw(self, *args, **kwargs):
-        if self.empty: return ""
+    def render(self, *args, **kwargs):
         order = [self.stack(column) for column in self.layout.order]
-        formats = {self.stack(column): value for column, value in self.layout.formats.items()}
-        formats = {"formatters": kwargs.get("formats", formats)}
-        numbers = {"float_format": kwargs.get("numbers", self.layout.numbers)}
-        width = {"line_width": kwargs.get("width", self.layout.width)}
-        columns = {"max_cols": kwargs.get("columns", self.layout.columns)}
-        rows = {"max_rows": kwargs.get("rows", self.layout.rows)}
-        parameters = formats | numbers | width | columns | rows
-        string = self.dataframe[order].to_string(**parameters, show_dimensions=True)
-        boundary = "=" * int(self.layout.width)
-        strings = [boundary, string, boundary] if bool(string) else []
-        string = "\n".join(strings) + "\n" if bool(strings) else ""
-        return string
+        formats = kwargs.get("formats", self.layout.formats)
+        formats = {self.stack(column): value for column, value in formats.items()}
+        numbers = kwargs.get("numbers", self.layout.numbers)
+        width = kwargs.get("width", self.layout.width)
+        columns = kwargs.get("columns", self.layout.columns)
+        rows = kwargs.get("rows", self.layout.rows)
+        parameters = dict(order=order, formats=formats, numbers=numbers, width=width, columns=columns, rows=rows)
+        return render(self.dataframe, *args, style="=", **parameters, **kwargs)
 
     def append(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
@@ -171,28 +181,42 @@ class Table(Logging, ABC):
     def index(self): return self.data.index
 
 
-class Process(Logging, Sizing, Emptying, Separating, ABC):
+class Process(Logging, Sizing, Emptying, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
         except TypeError: super().__init_subclass__()
-        cls.query = kwargs.get("query", getattr(cls, "query", None))
+        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
 
     def __init__(self, *args, table, **kwargs):
         try: super().__init__(*args, **kwargs)
         except TypeError: super().__init__()
-        self.table = table
+        self.__table = table
+
+    @property
+    def fieldnames(self): return list(self.query)
+    @TypeDispatcher(locator=0)
+    def queryname(self, parameters): return self.query(parameters)
+    @queryname.register(str)
+    def string(self, string): return self.query[string]
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
+    @property
+    def fields(self): return list(type(self).__query__)
+    @property
+    def query(self): return type(self).__query__
+    @property
+    def table(self): return self.__table
 
-class Reader(Process, ABC):
+
+class Reader(Process, Separating, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
-        with self.table.mutux: contents = self.read(*args, **kwargs)
+        with self.table.mutex: contents = self.read(*args, **kwargs)
         if self.empty(contents): return
-        for group, content in self.source(contents, *args, keys=list(self.query), **kwargs):
-            query = self.query(group)
+        for parameters, content in self.separate(contents, *args, fields=self.fieldnames, **kwargs):
+            query = self.queryname(parameters)
             size = self.size(content)
             string = f"Read: {repr(self)}|{str(query)}[{size:.0f}]"
             self.logger.info(string)
@@ -212,11 +236,11 @@ class Routine(Process, ABC):
     def invoke(self, *args, **kwargs): pass
 
 
-class Writer(Process, ABC):
+class Writer(Process, Separating, ABC):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
-        for group, content in self.separate(contents, *args, keys=list(self.query), **kwargs):
-            query = self.query(group)
+        for group, content in self.separate(contents, *args, fields=self.fieldnames, **kwargs):
+            query = self.queryname(group)
             with self.table.mutex: self.write(content, *args, **kwargs)
             size = self.size(content)
             string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"

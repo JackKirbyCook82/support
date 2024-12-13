@@ -26,7 +26,7 @@ class Styles:
     Curved = Style("├──", "╰──", "│  ", "   ")
 
 
-def renderer(node, layers=[], style=Styles.Single):
+def render(node, *args, style, layers=[], **kwargs):
     last = lambda indx, length: indx == length
     prefix = lambda indx, length: style.terminate if last(indx, length) else style.blank
     padding = lambda: "".join([style.blank if layer else style.run for layer in layers])
@@ -37,7 +37,7 @@ def renderer(node, layers=[], style=Styles.Single):
     for index, (key, values) in enumerate(children):
         for value in [values] if not isinstance(values, (list, tuple)) else list(values):
             yield function(index, size - 1), value
-            yield from renderer(value, layers=[*layers, last(index, size - 1)], style=style)
+            yield from render(value, *args, layers=[*layers, last(index, size - 1)], style=style, **kwargs)
 
 
 class Node(ABC):
@@ -55,8 +55,8 @@ class Node(ABC):
     def values(self): return self.nodes.values()
     def items(self): return self.nodes.items()
 
-    def tree(self, *args, style=Styles.Single, **kwargs):
-        generator = renderer(self, style=style)
+    def render(self, *args, style=Styles.Single, **kwargs):
+        generator = render(self, style=style)
         rows = [prefix + str() for prefix, value in iter(generator)]
         return "\n".format(rows)
 

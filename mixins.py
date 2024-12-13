@@ -80,37 +80,40 @@ class Memory(object):
 
 class Separating(object):
     @TypeDispatcher(locator=0)
-    def groups(self, content, *args, keys, **kwargs): raise TypeError(type(content))
-    @groups.register(pd.DataFrame)
-    def __series(self, dataframe, *args, keys, **kwargs): return ODict(zip(keys, dataframe.groupby(keys).groups.keys()))
-    @groups.register(xr.Dataset)
-    def __dataarray(self, dataset, *args, keys, **kwargs): return ODict(zip(keys, dataset.stack(stack=keys).groupby().groups.keys()))
+    def separate(self, contents, *args, **kwargs): raise TypeError(type(contents))
 
-    @TypeDispatcher(locator=0)
-    def separate(self, content, *args, keys, **kwargs): raise TypeError(type(content))
+    @separate.register(list)
+    def __collection(self, collection, *args, **kwargs):
+        for content in iter(collection):
+            yield from self.separate(content, *args, **kwargs)
 
     @separate.register(pd.DataFrame)
-    def __dataframe(self, dataframe, *args, keys, **kwargs):
-        generator = dataframe.groupby(keys)
-        for values, dataframe in iter(generator):
-            group = ODict(zip(keys, values))
-            yield group, dataframe
+    def __dataframe(self, dataframe, *args, fields, **kwargs):
+        generator = dataframe.groupby(fields)
+        for parameters, dataframe in iter(generator):
+            parameters = ODict(zip(fields, parameters))
+            yield parameters, dataframe
 
     @separate.register(xr.Dataset)
-    def __dataset(self, dataset, *args, keys, **kwargs):
-        dataset = dataset.stack(stack=keys)
+    def __dataset(self, dataset, *args, fields, **kwargs):
+        dataset = dataset.stack(stack=fields)
         generator = dataset.groupby("stack")
-        for values, dataset in iter(generator):
+        for parameters, dataset in iter(generator):
             dataset = dataset.unstack().drop_vars("stack")
-            group = ODict(zip(keys, values))
-            yield group, dataset
+            parameters = ODict(zip(fields, parameters))
+            yield parameters, dataset
 
 
 class Function(ABC):
-    def __new__(cls, *args, combine=None, **kwargs):
+    def __init_subclass__(cls, *args, assemble=True, **kwargs):
+        assert isinstance(assemble, bool)
+        try: super().__init_subclass__(*args, **kwargs)
+        except TypeError: super().__init_subclass__()
+        cls.assemble = assemble
+
+    def __new__(cls, *args, **kwargs):
         if not inspect.isgeneratorfunction(cls.execute):
             return super().__new__(cls)
-        assert callable(combine) or isinstance(combine, types.NoneType)
         execute = cls.execute
 
         def wrapper(self, *arguments, **parameters):
@@ -118,8 +121,8 @@ class Function(ABC):
             generator = execute(self, *arguments, **parameters)
             collection = list(generator)
             if not bool(collection): return
-            if combine is None: return collection
-            else: return combine(collection)
+            elif bool(cls.assemble): return self.combination(*collection)
+            else: return collection
 
         update_wrapper(wrapper, execute)
         setattr(cls, "execute", wrapper)
@@ -127,6 +130,14 @@ class Function(ABC):
         assert Generator not in mro
         try: return super().__new__(cls, *args, **kwargs)
         except TypeError: return super().__new__(cls)
+
+    @TypeDispatcher(locator=0)
+    def combination(self, content, *contents): raise TypeError(type(content))
+    @combination.register(pd.DataFrame)
+    def __dataframe(self, content, *contents):
+        assert all([isinstance(dataframe, pd.DataFrame) for dataframe in contents])
+        contents = [content] + list(contents)
+        return pd.concat(contents, axis=0)
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass

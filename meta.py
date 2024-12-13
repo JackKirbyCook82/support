@@ -6,18 +6,14 @@ Created on Fri Aug 27 2021
 
 """
 
-import time
 import types
-import multiprocessing
 from abc import ABCMeta
 from itertools import chain
-from functools import update_wrapper
-from datetime import datetime as Datetime
 from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DelayerMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "NamingMeta"]
+__all__ = ["SingletonMeta", "AttributeMeta", "RegistryMeta", "ParameterMeta", "NamingMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -45,50 +41,14 @@ class Meta(ABCMeta):
         except TypeError: super(Meta, cls).__init__(name, bases, attrs, *args, **kwargs)
 
 
-class DelayerMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(DelayerMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        cls.__delay__ = kwargs.get("delay", getattr(cls, "__delay__", None))
-        cls.__mutex__ = multiprocessing.Lock()
-        cls.__timer__ = None
-
-    def wait(cls):
-        with cls.mutex:
-            if bool(cls.timer) and bool(cls.delay):
-                seconds = (Datetime.now() - cls.timer).total_seconds()
-                wait = max(cls.delay - seconds, 0)
-                time.sleep(wait)
-            cls.timer = Datetime.now()
-
-    @staticmethod
-    def delayer(function):
-        assert "." in function.__qualname__
-
-        def wrapper(self, *args, **kwargs):
-            type(self).wait()
-            return function(self, *args, **kwargs)
-
-        update_wrapper(wrapper, function)
-        return wrapper
-
-    @property
-    def delay(cls): return cls.__delay__
-    @property
-    def mutex(cls): return cls.__mutex__
-    @property
-    def timer(cls): return cls.__timer__
-    @timer.setter
-    def timer(cls, timer): cls.__timer__ = timer
-
-
 class SingletonMeta(Meta):
-    __instances__ = {}
+    instances = {}
 
     def __call__(cls, *args, **kwargs):
-        if cls not in SingletonMeta.__instances__.keys():
+        if cls not in SingletonMeta.instances.keys():
             instance = super(SingletonMeta, cls).__call__(*args, **kwargs)
-            SingletonMeta.__instances__[cls] = instance
-        return SingletonMeta.__instances__[cls]
+            SingletonMeta.instances[cls] = instance
+        return SingletonMeta.instances[cls]
 
 
 class RegistryMeta(Meta):
@@ -127,6 +87,17 @@ class AttributeMeta(Meta):
 
     @property
     def root(cls): return cls.__root__
+
+
+class ParameterMeta(Meta):
+    def __iter__(cls): return iter(cls.parameters.items())
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        parameters = (types.FunctionType, types.LambdaType)
+        parameters = {key: value for key, value in attrs.items() if not isinstance(value, parameters)}
+        cls.__parameters__ = parameters
+
+    @property
+    def parameters(cls): return cls.__parameters__
 
 
 class NamingMeta(Meta):

@@ -22,16 +22,18 @@ class Transform(Logging, Sizing, Emptying, Separating, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
         except TypeError: super().__init_subclass__()
-        cls.query = kwargs.get("query", getattr(cls, "query", None))
+        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
 
     def __init__(self, *args, header, **kwargs):
         super().__init__(*args, **kwargs)
-        self.index, self.columns = header
+        index, columns = header
+        self.__columns = columns
+        self.__index = index
 
     def execute(self, dataframes, *args, **kwargs):
         assert isinstance(dataframes, pd.DataFrame)
         if self.empty(dataframes): return
-        for group, dataframe in self.separate(dataframes, *args, keys=list(self.query), **kwargs):
+        for group, dataframe in self.separate(dataframes, *args, fields=self.fields, **kwargs):
             query = self.query(group)
             prior = self.size(dataframe)
             dataframe = self.calculate(dataframe, *args, **kwargs)
@@ -44,6 +46,15 @@ class Transform(Logging, Sizing, Emptying, Separating, ABC):
 
     @abstractmethod
     def calculate(self, dataframe, *args,  **kwargs): pass
+
+    @property
+    def fields(self): return list(type(self).__query__)
+    @property
+    def query(self): return type(self).__query__
+    @property
+    def columns(self): return self.__columns
+    @property
+    def index(self): return self.__index
 
 
 class Pivot(Transform):
