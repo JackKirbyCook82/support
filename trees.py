@@ -13,7 +13,7 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SingleNode", "MultipleNode", "MixedNode"]
+__all__ = ["LinearSingleNode", "NonLinearSingleNode", "LinearMultipleNode", "NonLinearMultipleNode", "LinearMixedNode", "NonLinearMixedNode"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -42,7 +42,7 @@ def render(node, *args, style, layers=[], **kwargs):
 
 class Node(ABC):
     def __init__(self, *args, **kwargs):
-        self.__nodes = ODict()
+        self.__children = ODict()
 
     def __contains__(self, key): return bool(key in self.nodes.keys())
     def __setitem__(self, key, value): self.set(key, value)
@@ -65,8 +65,6 @@ class Node(ABC):
     @property
     def branches(self): return [value for value in self.transverse() if bool(value.children)]
     @property
-    def children(self): return list(self.nodes.values())
-    @property
     def size(self): return len(self.nodes)
 
     @abstractmethod
@@ -77,10 +75,22 @@ class Node(ABC):
     def get(self, *args, **kwargs): pass
 
     @property
-    def nodes(self): return self.__nodes
+    def children(self): return self.__nodes
 
 
-class SingleNode(Node):
+class NonLinearNode(Node, ABC): pass
+class LinearNode(Node, ABC):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__parent = None
+
+    @property
+    def parent(self): return self.__parent
+    @parent.setter
+    def parent(self, parent): self.__parent = parent
+
+
+class SingleNode(Node, ABC):
     def get(self, key): return self.nodes[key]
     def set(self, key, value):
         assert isinstance(value, Node)
@@ -94,7 +104,7 @@ class SingleNode(Node):
             yield from transverse
 
 
-class MultipleNode(Node):
+class MultipleNode(Node, ABC):
     def get(self, key): return self.nodes[key]
     def set(self, key, value):
         assert isinstance(value, (list, Node))
@@ -111,7 +121,7 @@ class MultipleNode(Node):
                 yield from transverse
 
 
-class MixedNode(Node):
+class MixedNode(Node, ABC):
     def get(self, key): return self.nodes[key]
     def set(self, key, content):
         assert isinstance(content, (Node, list))
@@ -137,3 +147,41 @@ class MixedNode(Node):
                 yield from transverse
 
 
+class NonLinearSingleNode(NonLinearNode, SingleNode): pass
+class LinearSingleNode(LinearNode, SingleNode):
+    def set(self, key, value):
+        assert value.parent is None
+        value.parent = self
+        super().set(key, value)
+
+
+class NonLinearMultipleNode(NonLinearNode, MultipleNode): pass
+class LinearMultipleNode(LinearNode, MultipleNode):
+    def set(self, key, value):
+        assert isinstance(value, (list, Node))
+        values = [value] if isinstance(value, None) else list(value)
+        assert all([value.parent is None for value in values])
+        for value in values: value.parent = self
+        super().set(key, value)
+
+
+class NonLinearMixedNode(NonLinearNode, MixedNode): pass
+class LinearMixedNode(LinearNode, MixedNode):
+    def set(self, key, value):
+        assert isinstance(value, (list, Node))
+        values = [value] if isinstance(value, None) else list(value)
+        assert all([value.parent is None for value in values])
+        for value in values: value.parent = self
+        super().set(key, value)
+
+    def append(self, key, value):
+        assert isinstance(value, Node)
+        assert value.parent is None
+        value.parent = self
+        super().append(key, value)
+
+    def extend(self, key, values):
+        assert isinstance(values, list) and all([isinstance(value, Node) for value in values])
+        assert all([value.parent is None for value in values])
+        for value in values: value.parent = self
+        super().extend(key, values)
