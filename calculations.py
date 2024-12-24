@@ -16,8 +16,8 @@ from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 from support.decorators import TypeDispatcher
-from support.trees import NonLinearSingleNode
 from support.meta import RegistryMeta
+from support.trees import SingleNode
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -73,11 +73,11 @@ class ArrayVectorizedAlgorithm(VectorizedAlgorithm, register=VectorizedArray):
         return xr.apply_ufunc(wrapper, *self.arguments, output_dtypes=[vartype], vectorize=True, kwargs=self.parameters)
 
 
-class Variable(NonLinearSingleNode, ABC, metaclass=RegistryMeta):
+class Variable(SingleNode, ABC, metaclass=RegistryMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, **kwargs):
         if issubclass(cls, Variable) and cls is not Variable:
-            return NonLinearSingleNode.__new__(cls)
+            return SingleNode.__new__(cls)
         function = kwargs.get("function", None)
         datatype = args[-1]
         vartype = VariableType(bool(function), datatype)
@@ -153,7 +153,7 @@ class Dependent(Variable, register=[CalculatedTable, CalculatedArray]):
         return algorithm(*args, vartype=self.vartype, **kwargs)
 
     def execute(self, order):
-        execution = [child.execute(order) for child in self.children]
+        execution = [child.execute(order) for child in self.values()]
         source = lambda arguments, parameters: parameters[str(self)] if str(self) in parameters else arguments[order.index(self)]
         calculate = lambda arguments, parameters: self.function(*[execute(arguments, parameters) for execute in execution])
         wrapper = source if bool(self) else calculate

@@ -13,7 +13,7 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SingletonMeta", "AttributeMeta", "RegistryMeta", "ParameterMeta", "NamingMeta"]
+__all__ = ["SingletonMeta", "ParametersMeta", "AttributeMeta", "RegistryMeta", "DictionaryMeta", "NamingMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -32,13 +32,17 @@ astype = lambda base, meta: meta(base.__name__, (base,), {})
 
 
 class Meta(ABCMeta):
+    def __init_subclass__(mcs, *args, **kwargs):
+        try: return super(Meta, mcs).__init_subclass__(*args, **kwargs)
+        except TypeError: return super(Meta, mcs).__init_subclass__()
+
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         try: return super(Meta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
         except TypeError: return super(Meta, mcs).__new__(mcs, name, bases, attrs)
 
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        try: super(Meta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        except TypeError: super(Meta, cls).__init__(name, bases, attrs, *args, **kwargs)
+    def __init__(cls, *args, **kwargs):
+        try: super(Meta, cls).__init__(*args, **kwargs)
+        except TypeError: super(Meta, cls).__init__()
 
 
 class SingletonMeta(Meta):
@@ -49,6 +53,23 @@ class SingletonMeta(Meta):
             instance = super(SingletonMeta, cls).__call__(*args, **kwargs)
             SingletonMeta.instances[cls] = instance
         return SingletonMeta.instances[cls]
+
+
+class ParametersMeta(Meta):
+    def __init__(cls, *args, **kwargs):
+        super(ParametersMeta, cls).__init__(*args, **kwargs)
+        parameters = getattr(cls, "__parameters__", {}) | dict.fromkeys(kwargs.get("parameters", []))
+        parameters = {key: kwargs.get(key, value) for key, value in parameters.items()}
+        cls.__parameters__ = parameters
+
+    def __call__(cls, *args, **kwargs):
+        parameters = {key: value for key, value in cls.parameters.items()}
+        kwargs = parameters | kwargs
+        instance = super(ParametersMeta, cls).__call__(*args, **kwargs)
+        return instance
+
+    @property
+    def parameters(cls): return cls.__parameters__
 
 
 class RegistryMeta(Meta):
@@ -89,15 +110,20 @@ class AttributeMeta(Meta):
     def root(cls): return cls.__root__
 
 
-class ParameterMeta(Meta):
-    def __iter__(cls): return iter(cls.parameters.items())
+class DictionaryMeta(Meta):
+    def __contains__(cls, key): return bool(key in cls.contents.keys())
+    def __getitem__(cls, key): return cls.contents[key]
+    def __setitem__(cls, key, value): cls.contents[key] = value
+    def __iter__(cls): return iter(cls.contents.items())
+
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        parameters = (types.FunctionType, types.LambdaType)
-        parameters = {key: value for key, value in attrs.items() if not isinstance(value, parameters)}
-        cls.__parameters__ = parameters
+        super(DictionaryMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        contents = (types.FunctionType, types.LambdaType)
+        contents = {key: value for key, value in attrs.items() if not isinstance(value, contents)}
+        cls.__contents__ = contents
 
     @property
-    def parameters(cls): return cls.__parameters__
+    def contents(cls): return cls.__contents__
 
 
 class NamingMeta(Meta):

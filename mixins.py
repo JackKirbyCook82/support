@@ -27,7 +27,21 @@ __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-class Emptying(object):
+class Mixin(ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        try: return super().__init_subclass__(*args, **kwargs)
+        except TypeError: return super().__init_subclass__()
+
+    def __new__(cls, *args, **kwargs):
+        try: return super().__new__(cls, *args, **kwargs)
+        except TypeError: return super().__new__(cls)
+
+    def __init__(self, *args, **kwargs):
+        try: super().__init__(*args, **kwargs)
+        except TypeError: super().__init__()
+
+
+class Emptying(Mixin):
     @TypeDispatcher(locator=0)
     def empty(self, content, *args, **kwargs): raise TypeError(type(content))
     @empty.register(dict)
@@ -46,7 +60,7 @@ class Emptying(object):
     def __nothing(self, *args, **kwargs): return True
 
 
-class Sizing(object):
+class Sizing(Mixin):
     @TypeDispatcher(locator=0)
     def size(self, content, *args, **kwargs): raise TypeError(type(content))
     @size.register(dict)
@@ -65,7 +79,7 @@ class Sizing(object):
     def __nothing(self, *args, **kwargs): return 0
 
 
-class Memory(object):
+class Memory(Mixin):
     @TypeDispatcher(locator=0)
     def memory(self, content, *args, **kwargs): raise TypeError(type(content))
     @memory.register(dict)
@@ -78,7 +92,7 @@ class Memory(object):
     def __nothing(self, *args, **kwargs): return 0
 
 
-class Separating(object):
+class Separating(Mixin):
     @TypeDispatcher(locator=0)
     def separate(self, contents, *args, **kwargs): raise TypeError(type(contents))
 
@@ -104,16 +118,15 @@ class Separating(object):
             yield parameters, dataset
 
 
-class Function(ABC):
+class Function(Mixin):
     def __init_subclass__(cls, *args, assemble=True, **kwargs):
         assert isinstance(assemble, bool)
-        try: super().__init_subclass__(*args, **kwargs)
-        except TypeError: super().__init_subclass__()
+        super().__init_subclass__(*args, **kwargs)
         cls.assemble = assemble
 
     def __new__(cls, *args, **kwargs):
         if not inspect.isgeneratorfunction(cls.execute):
-            return super().__new__(cls)
+            return super().__new__(cls, *args, **kwargs)
         execute = cls.execute
 
         def wrapper(self, *arguments, **parameters):
@@ -128,8 +141,7 @@ class Function(ABC):
         setattr(cls, "execute", wrapper)
         mro = list(cls.__mro__)
         assert Generator not in mro
-        try: return super().__new__(cls, *args, **kwargs)
-        except TypeError: return super().__new__(cls)
+        return super().__new__(cls, *args, **kwargs)
 
     @TypeDispatcher(locator=0)
     def combination(self, content, *contents): raise TypeError(type(content))
@@ -143,10 +155,10 @@ class Function(ABC):
     def execute(self, *args, **kwargs): pass
 
 
-class Generator(ABC):
+class Generator(Mixin):
     def __new__(cls, *args, **kwargs):
         if inspect.isgeneratorfunction(cls.execute):
-            return super().__new__(cls)
+            return super().__new__(cls, *args, **kwargs)
         execute = cls.execute
 
         def wrapper(self, *arguments, **parameters):
@@ -158,18 +170,16 @@ class Generator(ABC):
         setattr(cls, "execute", wrapper)
         mro = list(cls.__mro__)
         assert Function not in mro
-        try: return super().__new__(cls, *args, **kwargs)
-        except TypeError: return super().__new__(cls)
+        return super().__new__(cls, *args, **kwargs)
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
 
-class Logging(object):
+class Logging(Mixin):
     def __repr__(self): return str(self.name)
     def __init__(self, *args, **kwargs):
-        try: super().__init__(*args, **kwargs)
-        except TypeError: super().__init__()
+        super().__init__(*args, **kwargs)
         self.__name = kwargs.pop("name", self.__class__.__name__)
         self.__logger = __logger__
 
@@ -179,10 +189,9 @@ class Logging(object):
     def name(self): return self.__name
 
 
-class Naming(object):
+class Naming(Mixin):
     def __init_subclass__(cls, *args, **kwargs):
-        try: super().__init_subclass__(*args, **kwargs)
-        except TypeError: super().__init_subclass__()
+        super().__init_subclass__(*args, **kwargs)
         cls.fields = getattr(cls, "fields", []) + kwargs.get("fields", [])
         cls.named = getattr(cls, "named", {}) | kwargs.get("named", {})
 
@@ -200,10 +209,9 @@ class Naming(object):
         return instance
 
 
-class Publisher(object):
+class Publisher(Mixin):
     def __init__(self, *args, **kwargs):
-        try: super().__init__(*args, **kwargs)
-        except TypeError: super().__init__()
+        super().__init__(*args, **kwargs)
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__subscribers = set()
 
@@ -229,10 +237,9 @@ class Publisher(object):
     def name(self): return self.__name
 
 
-class Subscriber(ABC):
+class Subscriber(Mixin):
     def __init__(self, *args, **kwargs):
-        try: super().__init__(*args, **kwargs)
-        except TypeError: super().__init__()
+        super().__init__(*args, **kwargs)
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__publishers = set()
 
