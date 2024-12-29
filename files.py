@@ -31,13 +31,12 @@ class FileLock(dict, metaclass=SingletonMeta):
 
 
 class FileMeta(ABCMeta):
-    fields = ("formatters", "parsers", "types", "dates")
+    fields = ("order", "formatters", "parsers", "types", "dates")
 
     def __init__(cls, *args, **kwargs):
         variable = kwargs.get("variable", getattr(cls, "__variable__", None))
-        parameters = getattr(cls, "__parameters__", {}).copy()
-        for field in type(cls).fields:
-            parameters[field] = parameters.get(field, {}) | kwargs.get(field, {})
+        parameters = {field: getattr(cls, "parameters", {}).get(field, None) for field in type(cls).fields}
+        parameters = {key: kwargs.get(key, value) for key, value in parameters.items()}
         cls.__parameters__ = parameters
         cls.__variable__ = variable
 
@@ -64,6 +63,7 @@ class File(Logging, metaclass=FileMeta):
         super().__init__(*args, **kwargs)
         self.__formatters = kwargs.get("formatters", {})
         self.__parsers = kwargs.get("parsers", {})
+        self.__order = kwargs.get("order", [])
         self.__types = kwargs.get("types", {})
         self.__dates = kwargs.get("dates", {})
         self.__repository = repository
@@ -100,7 +100,8 @@ class File(Logging, metaclass=FileMeta):
         assert mode == "r" and str(file).split(".")[-1] == "csv"
         parameters = dict(infer_datetime_format=False, parse_dates=list(self.dates.keys()), date_format=self.dates, dtype=self.types, converters=self.parsers)
         dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
-        return dataframe
+        columns = [column for column in list(self.order if bool(self.order) else dataframe.columns) if column in dataframe.columns]
+        return dataframe[columns]
 
     def save(self, dataframe, *args, file, mode, **kwargs):
         assert str(file).split(".")[-1] == "csv"
@@ -109,12 +110,15 @@ class File(Logging, metaclass=FileMeta):
             dataframe[column] = dataframe[column].apply(formatter)
         for column, dateformat in self.dates.items():
             dataframe[column] = dataframe[column].dt.strftime(dateformat)
-        dataframe.to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
+        columns = [column for column in list(self.order if bool(self.order) else dataframe.columns) if column in dataframe.columns]
+        dataframe[columns].to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
     @property
     def formatters(self): return self.__formatters
     @property
     def parsers(self): return self.__parsers
+    @property
+    def order(self): return self.__order
     @property
     def types(self): return self.__types
     @property

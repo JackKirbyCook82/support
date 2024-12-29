@@ -41,8 +41,7 @@ def render(node, *args, style, layers=[], **kwargs):
 
 
 class Node(ABC):
-    def __init__(self, *args, **kwargs):
-        self.__children = ODict()
+    def __init__(self, *args, **kwargs): self.__children = ODict()
 
     def __contains__(self, key): return bool(key in self.nodes.keys())
     def __setitem__(self, key, value): self.set(key, value)

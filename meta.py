@@ -13,7 +13,7 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SingletonMeta", "ParametersMeta", "AttributeMeta", "RegistryMeta", "DictionaryMeta", "NamingMeta"]
+__all__ = ["SingletonMeta", "ParametersMeta", "AttributeMeta", "RegistryMeta", "DictionaryMeta", "NamingMeta", "TreeMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -55,6 +55,24 @@ class SingletonMeta(Meta):
         return SingletonMeta.instances[cls]
 
 
+class TreeMeta(Meta):
+    def __repr__(cls): return str(cls.__name__)
+    def __str__(cls): return str(cls.__key__)
+
+    def __iter__(cls): return iter(list(cls.dependents.items()))
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(TreeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        dependents = {str(dependent): dependent for dependent in attrs.values() if type(dependent) is TreeMeta}
+        cls.__dependents__ = getattr(cls, "__dependents__", {}) | dependents
+        cls.__key__ = kwargs.get("key", getattr(cls, "__key__", None))
+
+    def __setitem__(cls, key, value): cls.dependents[key] = value
+    def __getitem__(cls, key): return cls.dependents[key]
+
+    @property
+    def dependents(cls): return cls.__dependents__
+
+
 class ParametersMeta(Meta):
     def __init__(cls, *args, **kwargs):
         super(ParametersMeta, cls).__init__(*args, **kwargs)
@@ -80,11 +98,11 @@ class RegistryMeta(Meta):
         if not any([ismeta(base, RegistryMeta) for base in bases]):
             assert "register" not in kwargs.keys()
             cls.__registry__ = dict()
-            return
-        register = kwargs.get("register", [])
-        register = [register] if not isinstance(register, list) else register
-        register = list(filter(lambda value: value is not None, register))
-        for key in register: cls[key] = cls
+        else:
+            register = kwargs.get("register", [])
+            register = [register] if not isinstance(register, list) else register
+            register = list(filter(lambda value: value is not None, register))
+            for key in register: cls[key] = cls
 
     def __setitem__(cls, key, value): cls.registry[key] = value
     def __getitem__(cls, key): return cls.registry[key]
@@ -97,14 +115,14 @@ class AttributeMeta(Meta):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         assert "root" not in attrs.keys()
         super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        if not any([ismeta(base, AttributeMeta) for base in bases]):
+        if not any([ismeta(base, AttributeMeta) for base in bases]) or bool(kwargs.get("root", False)):
             assert "attribute" not in kwargs.keys() and "attributes" not in kwargs.keys()
             cls.__root__ = cls
-            return
-        attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
-        attributes = list(filter(lambda attribute: attribute is not None, attributes))
-        assert all([isinstance(attribute, str) for attribute in attributes])
-        for attribute in attributes: setattr(cls.root, attribute, cls)
+        else:
+            attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
+            attributes = list(filter(lambda attribute: attribute is not None, attributes))
+            assert all([isinstance(attribute, str) for attribute in attributes])
+            for attribute in attributes: setattr(cls.root, attribute, cls)
 
     @property
     def root(cls): return cls.__root__

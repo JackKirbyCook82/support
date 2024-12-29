@@ -37,7 +37,7 @@ class DateRange(ntuple("DateRange", "minimum maximum")):
 class VariableMeta(EnumMeta):
     def __iter__(cls): return iter([state for state in super().__iter__() if bool(state)])
     def __getitem__(cls, string):
-        string = str(string).upper()
+        string = str(string).upper().replace(" ", "")
         return super(VariableMeta, cls).__getitem__(string)
 
     def __call__(cls, *args, **kwargs):
@@ -46,7 +46,7 @@ class VariableMeta(EnumMeta):
 
     def create(cls, name, contents, *args, start=1, **kwargs):
         assert isinstance(start, int) and isinstance(contents, list) and all([isinstance(content, str) for content in contents])
-        contents = list(map(str.upper, list(contents)))
+        contents = list(map(lambda string: str(string).upper().replace(" ", ""), list(contents)))
         return super(VariableMeta, cls).__call__(name, contents, start=start)
 
     def retrieve(cls, content, *args, **kwargs):
