@@ -181,7 +181,7 @@ class Table(Logging, ABC):
     def index(self): return self.data.index
 
 
-class Process(Logging, Sizing, Emptying, ABC):
+class Process(Sizing, Emptying, Logging, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
         except TypeError: super().__init_subclass__()
@@ -210,7 +210,7 @@ class Process(Logging, Sizing, Emptying, ABC):
     def table(self): return self.__table
 
 
-class Reader(Process, Separating, ABC):
+class Reader(Separating, Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex: contents = self.read(*args, **kwargs)
@@ -236,7 +236,7 @@ class Routine(Process, ABC):
     def invoke(self, *args, **kwargs): pass
 
 
-class Writer(Process, Separating, ABC):
+class Writer(Separating, Process, ABC):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
         for group, content in self.separate(contents, *args, fields=self.fieldnames, **kwargs):

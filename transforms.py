@@ -18,7 +18,7 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Transform(Logging, Sizing, Emptying, Separating, ABC):
+class Transform(Separating, Sizing, Emptying, Logging, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
         except TypeError: super().__init_subclass__()

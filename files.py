@@ -31,22 +31,23 @@ class FileLock(dict, metaclass=SingletonMeta):
 
 
 class FileMeta(ABCMeta):
-    fields = ("order", "formatters", "parsers", "types", "dates")
+    defaults = dict(order=[], formatters={}, parsers={}, types={}, dates={})
 
     def __init__(cls, *args, **kwargs):
+        super(FileMeta, cls).__init__(*args, **kwargs)
         variable = kwargs.get("variable", getattr(cls, "__variable__", None))
-        parameters = {field: getattr(cls, "parameters", {}).get(field, None) for field in type(cls).fields}
-        parameters = {key: kwargs.get(key, value) for key, value in parameters.items()}
-        cls.__parameters__ = parameters
+        function = lambda attribute, default: kwargs.get(attribute, getattr(cls, "__attributes__", {}).get(attribute, default))
+        attributes = {key: function(key, value) for key, value in type(cls).defaults.items()}
+        cls.__attributes__ = attributes
         cls.__variable__ = variable
 
     def __call__(cls, *args, **kwargs):
-        parameters = dict(mutex=FileLock(), folder=cls.variable, **cls.parameters)
-        instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
+        attributes = dict(mutex=FileLock(), folder=cls.variable) | dict(cls.attributes)
+        instance = super(FileMeta, cls).__call__(*args, **attributes, **kwargs)
         return instance
 
     @property
-    def parameters(cls): return cls.__parameters__
+    def attributes(cls): return cls.__attributes__
     @property
     def variable(cls): return cls.__variable__
 
@@ -61,11 +62,11 @@ class File(Logging, metaclass=FileMeta):
 
     def __init__(self, *args, repository, folder, mutex, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__formatters = kwargs.get("formatters", {})
-        self.__parsers = kwargs.get("parsers", {})
-        self.__order = kwargs.get("order", [])
-        self.__types = kwargs.get("types", {})
-        self.__dates = kwargs.get("dates", {})
+        self.__formatters = kwargs.get("formatters", FileMeta.defaults["formatters"])
+        self.__parsers = kwargs.get("parsers", FileMeta.defaults["parsers"])
+        self.__order = kwargs.get("order", FileMeta.defaults["order"])
+        self.__types = kwargs.get("types", FileMeta.defaults["types"])
+        self.__dates = kwargs.get("dates", FileMeta.defaults["dates"])
         self.__repository = repository
         self.__folder = folder
         self.__mutex = mutex
@@ -131,7 +132,7 @@ class File(Logging, metaclass=FileMeta):
     def mutex(self): return self.__mutex
 
 
-class Process(Logging, Sizing, Emptying, ABC):
+class Process(Sizing, Emptying, Logging, ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
         except TypeError: super().__init_subclass__()
@@ -173,7 +174,7 @@ class Directory(Process):
             yield query
 
 
-class Loader(Process, Separating):
+class Loader(Separating, Process):
     def execute(self, query, *args, **kwargs):
         if query is None: return
         if not bool(self.file): return
@@ -189,7 +190,7 @@ class Loader(Process, Separating):
             yield content
 
 
-class Saver(Process, Separating):
+class Saver(Separating, Process):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
         for parameters, content in self.separate(contents, *args, fields=self.fieldnames, **kwargs):

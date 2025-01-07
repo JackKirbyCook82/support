@@ -17,7 +17,7 @@ from collections import OrderedDict as ODict
 
 from support.decorators import TypeDispatcher
 from support.meta import RegistryMeta
-from support.trees import SingleNode
+from support.trees import Node
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -73,11 +73,11 @@ class ArrayVectorizedAlgorithm(VectorizedAlgorithm, register=VectorizedArray):
         return xr.apply_ufunc(wrapper, *self.arguments, output_dtypes=[vartype], vectorize=True, kwargs=self.parameters)
 
 
-class Variable(SingleNode, ABC, metaclass=RegistryMeta):
+class Variable(Node, ABC, metaclass=RegistryMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, **kwargs):
         if issubclass(cls, Variable) and cls is not Variable:
-            return SingleNode.__new__(cls)
+            return Node.__new__(cls)
         function = kwargs.get("function", None)
         datatype = args[-1]
         vartype = VariableType(bool(function), datatype)
@@ -85,7 +85,7 @@ class Variable(SingleNode, ABC, metaclass=RegistryMeta):
         return subclass(*args, **kwargs)
 
     def __init__(self, varkey, varname, vartype, datatype, *args, domain, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, linear=False, multiple=False, **kwargs)
         self.__datatype = datatype
         self.__vartype = vartype
         self.__varname = varname

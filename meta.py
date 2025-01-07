@@ -6,29 +6,14 @@ Created on Fri Aug 27 2021
 
 """
 
-import types
 from abc import ABCMeta
 from itertools import chain
-from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SingletonMeta", "ParametersMeta", "AttributeMeta", "RegistryMeta", "DictionaryMeta", "NamingMeta", "TreeMeta"]
+__all__ = ["SingletonMeta", "AttributeMeta", "RegistryMeta", "MappingMeta", "NamingMeta", "TreeMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
-
-
-aslist = lambda x: [x] if not isinstance(x, (list, tuple)) else list(x)
-astuple = lambda x: (x,) if not isinstance(x, (list, tuple)) else tuple(x)
-remove = lambda x, j: [i for i in x if i is not j]
-flatten = lambda y: [i for x in y for i in x]
-unique = lambda x: list(ODict.fromkeys(x))
-insert = lambda x, i, j: x[:x.index(i)] + [j] + x[x.index(i):]
-isnamed = lambda x: issubclass(x, tuple) and hasattr(x, "_fields") and all([isinstance(field, str) for field in getattr(x, "_fields")])
-ismeta = lambda x, m: type(x) is m or issubclass(type(x), m)
-isdunder = lambda x: str(x).startswith('__') and str(x).endswith('__')
-isenum = lambda x: str(x).upper() == str(x) and not isdunder(x)
-astype = lambda base, meta: meta(base.__name__, (base,), {})
 
 
 class Meta(ABCMeta):
@@ -55,102 +40,13 @@ class SingletonMeta(Meta):
         return SingletonMeta.instances[cls]
 
 
-class TreeMeta(Meta):
-    def __repr__(cls): return str(cls.__name__)
-    def __str__(cls): return str(cls.__key__)
-
-    def __iter__(cls): return iter(list(cls.dependents.items()))
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(TreeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        dependents = {str(dependent): dependent for dependent in attrs.values() if type(dependent) is TreeMeta}
-        cls.__dependents__ = getattr(cls, "__dependents__", {}) | dependents
-        cls.__key__ = kwargs.get("key", getattr(cls, "__key__", None))
-
-    def __setitem__(cls, key, value): cls.dependents[key] = value
-    def __getitem__(cls, key): return cls.dependents[key]
-
-    @property
-    def dependents(cls): return cls.__dependents__
-
-
-class ParametersMeta(Meta):
-    def __init__(cls, *args, **kwargs):
-        super(ParametersMeta, cls).__init__(*args, **kwargs)
-        parameters = getattr(cls, "__parameters__", {}) | dict.fromkeys(kwargs.get("parameters", []))
-        parameters = {key: kwargs.get(key, value) for key, value in parameters.items()}
-        cls.__parameters__ = parameters
-
-    def __call__(cls, *args, **kwargs):
-        parameters = {key: value for key, value in cls.parameters.items()}
-        kwargs = parameters | kwargs
-        instance = super(ParametersMeta, cls).__call__(*args, **kwargs)
-        return instance
-
-    @property
-    def parameters(cls): return cls.__parameters__
-
-
-class RegistryMeta(Meta):
-    def __iter__(cls): return iter(list(cls.registry.items()))
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        assert "registry" not in attrs.keys()
-        super(RegistryMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        if not any([ismeta(base, RegistryMeta) for base in bases]):
-            assert "register" not in kwargs.keys()
-            cls.__registry__ = dict()
-        else:
-            register = kwargs.get("register", [])
-            register = [register] if not isinstance(register, list) else register
-            register = list(filter(lambda value: value is not None, register))
-            for key in register: cls[key] = cls
-
-    def __setitem__(cls, key, value): cls.registry[key] = value
-    def __getitem__(cls, key): return cls.registry[key]
-
-    @property
-    def registry(cls): return cls.__registry__
-
-
-class AttributeMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        assert "root" not in attrs.keys()
-        super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        if not any([ismeta(base, AttributeMeta) for base in bases]) or bool(kwargs.get("root", False)):
-            assert "attribute" not in kwargs.keys() and "attributes" not in kwargs.keys()
-            cls.__root__ = cls
-        else:
-            attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
-            attributes = list(filter(lambda attribute: attribute is not None, attributes))
-            assert all([isinstance(attribute, str) for attribute in attributes])
-            for attribute in attributes: setattr(cls.root, attribute, cls)
-
-    @property
-    def root(cls): return cls.__root__
-
-
-class DictionaryMeta(Meta):
-    def __contains__(cls, key): return bool(key in cls.contents.keys())
-    def __getitem__(cls, key): return cls.contents[key]
-    def __setitem__(cls, key, value): cls.contents[key] = value
-    def __iter__(cls): return iter(cls.contents.items())
-
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(DictionaryMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        contents = (types.FunctionType, types.LambdaType)
-        contents = {key: value for key, value in attrs.items() if not isinstance(value, contents)}
-        cls.__contents__ = contents
-
-    @property
-    def contents(cls): return cls.__contents__
-
-
 class NamingMeta(Meta):
-    def __init__(cls, *args, **kwargs):
-        super(NamingMeta, cls).__init__(*args, **kwargs)
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        assert "fields" not in attrs.keys() and "named" not in attrs.keys()
+        super(NamingMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         cls.__fields__ = getattr(cls, "__fields__", []) + kwargs.get("fields", [])
         cls.__named__ = getattr(cls, "__named__", {}) | kwargs.get("named", {})
 
-    def __iter__(cls): return chain(cls.fields, cls.named.keys())
     def __call__(cls, contents, *args, **kwargs):
         keys = chain(cls.fields, cls.named.keys())
         assert isinstance(contents, dict) and all([key in contents.keys() for key in keys])
@@ -169,15 +65,75 @@ class NamingMeta(Meta):
     def named(cls): return cls.__named__
 
 
+class TreeMeta(Meta):
+    def __repr__(cls): return str(cls.__name__)
+    def __str__(cls): return str(cls.__key__)
+
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(TreeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        function = lambda value: type(value) is TreeMeta or issubclass(type(value), TreeMeta)
+        dependents = {str(dependent): dependent for dependent in attrs.values() if function(dependent)}
+        dependents.update({str(dependent): dependent for dependent in kwargs.get("dependents", [])})
+        assert all([function(value) for value in dependents.values()])
+        cls.__dependents__ = getattr(cls, "__dependents__", {}) | dependents
+        cls.__key__ = kwargs.get("key", getattr(cls, "__key__", None))
+
+    @property
+    def dependents(cls): return cls.__dependents__
 
 
+class RegistryMeta(Meta):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(RegistryMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        function = lambda base: type(base) is RegistryMeta or issubclass(type(base), RegistryMeta)
+        if not any([function(base) for base in bases]):
+            assert "register" not in kwargs.keys()
+            cls.__registry__ = dict()
+            return
+        register = kwargs.get("register", [])
+        register = [register] if not isinstance(register, list) else register
+        register = list(filter(lambda value: value is not None, register))
+        for key in register: cls[key] = cls
+
+    def __setitem__(cls, key, value): cls.registry[key] = value
+    def __getitem__(cls, key): return cls.registry[key]
+    def __iter__(cls): return iter(cls.registry.items())
+
+    @property
+    def registry(cls): return cls.__registry__
 
 
+class AttributeMeta(Meta):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        function = lambda base: type(base) is AttributeMeta or issubclass(type(base), AttributeMeta)
+        if not any([function(base) for base in bases]) or bool(kwargs.get("root", False)):
+            assert "attribute" not in kwargs.keys() and "attributes" not in kwargs.keys()
+            cls.__root__ = cls
+        attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
+        attributes = list(filter(lambda attribute: attribute is not None, attributes))
+        assert all([isinstance(attribute, str) for attribute in attributes])
+        for attribute in attributes: setattr(cls.root, attribute, cls)
+
+    @property
+    def root(cls): return cls.__root__
 
 
+class MappingMeta(Meta):
+    def __iter__(cls): return iter(cls.mapping.items())
+    def __contains__(cls, key): return bool(key in cls.mapping.keys())
+    def __getitem__(cls, key): return cls.mapping[key]
+    def __setitem__(cls, key, value): cls.mapping[key] = value
 
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(MappingMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        dunder = lambda key: str(key).startswith('__') and str(key).endswith('__')
+        function = lambda value: isinstance(value, (bool, str, int, float, tuple, set, list, dict))
+        mapping = {key: value for key, value in attrs.items() if not dunder(key) and function(value)}
+        cls.__mapping__ = mapping
 
-
+    @property
+    def mapping(cls): return cls.__mapping__
 
 
 

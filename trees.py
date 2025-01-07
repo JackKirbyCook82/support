@@ -7,13 +7,15 @@ Created on Mon Nov 4 2024
 """
 
 import logging
-from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
+from support.decorators import TypeDispatcher
+from support.mixins import Mixin
+
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SingleNode", "MultipleNode", "MixedNode"]
+__all__ = ["Node", "ParentalNode"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -40,10 +42,12 @@ def render(node, *args, style, layers=[], **kwargs):
             yield from render(value, *args, layers=[*layers, last(index, size - 1)], style=style, **kwargs)
 
 
-class Node(ABC):
-    def __init__(self, *args, **kwargs): self.__children = ODict()
+class Node(Mixin):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__children = ODict()
 
-    def __contains__(self, key): return bool(key in self.nodes.keys())
+    def __contains__(self, key): return bool(key in self.children.keys())
     def __setitem__(self, key, value): self.set(key, value)
     def __getitem__(self, key): return self.get(key)
 
@@ -54,10 +58,46 @@ class Node(ABC):
     def values(self): return self.children.values()
     def items(self): return self.children.items()
 
+    def transverse(self, *args, **kwargs):
+        function = lambda value: [value] if isinstance(value, Node) else list(value)
+        generator = (child for value in self.values() for child in function(value))
+        for child in generator:
+            assert isinstance(child, Node)
+            yield child
+            transverse = child.transverse(*args, **kwargs)
+            yield from transverse
+
     def render(self, *args, style=Styles.Single, **kwargs):
-        generator = render(self, style=style)
+        generator = render(self, *args, style=style, **kwargs)
         rows = [prefix + str() for prefix, value in iter(generator)]
         return "\n".format(rows)
+
+    def get(self, key): return self.children[key]
+    def set(self, key, content): self.children[key] = content
+
+    def extend(self, key, values):
+        assert isinstance(values, list)
+        assert all([isinstance(value, Node) for value in values])
+        assert key in self.children.keys() and isinstance(self.children[key], list)
+        self.children[key].extend(values)
+
+    def append(self, key, value):
+        assert isinstance(value, Node)
+        assert key in self.children.keys() and isinstance(self.children[key], list)
+        self.children[key].append(value)
+
+    def expand(self, key):
+        assert key in self.children.keys()
+        assert isinstance(self.children[key], Node)
+        child = self.children[key]
+        self.children[key] = [child]
+
+    def squeeze(self, key):
+        assert key in self.children.keys()
+        assert isinstance(self.children[key], list)
+        assert len(self.children[key]) == 1
+        child = self.children[key]
+        self.children[key] = child
 
     @property
     def leafs(self): return [value for value in self.transverse() if not bool(value.children)]
@@ -66,73 +106,43 @@ class Node(ABC):
     @property
     def terminal(self): return not bool(self.children)
     @property
-    def size(self): return len(self.nodes)
-
-    @abstractmethod
-    def transverse(self, *args, **kwargs): pass
-    @abstractmethod
-    def set(self, *args, **kwargs): pass
-    @abstractmethod
-    def get(self, *args, **kwargs): pass
-
-    @property
     def children(self): return self.__children
 
 
-class SingleNode(Node, ABC):
-    def get(self, key): return self.children[key]
-    def set(self, key, value):
+class ParentalNode(Node):
+    def __init__(self, *args, parent=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__parent = parent
+
+    @TypeDispatcher(locator=0)
+    def assign(self, value):
         assert isinstance(value, Node)
-        self.children[key] = value
+        assert value.parent is None
+        value.parent = self
 
-    def transverse(self, *args, **kwargs):
-        for value in self.values():
-            assert isinstance(value, Node)
-            yield value
-            transverse = value.transverse(*args, **kwargs)
-            yield from transverse
+    @assign.register(list)
+    def assignments(self, values):
+        for value in values: self.assign(value)
 
-
-class MultipleNode(Node, ABC):
-    def get(self, key): return self.children[key]
-    def set(self, key, value):
-        assert isinstance(value, (list, Node))
-        if key not in self.children: self.children[key] = []
-        if isinstance(value, list): self.children[key].extend(value)
-        else: self.children[key].append(value)
-
-    def transverse(self, *args, **kwargs):
-        for values in self.values():
-            assert isinstance(values, list)
-            for value in values:
-                yield value
-                transverse = value.transverse(*args, **kwargs)
-                yield from transverse
-
-
-class MixedNode(Node, ABC):
-    def get(self, key): return self.children[key]
     def set(self, key, content):
-        assert isinstance(content, (Node, list))
-        self.children[key] = content
-
-    def append(self, key, value):
-        assert isinstance(value, Node)
-        if key not in self.children: self.children[key] = []
-        self.nodes[key].append(value)
+        super().set(key, content)
+        self.assign(content)
 
     def extend(self, key, values):
-        assert isinstance(values, list) and all([isinstance(value, Node) for value in values])
-        if key not in self.children: self.children[key] = []
-        self.children[key].extend(values)
+        super().extend(key, values)
+        self.assign(values)
 
-    def transverse(self, *args, **kwargs):
-        for content in self.values():
-            assert isinstance(content, (list, Node))
-            values = [content] if isinstance(content, Node) else values
-            for value in content:
-                yield value
-                transverse = value.transverse(*args, **kwargs)
-                yield from transverse
+    def append(self, key, value):
+        super().append(key, value)
+        self.assign(value)
+
+    @property
+    def parent(self): return self.__parent
+    @parent.setter
+    def parent(self, parent): self.__parent = parent
+
+
+
+
 
 
