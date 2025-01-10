@@ -79,10 +79,6 @@ class TreeMeta(Meta):
         cls.__dependents__ = getattr(cls, "__dependents__", {}) | dict(primary) | dict(secondary)
         cls.__key__ = kwargs.get("key", getattr(cls, "__key__", None))
 
-    def __call__(cls, *args, **kwargs):
-        instance = super(TreeMeta, cls).__call__(*args, **kwargs)
-        return instance
-
     @property
     def dependents(cls): return cls.__dependents__
 
