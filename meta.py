@@ -72,12 +72,16 @@ class TreeMeta(Meta):
     def __init__(cls, name, bases, attrs, *args, dependents=[], **kwargs):
         function = lambda value: type(value) is TreeMeta or issubclass(type(value), TreeMeta)
         assert isinstance(dependents, list)
-        assert all([function(dependent) for dependent in dependents])
+        assert all([function(child) for child in dependents])
         super(TreeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        dependents = {str(dependent): dependent for dependent in attrs.values() if function(dependent)}
-        dependents.update({str(dependent): dependent for dependent in list(dependents)})
-        cls.__dependents__ = getattr(cls, "__dependents__", {}) | dict(dependents)
+        primary = {str(child): child for child in attrs.values() if function(child)}
+        secondary = {str(child): child for child in list(dependents)}
+        cls.__dependents__ = getattr(cls, "__dependents__", {}) | dict(primary) | dict(secondary)
         cls.__key__ = kwargs.get("key", getattr(cls, "__key__", None))
+
+    def __call__(cls, *args, **kwargs):
+        instance = super(TreeMeta, cls).__call__(*args, **kwargs)
+        return instance
 
     @property
     def dependents(cls): return cls.__dependents__
