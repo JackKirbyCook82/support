@@ -16,7 +16,7 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DateRange", "VariablesMeta", "Variables", "Variable"]
+__all__ = ["DateRange", "Category", "Variables", "Variable"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -65,7 +65,7 @@ class Variable(Enum, metaclass=VariableMeta):
     def __int__(self): return int(self.value)
 
 
-class VariablesBase(ABC):
+class Collection(ABC):
     def __init__(self, name, contents, parameters):
         self.__parameters = parameters
         self.__contents = contents
@@ -93,14 +93,13 @@ class VariablesBase(ABC):
 
 class Variables(ABCMeta):
     def __new__(mcs, dataname, datafields, dataparams=set()):
-        cls = super(Variables, mcs).__new__(mcs, dataname, (VariablesBase, ABC), {})
+        cls = super(Variables, mcs).__new__(mcs, dataname, (Collection, ABC), {})
         return cls
-
-    def __hash__(cls): return hash(tuple(cls.datafields))
-    def __len__(cls): return len(cls.datafields)
 
     def __reversed__(cls): return reversed(cls.datafields)
     def __iter__(cls): return iter(cls.datafields)
+    def __hash__(cls): return hash(tuple(cls.datafields))
+    def __len__(cls): return len(cls.datafields)
 
     def __init__(cls, dataname, datafields, dataparams=set()):
         assert bool(dataname == cls.__name__) and isinstance(datafields, list) and isinstance(dataparams, set)
@@ -123,31 +122,47 @@ class Variables(ABCMeta):
         return instance
 
 
-class VariablesMeta(ABCMeta):
-    def __new__(mcs, name, base, attrs, *args, **kwargs):
-        return super(VariablesMeta, mcs).__new__(mcs, name, base, attrs)
+class Category(ABCMeta):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        category = lambda value: issubclass(value, Category) or value is Category
+        collection = lambda value: isinstance(value, Collection)
+        variable = lambda value: isinstance(value, Variable)
+        categories = {key: value for key, value in attrs.items() if category(value)}
+        collections = {key: value for key, value in attrs.items() if collection(value)}
+        variables = {key: value for key, value in attrs.items() if variable(value)}
+        cls.__categories__ = getattr(cls, "__categories__", {}) | dict(categories)
+        cls.__collections__ = getattr(cls, "__collections__", {}) | dict(collections)
+        cls.__variables__ = getattr(cls, "__variables__", {}) | dict(variables)
 
-    def __iter__(cls): return iter(cls.contents)
-    def __init__(cls, *args, contents=[], **kwargs):
-        cls.contents = list(contents)
+    def __iter__(cls):
+        for variable in cls.variables.values(): yield variable
+        for collection in cls.collections.values(): yield collection
+        for category in cls.categories.values(): yield from iter(category)
 
-    def __getitem__(cls, string): return {str(content): content for content in cls.contents}[string]
+    def __getitem__(cls, string): return cls.strings[string]
     def __call__(cls, content):
         content = int(content) if str(content).isdigit() else content
-        if isinstance(content, VariablesBase): return cls.encodings[content]
+        if isinstance(content, Collection): return cls.encodings[content]
+        elif isinstance(content, Variable): return cls.encodings[content]
         elif isinstance(content, tuple): return cls.values[content]
         elif isinstance(content, int): return cls.numbers[content]
         elif isinstance(content, str): return cls.strings[content]
         else: raise TypeError(type(content))
 
     @property
+    def values(cls): return {tuple(content.values()): content for content in iter(cls)}
+    @property
+    def numbers(cls): return {int(content): content for content in iter(cls)}
+    @property
+    def strings(cls): return {str(content): content for content in iter(cls)}
+    @property
     def encodings(cls): return {hash(content): content for content in cls.contents}
-    @property
-    def strings(cls): return {str(content): content for content in cls.contents}
-    @property
-    def numbers(cls): return {int(content): content for content in cls.contents}
-    @property
-    def values(cls): return {tuple(content.values()): content for content in cls.contents}
 
+    @property
+    def categories(cls): return cls.__categories__
+    @property
+    def collections(cls): return cls.__collections__
+    @property
+    def variables(cls): return cls.__variables__
 
 
