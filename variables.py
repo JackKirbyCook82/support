@@ -122,9 +122,10 @@ class Variables(ABCMeta):
         return instance
 
 
-class Category(ABCMeta):
+class CategoryMeta(ABCMeta):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        category = lambda value: issubclass(value, Category) or value is Category
+        super(CategoryMeta, cls).__init__(name, bases, attrs)
+        category = lambda value: issubclass(type(value), CategoryMeta) or type(value) is CategoryMeta
         collection = lambda value: isinstance(value, Collection)
         variable = lambda value: isinstance(value, Variable)
         categories = {key: value for key, value in attrs.items() if category(value)}
@@ -142,8 +143,8 @@ class Category(ABCMeta):
     def __getitem__(cls, string): return cls.strings[string]
     def __call__(cls, content):
         content = int(content) if str(content).isdigit() else content
-        if isinstance(content, Collection): return cls.encodings[content]
-        elif isinstance(content, Variable): return cls.encodings[content]
+        if isinstance(content, Collection): return cls.encodings[hash(content)]
+        elif isinstance(content, Variable): return cls.encodings[hash(content)]
         elif isinstance(content, tuple): return cls.values[content]
         elif isinstance(content, int): return cls.numbers[content]
         elif isinstance(content, str): return cls.strings[content]
@@ -156,7 +157,7 @@ class Category(ABCMeta):
     @property
     def strings(cls): return {str(content): content for content in iter(cls)}
     @property
-    def encodings(cls): return {hash(content): content for content in cls.contents}
+    def encodings(cls): return {hash(content): content for content in iter(cls)}
 
     @property
     def categories(cls): return cls.__categories__
@@ -164,5 +165,9 @@ class Category(ABCMeta):
     def collections(cls): return cls.__collections__
     @property
     def variables(cls): return cls.__variables__
+
+
+class Category(ABC, metaclass=CategoryMeta):
+    pass
 
 
