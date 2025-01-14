@@ -31,8 +31,8 @@ class Filter(Separating, Sizing, Emptying, Logging):
 
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
-        for group, content in self.separate(contents, *args, fields=self.fields, **kwargs):
-            query = self.query(group)
+        for parameters, content in self.separate(contents, *args, fields=self.fields, **kwargs):
+            query = self.query(parameters)
             prior = self.size(content)
             content = self.calculate(content, *args, **kwargs)
             content = content.reset_index(drop=True, inplace=False)
