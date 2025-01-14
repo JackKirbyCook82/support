@@ -12,8 +12,7 @@ import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.mixins import Logging, Emptying, Sizing, Separating
-from support.decorators import TypeDispatcher
+from support.mixins import Logging, Emptying, Sizing, Segregating
 from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
@@ -132,12 +131,7 @@ class File(Logging, metaclass=FileMeta):
     def mutex(self): return self.__mutex
 
 
-class Process(Sizing, Emptying, Logging, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        try: super().__init_subclass__(*args, **kwargs)
-        except TypeError: super().__init_subclass__()
-        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
-
+class Process(Segregating, Sizing, Emptying, Logging, ABC):
     def __init__(self, *args, file, mode, **kwargs):
         try: super().__init__(*args, **kwargs)
         except TypeError: super().__init__()
@@ -146,20 +140,12 @@ class Process(Sizing, Emptying, Logging, ABC):
 
     @staticmethod
     def filename(query): return str(query).replace("|", "_")
-    @property
-    def fieldnames(self): return list(self.query)
-    @TypeDispatcher(locator=0)
-    def queryname(self, parameters): return self.query(parameters)
-    @queryname.register(str)
-    def string(self, string): return self.query[str(string).replace("_", "|")]
+    @staticmethod
+    def filevalues(string): return str(string).split("_")
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
-    @property
-    def fields(self): return list(type(self).__query__)
-    @property
-    def query(self): return type(self).__query__
     @property
     def file(self): return self.__file
     @property
@@ -170,19 +156,18 @@ class Directory(Process):
     def execute(self, *args, **kwargs):
         if not bool(self.file): return
         for file in iter(self.file):
-            query = self.queryname(file)
+            values = self.filevalues(file)
+            query = self.query(values)
             yield query
 
 
-class Loader(Separating, Process):
+class Loader(Process):
     def execute(self, query, *args, **kwargs):
         if query is None: return
         if not bool(self.file): return
-        query = self.queryname(query)
         file = self.filename(query)
         contents = self.file.read(*args, file=file, mode=self.mode, **kwargs)
-        for parameters, content in self.separate(contents, *args, fields=self.fieldnames, **kwargs):
-            query = self.queryname(parameters)
+        for query, content in self.separate(contents, *args, **kwargs):
             size = self.size(content)
             string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
             self.logger.info(string)
@@ -190,11 +175,10 @@ class Loader(Separating, Process):
             yield content
 
 
-class Saver(Separating, Process):
+class Saver(Process):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
-        for parameters, content in self.separate(contents, *args, fields=self.fieldnames, **kwargs):
-            query = self.queryname(parameters)
+        for query, content in self.segregate(contents, *args, **kwargs):
             file = self.filename(query)
             self.file.write(content, *args, file=file, mode=self.mode, **kwargs)
             size = self.size(content)

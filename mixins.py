@@ -21,7 +21,7 @@ from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Mixin", "Naming", "Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Separating", "Publisher", "Subscriber"]
+__all__ = ["Mixin", "Naming", "Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Segregating", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -223,29 +223,41 @@ class Memory(Mixin):
     def __nothing(self, *args, **kwargs): return 0
 
 
-class Separating(Mixin):
-    @TypeDispatcher(locator=0)
-    def separate(self, contents, *args, **kwargs): raise TypeError(type(contents))
+class Segregating(Mixin):
+    def __init__(self, *args, query, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.query = query
 
-    @separate.register(list)
+    @TypeDispatcher(locator=0)
+    def segregate(self, contents, *args, **kwargs): raise TypeError(type(contents))
+
+    @segregate.register(list)
     def __collection(self, collection, *args, **kwargs):
         for content in iter(collection):
             yield from self.separate(content, *args, **kwargs)
 
-    @separate.register(pd.DataFrame)
-    def __dataframe(self, dataframe, *args, fields, **kwargs):
-        generator = dataframe.groupby(fields)
-        for parameters, dataframe in iter(generator):
-            parameters = ODict(zip(fields, parameters))
-            yield parameters, dataframe
+    @segregate.register(pd.DataFrame)
+    def __dataframe(self, dataframe, *args, **kwargs):
+        keys = list(self.query)
+        generator = dataframe.groupby(keys)
+        for values, dataframe in iter(generator):
+            mapping = ODict(zip(keys, values))
+            query = self.query(mapping)
+            yield query, dataframe
 
-    @separate.register(xr.Dataset)
+    @segregate.register(xr.Dataset)
     def __dataset(self, dataset, *args, fields, **kwargs):
-        dataset = dataset.stack(stack=fields)
+        keys = list(self.query)
+        dataset = dataset.stack(stack=keys)
         generator = dataset.groupby("stack")
-        for parameters, dataset in iter(generator):
+        for values, dataset in iter(generator):
             dataset = dataset.unstack().drop_vars("stack")
-            parameters = ODict(zip(fields, parameters))
-            yield parameters, dataset
+            mapping = ODict(zip(keys, values))
+            query = self.query(mapping)
+            yield query, dataset
+
+    @property
+    def query(self): return self.__query
+
 
 

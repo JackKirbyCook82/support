@@ -9,7 +9,7 @@ Created on Tues Dec 10 2024
 import pandas as pd
 from abc import ABC, abstractmethod
 
-from support.mixins import Logging, Sizing, Emptying, Separating
+from support.mixins import Logging, Sizing, Emptying, Segregating
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -18,23 +18,17 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Transform(Separating, Sizing, Emptying, Logging, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        try: super().__init_subclass__(*args, **kwargs)
-        except TypeError: super().__init_subclass__()
-        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
-
+class Transform(Segregating, Sizing, Emptying, Logging, ABC):
     def __init__(self, *args, header, **kwargs):
         super().__init__(*args, **kwargs)
-        index, columns = header
+        index, columns = list(header)
         self.__columns = columns
         self.__index = index
 
     def execute(self, dataframes, *args, **kwargs):
         assert isinstance(dataframes, pd.DataFrame)
         if self.empty(dataframes): return
-        for group, dataframe in self.separate(dataframes, *args, fields=self.fields, **kwargs):
-            query = self.query(group)
+        for query, dataframe in self.separate(dataframes, *args, **kwargs):
             prior = self.size(dataframe)
             dataframe = self.calculate(dataframe, *args, **kwargs)
             dataframe = dataframe.reset_index(drop=True, inplace=False)
@@ -47,10 +41,6 @@ class Transform(Separating, Sizing, Emptying, Logging, ABC):
     @abstractmethod
     def calculate(self, dataframe, *args,  **kwargs): pass
 
-    @property
-    def fields(self): return list(type(self).__query__)
-    @property
-    def query(self): return type(self).__query__
     @property
     def columns(self): return self.__columns
     @property

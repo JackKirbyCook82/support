@@ -10,7 +10,7 @@ import multiprocessing
 import pandas as pd
 from abc import ABC, abstractmethod
 
-from support.mixins import Logging, Emptying, Sizing, Separating
+from support.mixins import Logging, Emptying, Sizing, Segregating
 from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
@@ -181,42 +181,24 @@ class Table(Logging, ABC):
     def index(self): return self.data.index
 
 
-class Process(Sizing, Emptying, Logging, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        try: super().__init_subclass__(*args, **kwargs)
-        except TypeError: super().__init_subclass__()
-        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
-
+class Process(Segregating, Sizing, Emptying, Logging, ABC):
     def __init__(self, *args, table, **kwargs):
-        try: super().__init__(*args, **kwargs)
-        except TypeError: super().__init__()
+        super().__init__(*args, **kwargs)
         self.__table = table
-
-    @property
-    def fieldnames(self): return list(self.query)
-    @TypeDispatcher(locator=0)
-    def queryname(self, parameters): return self.query(parameters)
-    @queryname.register(str)
-    def string(self, string): return self.query[string]
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
     @property
-    def fields(self): return list(type(self).__query__)
-    @property
-    def query(self): return type(self).__query__
-    @property
     def table(self): return self.__table
 
 
-class Reader(Separating, Process, ABC):
+class Reader(Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex: contents = self.read(*args, **kwargs)
         if self.empty(contents): return
-        for parameters, content in self.separate(contents, *args, fields=self.fieldnames, **kwargs):
-            query = self.queryname(parameters)
+        for query, content in self.segregate(contents, *args, **kwargs):
             size = self.size(content)
             string = f"Read: {repr(self)}|{str(query)}[{size:.0f}]"
             self.logger.info(string)
@@ -236,11 +218,10 @@ class Routine(Process, ABC):
     def invoke(self, *args, **kwargs): pass
 
 
-class Writer(Separating, Process, ABC):
+class Writer(Process, ABC):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
-        for group, content in self.separate(contents, *args, fields=self.fieldnames, **kwargs):
-            query = self.queryname(group)
+        for query, content in self.segregate(contents, *args, **kwargs):
             with self.table.mutex: self.write(content, *args, **kwargs)
             size = self.size(content)
             string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
