@@ -11,7 +11,6 @@ from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.meta import AttributeMeta
-from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -46,7 +45,7 @@ class QueueMeta(AttributeMeta, ABCMeta):
     def datatype(cls): return cls.__datatype__
 
 
-class Queue(Logging, ABC, metaclass=QueueMeta):
+class Queue(ABC, metaclass=QueueMeta):
     def __repr__(self): return f"{str(self.name)}[{len(self):.0f}]"
     def __bool__(self): return not bool(self.empty)
     def __len__(self): return int(self.size)
@@ -111,7 +110,7 @@ class PIFOQueue(Queue, datatype=queue.PriorityQueue, queuetype=QueueTypes.PIFO):
     def priority(self): return self.__priority
 
 
-class Dequeuer(Logging):
+class Dequeuer(object):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__queue = kwargs["queue"]

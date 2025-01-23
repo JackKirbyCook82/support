@@ -6,18 +6,19 @@ Created on Weds Jul 12 2023
 
 """
 
+import logging
 import multiprocessing
 import pandas as pd
 from abc import ABC, abstractmethod
 
-from support.mixins import Logging, Emptying, Sizing, Segregating
-from support.decorators import TypeDispatcher
+from support.mixins import Emptying, Sizing, Partition
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Reader", "Routine", "Writer", "Table"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
+__logger__ = logging.getLogger(__name__)
 
 
 def render(dataframe, *args, style, order, formats, numbers, width, columns, rows, **kwargs):
@@ -34,7 +35,7 @@ def render(dataframe, *args, style, order, formats, numbers, width, columns, row
     return string
 
 
-class Table(Logging, ABC):
+class Table(ABC):
     def __init__(self, *args, header, layout, **kwargs):
         assert all([hasattr(layout, attribute) for attribute in ("order", "formats", "numbers", "width", "columns", "rows")])
         super().__init__(*args, **kwargs)
@@ -181,7 +182,7 @@ class Table(Logging, ABC):
     def index(self): return self.data.index
 
 
-class Process(Segregating, Sizing, Emptying, Logging, ABC):
+class Process(Sizing, Emptying, ABC):
     def __init__(self, *args, table, **kwargs):
         super().__init__(*args, **kwargs)
         self.__table = table
@@ -193,7 +194,7 @@ class Process(Segregating, Sizing, Emptying, Logging, ABC):
     def table(self): return self.__table
 
 
-class Reader(Process, ABC):
+class Reader(Partition, Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex: contents = self.read(*args, **kwargs)
@@ -201,7 +202,7 @@ class Reader(Process, ABC):
         for query, content in self.segregate(contents, *args, **kwargs):
             size = self.size(content)
             string = f"Read: {repr(self)}|{str(query)}[{size:.0f}]"
-            self.logger.info(string)
+            __logger__.info(string)
             if self.empty(content): continue
             yield content
 
@@ -209,7 +210,7 @@ class Reader(Process, ABC):
     def read(self, *args, **kwargs): pass
 
 
-class Routine(Process, ABC):
+class Routine(Querying, Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex: self.invoke(*args, **kwargs)
@@ -218,14 +219,14 @@ class Routine(Process, ABC):
     def invoke(self, *args, **kwargs): pass
 
 
-class Writer(Process, ABC):
+class Writer(Partition, Process, ABC):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
         for query, content in self.segregate(contents, *args, **kwargs):
             with self.table.mutex: self.write(content, *args, **kwargs)
             size = self.size(content)
             string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
-            self.logger.info(string)
+            __logger__.info(string)
 
     @abstractmethod
     def write(self, content, *args, **kwargs): pass

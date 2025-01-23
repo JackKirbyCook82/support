@@ -12,7 +12,7 @@ import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.mixins import Logging, Emptying, Sizing, Segregating
+from support.mixins import Emptying, Sizing, Partition
 from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
@@ -30,19 +30,25 @@ class FileLock(dict, metaclass=SingletonMeta):
 
 
 class FileMeta(ABCMeta):
-    defaults = dict(order=[], formatters={}, parsers={}, types={}, dates={})
-
     def __init__(cls, *args, **kwargs):
         super(FileMeta, cls).__init__(*args, **kwargs)
         variable = kwargs.get("variable", getattr(cls, "__variable__", None))
-        function = lambda attribute, default: kwargs.get(attribute, getattr(cls, "__attributes__", {}).get(attribute, default))
-        attributes = {key: function(key, value) for key, value in type(cls).defaults.items()}
+        order = kwargs.get("order", getattr(cls, "attributes", {}).get("order", []))
+        formatters = kwargs.get("formatters", getattr(cls, "attributes", {}).get("formatters", []))
+        parsers = kwargs.get("parsers", getattr(cls, "attributes", {}).get("parsers", []))
+        types = kwargs.get("types", getattr(cls, "attributes", {}).get("types", []))
+        dates = kwargs.get("dates", getattr(cls, "attributes", {}).get("dates", []))
+        attributes = dict(order=order, formatters=formatters, parsers=parsers, types=types, dates=dates)
         cls.__attributes__ = attributes
         cls.__variable__ = variable
 
     def __call__(cls, *args, **kwargs):
-        attributes = dict(mutex=FileLock(), folder=cls.variable) | dict(cls.attributes)
-        instance = super(FileMeta, cls).__call__(*args, **attributes, **kwargs)
+        formatters = {key: cls.attributes["formatters"].get(key, {}) for key in cls.attributes["order"]}
+        parsers = {key: cls.attributes["parsers"].get(key, {}) for key in cls.attributes["order"]}
+        types = {key: cls.attributes["types"].get(key, {}) for key in cls.attributes["order"]}
+        dates = {key: cls.attributes["dates"].get(key, {}) for key in cls.attributes["order"]}
+        parameters = dict(mutex=FileLock(), folder=cls.variable, formatters=formatters, parsers=parsers, types=types, dates=dates)
+        instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
     @property
@@ -51,7 +57,7 @@ class FileMeta(ABCMeta):
     def variable(cls): return cls.__variable__
 
 
-class File(Logging, metaclass=FileMeta):
+class File(object, metaclass=FileMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, repository, **kwargs):
         instance = super().__new__(cls)
@@ -59,15 +65,15 @@ class File(Logging, metaclass=FileMeta):
             os.mkdir(repository)
         return instance
 
-    def __init__(self, *args, repository, folder, mutex, **kwargs):
+    def __init__(self, *args, repository, folder, mutex, order, formatters, parsers, types, dates, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__formatters = kwargs.get("formatters", FileMeta.defaults["formatters"])
-        self.__parsers = kwargs.get("parsers", FileMeta.defaults["parsers"])
-        self.__order = kwargs.get("order", FileMeta.defaults["order"])
-        self.__types = kwargs.get("types", FileMeta.defaults["types"])
-        self.__dates = kwargs.get("dates", FileMeta.defaults["dates"])
         self.__repository = repository
         self.__folder = folder
+        self.__formatters = formatters
+        self.__parsers = parsers
+        self.__order = order
+        self.__types = types
+        self.__dates = dates
         self.__mutex = mutex
 
     def __bool__(self): return bool(os.listdir(os.path.join(self.repository, str(self.folder))))
@@ -94,7 +100,7 @@ class File(Logging, metaclass=FileMeta):
             parameters = dict(file=str(file), mode=mode)
             self.save(content, *args, **parameters, **kwargs)
         string = f"Saved: {str(file)}"
-        self.logger.info(string)
+        __logger__.info(string)
 
     def load(self, *args, file, mode, **kwargs):
         assert mode == "r" and str(file).split(".")[-1] == "csv"
@@ -114,6 +120,10 @@ class File(Logging, metaclass=FileMeta):
         dataframe[columns].to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
     @property
+    def repository(self): return self.__repository
+    @property
+    def folder(self): return self.__folder
+    @property
     def formatters(self): return self.__formatters
     @property
     def parsers(self): return self.__parsers
@@ -124,14 +134,10 @@ class File(Logging, metaclass=FileMeta):
     @property
     def dates(self): return self.__dates
     @property
-    def repository(self): return self.__repository
-    @property
-    def folder(self): return self.__folder
-    @property
     def mutex(self): return self.__mutex
 
 
-class Process(Segregating, Sizing, Emptying, Logging, ABC):
+class Process(Sizing, Emptying, ABC):
     def __init__(self, *args, file, mode, **kwargs):
         try: super().__init__(*args, **kwargs)
         except TypeError: super().__init__()
@@ -161,7 +167,7 @@ class Directory(Process):
             yield query
 
 
-class Loader(Process):
+class Loader(Partition, Process):
     def execute(self, query, *args, **kwargs):
         if query is None: return
         if not bool(self.file): return
@@ -170,12 +176,12 @@ class Loader(Process):
         for query, content in self.separate(contents, *args, **kwargs):
             size = self.size(content)
             string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
-            self.logger.info(string)
+            __logger__.info(string)
             if self.empty(content): continue
             yield content
 
 
-class Saver(Process):
+class Saver(Partition, Process):
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
         for query, content in self.segregate(contents, *args, **kwargs):
@@ -183,6 +189,6 @@ class Saver(Process):
             self.file.write(content, *args, file=file, mode=self.mode, **kwargs)
             size = self.size(content)
             string = f"Saved: {repr(self)}|{str(query)}[{size:.0f}]"
-            self.logger.info(string)
+            __logger__.info(string)
 
 

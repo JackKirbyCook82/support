@@ -8,17 +8,19 @@ Created on Weds Jul 12 2023
 
 import time
 import types
+import logging
 import inspect
 from functools import reduce
 from abc import ABC, abstractmethod
 
-from support.mixins import Function, Generator, Logging
+from support.mixins import Function, Generator
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Routine", "Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
+__logger__ = logging.getLogger(__name__)
 
 
 class Pipeline(ABC):
@@ -74,7 +76,7 @@ class ClosedPipeline(Pipeline):
     def source(self): return self.__source
 
 
-class Stage(Logging, ABC):
+class Stage(ABC):
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
@@ -87,7 +89,7 @@ class Source(Stage, ABC):
         for content in source:
             elapsed = time.time() - start
             string = f"Produced: {repr(self)}[{elapsed:.02f}s]"
-            self.logger.info(string)
+            __logger__.info(string)
             yield content
             start = time.time()
 
@@ -99,7 +101,7 @@ class Routine(Stage, ABC):
         self.execute(*args, **kwargs)
         elapsed = time.time() - start
         string = f"Routined: {repr(self)}[{elapsed:.02f}s]"
-        self.logger.info(string)
+        __logger__.info(string)
 
 
 class Producer(Generator, Source, ABC):
@@ -131,6 +133,6 @@ class Consumer(Function, Stage, ABC):
             self.execute(content, *args, **kwargs)
             elapsed = time.time() - start
             string = f"Consumed: {repr(self)}[{elapsed:.02f}s]"
-            self.logger.info(string)
+            __logger__.info(string)
 
 

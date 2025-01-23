@@ -6,19 +6,21 @@ Created on Tues Dec 10 2024
 
 """
 
+import logging
 import pandas as pd
 from abc import ABC, abstractmethod
 
-from support.mixins import Logging, Sizing, Emptying, Segregating
+from support.mixins import Sizing, Emptying, Partition
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Pivot", "Unpivot"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
+__logger__ = logging.getLogger(__name__)
 
 
-class Transform(Segregating, Sizing, Emptying, Logging, ABC):
+class Transform(Partition, Sizing, Emptying, ABC):
     def __init__(self, *args, header, **kwargs):
         super().__init__(*args, **kwargs)
         index, columns = list(header)
@@ -34,7 +36,7 @@ class Transform(Segregating, Sizing, Emptying, Logging, ABC):
             dataframe = dataframe.reset_index(drop=True, inplace=False)
             post = self.size(dataframe)
             string = f"Transformed: {repr(self)}|{str(query)}[{prior:.0f}|{post:.0f}]"
-            self.logger.info(string)
+            __logger__.info(string)
             if self.empty(dataframe): continue
             yield dataframe
 

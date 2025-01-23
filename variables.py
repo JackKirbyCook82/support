@@ -6,6 +6,7 @@ Created on Mon Oct 14 2024
 
 """
 
+import numbers
 import pandas as pd
 from abc import ABC, ABCMeta
 from enum import Enum, EnumMeta
@@ -16,7 +17,7 @@ from collections import OrderedDict as ODict
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DateRange", "Category", "Variables", "Variable"]
+__all__ = ["DateRange", "NumRange", "Category", "Variables", "Variable"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -32,6 +33,18 @@ class DateRange(ntuple("DateRange", "minimum maximum")):
     def __str__(self): return f"{str(self.minimum)}|{str(self.maximum)}"
     def __bool__(self): return self.minimum < self.maximum
     def __len__(self): return (self.maximum - self.minimum).days
+
+
+class NumRange(ntuple("NumRange", "minimum maximum")):
+    def __contains__(self, num): return self.minimum <= num <= self.maximum
+    def __new__(cls, nums):
+        assert isinstance(nums, list)
+        assert all([isinstance(num, numbers.Number) for num in nums])
+        return super().__new__(cls, min(nums), max(nums)) if nums else None
+
+    def __str__(self): return f"{str(self.minimum)}|{str(self.maximum)}"
+    def __bool__(self): return self.minimum < self.maximum
+    def __len__(self): return self.maximum - self.minimum
 
 
 class VariableMeta(EnumMeta):

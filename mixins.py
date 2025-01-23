@@ -12,7 +12,6 @@ import logging
 import numpy as np
 import pandas as pd
 import xarray as xr
-from itertools import chain
 from abc import ABC, abstractmethod
 from functools import update_wrapper
 from collections import OrderedDict as ODict
@@ -21,7 +20,7 @@ from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Mixin", "Naming", "Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Segregating", "Publisher", "Subscriber"]
+__all__ = ["Mixin", "Emptying", "Memory", "Sizing", "Function", "Generator", "Partition", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -44,35 +43,6 @@ class Mixin(ABC):
 
     @property
     def name(self): return self.__name
-
-
-class Logging(Mixin):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__logger = __logger__
-
-    @property
-    def logger(self): return self.__logger
-
-
-class Naming(Mixin):
-    def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        cls.fields = getattr(cls, "fields", []) + kwargs.get("fields", [])
-        cls.named = getattr(cls, "named", {}) | kwargs.get("named", {})
-
-    def __iter__(self): return chain(self.named.items(), self.fields.items())
-    def __new__(cls, contents, *args, **kwargs):
-        keys = chain(cls.fields, cls.named.keys())
-        assert isinstance(contents, dict) and all([key in contents.keys() for key in keys])
-        named = {key: value(contents[key], *args, **kwargs) for key, value in cls.named.items()}
-        fields = {key: contents[key] for key in cls.fields}
-        instance = super().__new__(cls)
-        for attribute, value in named.items(): setattr(instance, attribute, value)
-        for attribute, value in fields.items(): setattr(instance, attribute, value)
-        setattr(instance, "named", named)
-        setattr(instance, "fields", fields)
-        return instance
 
 
 class Function(Mixin):
@@ -223,41 +193,32 @@ class Memory(Mixin):
     def __nothing(self, *args, **kwargs): return 0
 
 
-class Segregating(Mixin):
-    def __init__(self, *args, query, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.query = query
-
+class Partition(Mixin):
     @TypeDispatcher(locator=0)
-    def segregate(self, contents, *args, **kwargs): raise TypeError(type(contents))
+    def partition(self, contents, *args, **kwargs): raise TypeError(type(contents))
 
-    @segregate.register(list)
+    @partition.register(list)
     def __collection(self, collection, *args, **kwargs):
         for content in iter(collection):
-            yield from self.separate(content, *args, **kwargs)
+            yield from self.partition(content, *args, *kwargs)
 
-    @segregate.register(pd.DataFrame)
-    def __dataframe(self, dataframe, *args, **kwargs):
-        keys = list(self.query)
-        generator = dataframe.groupby(keys)
-        for values, dataframe in iter(generator):
-            mapping = ODict(zip(keys, values))
-            query = self.query(mapping)
-            yield query, dataframe
+    @partition.register(pd.DataFrame)
+    def __dataframe(self, dataframe, *args, by, **kwargs):
+        generator = dataframe.groupby(list(by))
+        for partition, dataframe in iter(generator):
+            partition = ODict(zip(list(by), partition))
+            if callable(by): partition = by(partition)
+            yield partition, dataframe
 
-    @segregate.register(xr.Dataset)
-    def __dataset(self, dataset, *args, fields, **kwargs):
-        keys = list(self.query)
-        dataset = dataset.stack(stack=keys)
+    @partition.register(xr.Dataset)
+    def __dataset(self, dataset, *args, by, **kwargs):
+        dataset = dataset.stack(stack=list(by))
         generator = dataset.groupby("stack")
-        for values, dataset in iter(generator):
+        for partition, dataset in iter(generator):
             dataset = dataset.unstack().drop_vars("stack")
-            mapping = ODict(zip(keys, values))
-            query = self.query(mapping)
-            yield query, dataset
-
-    @property
-    def query(self): return self.__query
+            partition = ODict(zip(list(by), partition))
+            if callable(by): partition = by(partition)
+            yield partition, dataset
 
 
 

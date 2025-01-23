@@ -7,16 +7,18 @@ Created on Sat Oct 19 2024
 """
 
 import time
+import logging
 import inspect
 from abc import ABC, abstractmethod
 
-from support.mixins import Function, Generator, Logging
+from support.mixins import Function, Generator
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Algorithm", "Source"]
 __copyright__ = "Copyright 2024, Jack Kirby Cook"
 __license__ = "MIT License"
+__logger__ = logging.getLogger(__name__)
 
 
 class AlgorithmError(Exception):
@@ -60,7 +62,7 @@ class Pipeline(object):
     def source(self): return self.__source
 
 
-class Stage(Logging, ABC):
+class Stage(object, ABC):
     def __init_subclass__(cls, *args, signature=None, **kwargs):
         try: super().__init_subclass__(*args, **kwargs)
         except TypeError: super().__init_subclass__()
@@ -90,7 +92,7 @@ class Source(Generator, Stage, ABC):
             assert len(contents) == len(self.range)
             elapsed = time.time() - start
             string = f"Sourced: {repr(self)}[{elapsed:.02f}s]"
-            self.logger.info(string)
+            __logger__.info(string)
             parameters = dict(zip(self.range, contents))
             yield parameters
             start = time.time()
@@ -109,7 +111,7 @@ class Algorithm(Function, Stage, ABC):
         assert len(contents) == len(self.range)
         elapsed = time.time() - start
         string = f"Computed: {repr(self)}[{elapsed:.02f}s]"
-        self.logger.info(string)
+        __logger__.info(string)
         parameters = dict(zip(self.range, contents))
         return parameters
 

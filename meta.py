@@ -7,11 +7,10 @@ Created on Fri Aug 27 2021
 """
 
 from abc import ABCMeta
-from itertools import chain
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SingletonMeta", "AttributeMeta", "RegistryMeta", "MappingMeta", "NamingMeta", "TreeMeta"]
+__all__ = ["SingletonMeta", "AttributeMeta", "RegistryMeta", "MappingMeta", "TreeMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -38,31 +37,6 @@ class SingletonMeta(Meta):
             instance = super(SingletonMeta, cls).__call__(*args, **kwargs)
             SingletonMeta.instances[cls] = instance
         return SingletonMeta.instances[cls]
-
-
-class NamingMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        assert "fields" not in attrs.keys() and "named" not in attrs.keys()
-        super(NamingMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        cls.__fields__ = getattr(cls, "__fields__", []) + kwargs.get("fields", [])
-        cls.__named__ = getattr(cls, "__named__", {}) | kwargs.get("named", {})
-
-    def __call__(cls, contents, *args, **kwargs):
-        keys = chain(cls.fields, cls.named.keys())
-        assert isinstance(contents, dict) and all([key in contents.keys() for key in keys])
-        instance = super(NamingMeta, cls).__call__(*args, **kwargs)
-        for attribute, value in cls.named.items():
-            value = value(contents[attribute], *args, **kwargs)
-            setattr(instance, attribute, value)
-        for attribute in cls.fields:
-            value = contents[attribute]
-            setattr(instance, attribute, value)
-        return instance
-
-    @property
-    def fields(cls): return cls.__fields__
-    @property
-    def named(cls): return cls.__named__
 
 
 class TreeMeta(Meta):

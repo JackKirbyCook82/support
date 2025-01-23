@@ -7,6 +7,7 @@ Created on Mon Oct 14 2024
 """
 
 import inspect
+from enum import Enum
 from numbers import Number
 from functools import total_ordering
 from datetime import date as Date
@@ -60,6 +61,14 @@ class FieldDate(FieldData, datatype=Date, dataparams={"formatting": "%Y%m%d"}):
     def encode(value, *args, **kwargs): return hash(Datetime(year=value.year, month=value.month, day=value.day).timestamp())
     @staticmethod
     def string(value, *args, formatting, **kwargs): return str(value.strftime(formatting))
+
+class FieldEnum(FieldData, datatype=Enum, dataparams={"variable": None}):
+    @staticmethod
+    def parse(string, *args, variable, **kwargs): return variable(string)
+    @staticmethod
+    def encode(value, *args, variable, **kwargs): return hash(variable(value))
+    @staticmethod
+    def string(value, *args, variable, **kwargs): return str(variable(value))
 
 
 @total_ordering
@@ -161,17 +170,18 @@ class QueryBase(ABC):
 
 
 class Query(ABCMeta):
-    def __new__(mcs, dataname, datafields, delimiter):
-        cls = super(Query, mcs).__new__(mcs, dataname, (QueryBase, ABC), {})
+    def __new__(mcs, name, *args, bases=[], fields=[], **kwargs):
+        bases = tuple([QueryBase] + list(bases) + [ABC])
+        cls = super(Query, mcs).__new__(mcs, name, bases, {})
         return cls
 
     def __iter__(cls): return map(str, cls.datafields)
-    def __init__(cls, dataname, datafields, delimiter):
-        assert dataname == cls.__name__ and isinstance(datafields, list)
-        assert all([isinstance(datafield, Field) for datafield in datafields])
-        cls.datafields = {str(datafield): datafield for datafield in datafields}
+    def __init__(cls, name, *args, fields=[], delimiter="|", **kwargs):
+        assert name == cls.__name__ and isinstance(fields, list)
+        assert all([isinstance(field, Field) for field in fields])
+        cls.datafields = {str(field): field for field in fields}
+        cls.dataname = str(name)
         cls.delimiter = delimiter
-        cls.dataname = dataname
 
     def __getitem__(cls, strings):
         assert isinstance(strings, str)

@@ -13,8 +13,6 @@ import logging
 import traceback
 import threading
 
-from support.mixins import Logging
-
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["RoutineThread", "RepeatingThread"]
@@ -23,12 +21,10 @@ __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
-class Thread(Logging):
+class Thread(object):
     def __bool__(self): return bool(self.active)
     def __init__(self, routine, *args, **kwargs):
         assert callable(routine)
-        Logging.__init__(self, *args, **kwargs)
-        self.__logger = __logger__
         self.__routine = routine
         self.__arguments = list()
         self.__parameters = dict()
@@ -44,14 +40,14 @@ class Thread(Logging):
     def run(self):
         self.active = True
         try:
-            self.logger.info(f"Running: {repr(self)}")
+            __logger__.info(f"Running: {repr(self)}")
             self.process(*self.arguments, **self.parameters)
         except BaseException as error:
-            self.logger.error(f"Error: {repr(self)}[{error.__class__.__name__}]")
+            __logger__.error(f"Error: {repr(self)}[{error.__class__.__name__}]")
             error_type, error_value, error_traceback = sys.exc_info()
             traceback.print_exception(error_type, error_value, error_traceback)
         else:
-            self.logger.info(f"Completed: {repr(self)}")
+            __logger__.info(f"Completed: {repr(self)}")
         self.active = False
 
     def process(self, *args, **kwargs):
@@ -84,13 +80,13 @@ class RoutineThread(Thread, threading.Thread):
         threading.Thread.__init__(self, name=self.name, daemon=False)
 
     def start(self, *args, **kwargs):
-        self.logger.info(f"Started: {repr(self)}")
+        __logger__.info(f"Started: {repr(self)}")
         threading.Thread.start(self)
 
     def cease(self, *args, **kwargs): pass
     def join(self, *args, **kwargs):
         threading.Thread.join(self)
-        self.logger.info(f"Stopped: {repr(self)}")
+        __logger__.info(f"Stopped: {repr(self)}")
 
 
 class RepeatingThread(Thread, threading.Thread):
@@ -107,7 +103,7 @@ class RepeatingThread(Thread, threading.Thread):
                 time.sleep(self.wait)
 
     def cease(self, *args, **kwargs):
-        self.logger.info(f"Ceased: {repr(self)}")
+        __logger__.info(f"Ceased: {repr(self)}")
         self.cycling = False
 
     @property
