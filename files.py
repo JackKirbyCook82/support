@@ -7,6 +7,7 @@ Created on Sun 14 2023
 """
 
 import os
+import types
 import logging
 import multiprocessing
 import pandas as pd
@@ -32,29 +33,21 @@ class FileLock(dict, metaclass=SingletonMeta):
 class FileMeta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         super(FileMeta, cls).__init__(*args, **kwargs)
-        variable = kwargs.get("variable", getattr(cls, "__variable__", None))
-        order = kwargs.get("order", getattr(cls, "attributes", {}).get("order", []))
-        formatters = kwargs.get("formatters", getattr(cls, "attributes", {}).get("formatters", []))
-        parsers = kwargs.get("parsers", getattr(cls, "attributes", {}).get("parsers", []))
-        types = kwargs.get("types", getattr(cls, "attributes", {}).get("types", []))
-        dates = kwargs.get("dates", getattr(cls, "attributes", {}).get("dates", []))
-        attributes = dict(order=order, formatters=formatters, parsers=parsers, types=types, dates=dates)
+        attributes = dict(getattr(cls, "__attributes__", {}))
+        attributes["formatters"] = kwargs.get("formatters", attributes.get("formatters", {}))
+        attributes["parsers"] = kwargs.get("parsers", attributes.get("parsers", {}))
+        attributes["types"] = kwargs.get("types", attributes.get("types", {}))
+        attributes["dates"] = kwargs.get("dates", attributes.get("dates", {}))
+        attributes["order"] = kwargs.get("order", attributes.get("order", {}))
         cls.__attributes__ = attributes
-        cls.__variable__ = variable
 
     def __call__(cls, *args, **kwargs):
-        formatters = {key: cls.attributes["formatters"].get(key, {}) for key in cls.attributes["order"]}
-        parsers = {key: cls.attributes["parsers"].get(key, {}) for key in cls.attributes["order"]}
-        types = {key: cls.attributes["types"].get(key, {}) for key in cls.attributes["order"]}
-        dates = {key: cls.attributes["dates"].get(key, {}) for key in cls.attributes["order"]}
-        parameters = dict(mutex=FileLock(), folder=cls.variable, formatters=formatters, parsers=parsers, types=types, dates=dates)
+        parameters = dict(mutex=FileLock()) | dict(cls.attributes)
         instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
     @property
     def attributes(cls): return cls.__attributes__
-    @property
-    def variable(cls): return cls.__variable__
 
 
 class File(object, metaclass=FileMeta):
@@ -65,27 +58,27 @@ class File(object, metaclass=FileMeta):
             os.mkdir(repository)
         return instance
 
-    def __init__(self, *args, repository, folder, mutex, order, formatters, parsers, types, dates, **kwargs):
+    def __init__(self, *args, repository, folder, mutex, order, **kwargs):
         super().__init__(*args, **kwargs)
+        self.__formatters = kwargs.get("formatters", {})
+        self.__parsers = kwargs.get("parsers", {})
+        self.__types = kwargs.get("types", {})
+        self.__dates = kwargs.get("dates", {})
         self.__repository = repository
         self.__folder = folder
-        self.__formatters = formatters
-        self.__parsers = parsers
-        self.__order = order
-        self.__types = types
-        self.__dates = dates
         self.__mutex = mutex
+        self.__order = order
 
-    def __bool__(self): return bool(os.listdir(os.path.join(self.repository, str(self.folder))))
-    def __len__(self): return len(os.listdir(os.path.join(self.repository, str(self.folder))))
+    def __bool__(self): return bool(os.listdir(os.path.join(self.repository, self.folder)))
+    def __len__(self): return len(os.listdir(os.path.join(self.repository, self.folder)))
     def __repr__(self): return f"{self.name}[{len(self):.0f}]"
 
     def __iter__(self):
-        directory = os.path.join(self.repository, str(self.folder))
+        directory = os.path.join(self.repository, self.folder)
         for file in os.listdir(directory): yield str(file).split(".")[0]
 
     def read(self, *args, file, mode="r", **kwargs):
-        directory = os.path.join(self.repository, str(self.folder))
+        directory = os.path.join(self.repository, self.folder)
         file = os.path.join(directory, ".".join([file, "csv"]))
         if not os.path.exists(file): return
         with self.mutex[file]:
@@ -94,7 +87,7 @@ class File(object, metaclass=FileMeta):
         return content
 
     def write(self, content, *args, file, mode, **kwargs):
-        directory = os.path.join(self.repository, str(self.folder))
+        directory = os.path.join(self.repository, self.folder)
         file = os.path.join(directory, ".".join([file, "csv"]))
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode)
@@ -128,16 +121,16 @@ class File(object, metaclass=FileMeta):
     @property
     def parsers(self): return self.__parsers
     @property
-    def order(self): return self.__order
-    @property
     def types(self): return self.__types
     @property
     def dates(self): return self.__dates
     @property
+    def order(self): return self.__order
+    @property
     def mutex(self): return self.__mutex
 
 
-class Process(Sizing, Emptying, ABC):
+class Process(Sizing, Emptying, Partition, ABC):
     def __init__(self, *args, file, mode, **kwargs):
         try: super().__init__(*args, **kwargs)
         except TypeError: super().__init__()
@@ -145,9 +138,9 @@ class Process(Sizing, Emptying, ABC):
         self.__mode = mode
 
     @staticmethod
-    def filename(query): return str(query).replace("|", "_")
+    def filename(query): return "_".join(str(query).split("|"))
     @staticmethod
-    def filevalues(string): return str(string).split("_")
+    def queryname(file): return "|".join(str(file).split("_"))
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
@@ -158,37 +151,38 @@ class Process(Sizing, Emptying, ABC):
     def mode(self): return self.__mode
 
 
-class Directory(Process):
+class Directory(Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.file): return
         for file in iter(self.file):
-            values = self.filevalues(file)
-            query = self.query(values)
+            queryname = self.queryname(file)
+            query = type(self).query(queryname)
             yield query
 
 
-class Loader(Partition, Process):
+class Loader(Process, ABC, title="Loaded"):
     def execute(self, query, *args, **kwargs):
         if query is None: return
         if not bool(self.file): return
         file = self.filename(query)
-        contents = self.file.read(*args, file=file, mode=self.mode, **kwargs)
-        for query, content in self.separate(contents, *args, **kwargs):
-            size = self.size(content)
-            string = f"Loaded: {repr(self)}|{str(query)}[{size:.0f}]"
-            __logger__.info(string)
-            if self.empty(content): continue
-            yield content
+        dataframes = self.file.read(*args, file=file, mode=self.mode, **kwargs)
+        for query, dataframe in self.partition(dataframes):
+            size = self.size(dataframe)
+            string = f"{str(query)}[{size:.0f}]"
+            self.console(string)
+            if self.empty(dataframe): continue
+            yield dataframe
 
 
-class Saver(Partition, Process):
-    def execute(self, contents, *args, **kwargs):
-        if self.empty(contents): return
-        for query, content in self.segregate(contents, *args, **kwargs):
+class Saver(Process, ABC, title="Saved"):
+    def execute(self, dataframes, *args, **kwargs):
+        assert isinstance(dataframes, (pd.DataFrame, types.NoneType))
+        if self.empty(dataframes): return
+        for query, dataframe in self.partition(dataframes):
             file = self.filename(query)
-            self.file.write(content, *args, file=file, mode=self.mode, **kwargs)
-            size = self.size(content)
-            string = f"Saved: {repr(self)}|{str(query)}[{size:.0f}]"
-            __logger__.info(string)
+            self.file.write(dataframe, *args, file=file, mode=self.mode, **kwargs)
+            size = self.size(dataframe)
+            string = f"{str(query)}[{size:.0f}]"
+            self.console(string)
 
 

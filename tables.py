@@ -6,7 +6,7 @@ Created on Weds Jul 12 2023
 
 """
 
-import logging
+import types
 import multiprocessing
 import pandas as pd
 from abc import ABC, abstractmethod
@@ -18,7 +18,6 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["Reader", "Routine", "Writer", "Table"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-__logger__ = logging.getLogger(__name__)
 
 
 def render(dataframe, *args, style, order, formats, numbers, width, columns, rows, **kwargs):
@@ -194,39 +193,44 @@ class Process(Sizing, Emptying, ABC):
     def table(self): return self.__table
 
 
-class Reader(Partition, Process, ABC):
+class Routine(Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
-        with self.table.mutex: contents = self.read(*args, **kwargs)
-        if self.empty(contents): return
-        for query, content in self.segregate(contents, *args, **kwargs):
-            size = self.size(content)
-            string = f"Read: {repr(self)}|{str(query)}[{size:.0f}]"
-            __logger__.info(string)
-            if self.empty(content): continue
-            yield content
-
-    @abstractmethod
-    def read(self, *args, **kwargs): pass
-
-
-class Routine(Querying, Process, ABC):
-    def execute(self, *args, **kwargs):
-        if not bool(self.table): return
-        with self.table.mutex: self.invoke(*args, **kwargs)
+        with self.table.mutex:
+            self.invoke(*args, **kwargs)
 
     @abstractmethod
     def invoke(self, *args, **kwargs): pass
 
 
-class Writer(Partition, Process, ABC):
-    def execute(self, contents, *args, **kwargs):
-        if self.empty(contents): return
-        for query, content in self.segregate(contents, *args, **kwargs):
-            with self.table.mutex: self.write(content, *args, **kwargs)
-            size = self.size(content)
-            string = f"Wrote: {repr(self)}|{str(query)}[{size:.0f}]"
-            __logger__.info(string)
+class Reader(Process, Partition, ABC, title="Read"):
+    def execute(self, *args, **kwargs):
+        if not bool(self.table): return
+        with self.table.mutex:
+            dataframes = self.read(*args, **kwargs)
+            assert isinstance(dataframes, (pd.DataFrame, types.NoneType))
+        if self.empty(dataframes): return
+        for query, dataframe in self.partition(dataframes):
+            size = self.size(dataframe)
+            string = f"{str(query)}[{size:.0f}]"
+            self.console(string)
+            if self.empty(dataframe): continue
+            yield dataframe
+
+    @abstractmethod
+    def read(self, *args, **kwargs): pass
+
+
+class Writer(Process, Partition, ABC, title="Wrote"):
+    def execute(self, dataframes, *args, **kwargs):
+        assert isinstance(dataframes, (pd.DataFrame, types.NoneType))
+        if self.empty(dataframes): return
+        for query, dataframe in self.partition(dataframes):
+            with self.table.mutex:
+                self.write(dataframe, *args, **kwargs)
+            size = self.size(dataframe)
+            string = f"{str(query)}[{size:.0f}]"
+            self.console(string)
 
     @abstractmethod
     def write(self, content, *args, **kwargs): pass

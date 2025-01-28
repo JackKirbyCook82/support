@@ -6,7 +6,6 @@ Created on Tues Dec 10 2024
 
 """
 
-import logging
 from functools import reduce
 
 from support.mixins import Sizing, Emptying, Partition
@@ -16,10 +15,9 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["Filter"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-__logger__ = logging.getLogger(__name__)
 
 
-class Filter(Partition, Sizing, Emptying):
+class Filter(Partition, Sizing, Emptying, title="Filtered"):
     def __init__(self, *args, criterion, **kwargs):
         assert isinstance(criterion, list) or callable(criterion)
         assert all([callable(function) for function in criterion]) if isinstance(criterion, list) else callable(criterion)
@@ -28,13 +26,13 @@ class Filter(Partition, Sizing, Emptying):
 
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
-        for query, content in self.separate(contents, *args, **kwargs):
+        for query, content in self.partition(contents):
             prior = self.size(content)
             content = self.calculate(content, *args, **kwargs)
             content = content.reset_index(drop=True, inplace=False)
             post = self.size(content)
-            string = f"Filtered: {repr(self)}|{str(query)}[{prior:.0f}|{post:.0f}]"
-            __logger__.info(string)
+            string = f"{str(query)}[{prior:.0f}|{post:.0f}]"
+            self.console(string)
             if self.empty(content): continue
             yield content
 
@@ -46,4 +44,6 @@ class Filter(Partition, Sizing, Emptying):
 
     @property
     def criterion(self): return self.__criterion
+
+
 

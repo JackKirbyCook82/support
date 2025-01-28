@@ -30,6 +30,7 @@ class Mixin(ABC):
     def __init_subclass__(cls, *args, **kwargs):
         try: return super().__init_subclass__(*args, **kwargs)
         except TypeError: return super().__init_subclass__()
+        cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
 
     def __new__(cls, *args, **kwargs):
         try: return super().__new__(cls, *args, **kwargs)
@@ -37,10 +38,23 @@ class Mixin(ABC):
 
     def __repr__(self): return str(self.name)
     def __init__(self, *args, **kwargs):
-        self.__name = self.__class__.__name__
         try: super().__init__(*args, **kwargs)
         except TypeError: super().__init__()
+        self.__title = kwargs.get("title", self.__class__.__title__)
+        self.__name = kwargs.get("name", self.__class__.__name__)
+        self.__logger = __logger__
 
+    def console(self, *strings, **parameters):
+        assert all([isinstance(string, str) for string in strings])
+        title, name = parameters.get("title", self.title), repr(self)
+        for string in strings:
+            string = f"{str(title)}[{repr(name)}]: {str(string)}"
+            self.logger.info(string)
+
+    @property
+    def logger(self): return self.__logger
+    @property
+    def title(self): return self.__title
     @property
     def name(self): return self.__name
 
@@ -194,31 +208,42 @@ class Memory(Mixin):
 
 
 class Partition(Mixin):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.query = kwargs.get("query", getattr(cls, "query", None))
+
+    def __new__(cls, *args, **kwargs):
+        assert not isinstance(cls.by, types.NoneType)
+        instance = super().__new__(cls, *args, **kwargs)
+        return instance
+
     @TypeDispatcher(locator=0)
-    def partition(self, contents, *args, **kwargs): raise TypeError(type(contents))
+    def partition(self, contents): raise TypeError(type(contents))
 
     @partition.register(list)
-    def __collection(self, collection, *args, **kwargs):
+    def __collection(self, collection):
         for content in iter(collection):
-            yield from self.partition(content, *args, *kwargs)
+            yield from self.partition(content)
 
     @partition.register(pd.DataFrame)
-    def __dataframe(self, dataframe, *args, by, **kwargs):
-        generator = dataframe.groupby(list(by))
-        for partition, dataframe in iter(generator):
-            partition = ODict(zip(list(by), partition))
-            if callable(by): partition = by(partition)
-            yield partition, dataframe
+    def __dataframe(self, dataframe):
+        keys = list(type(self).query)
+        generator = dataframe.groupby(keys)
+        for values, dataframe in iter(generator):
+            partition = ODict(zip(keys, values))
+            query = type(self).query(partition)
+            yield query, dataframe
 
     @partition.register(xr.Dataset)
-    def __dataset(self, dataset, *args, by, **kwargs):
-        dataset = dataset.stack(stack=list(by))
+    def __dataset(self, dataset):
+        keys = list(type(self).query)
+        dataset = dataset.stack(stack=keys)
         generator = dataset.groupby("stack")
-        for partition, dataset in iter(generator):
+        for values, dataset in iter(generator):
             dataset = dataset.unstack().drop_vars("stack")
-            partition = ODict(zip(list(by), partition))
-            if callable(by): partition = by(partition)
-            yield partition, dataset
+            partition = ODict(zip(keys, values))
+            query = type(self).query(partition)
+            yield query, dataset
 
 
 

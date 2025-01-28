@@ -6,7 +6,6 @@ Created on Tues Dec 10 2024
 
 """
 
-import logging
 import pandas as pd
 from abc import ABC, abstractmethod
 
@@ -17,10 +16,9 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["Pivot", "Unpivot"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-__logger__ = logging.getLogger(__name__)
 
 
-class Transform(Partition, Sizing, Emptying, ABC):
+class Transform(Sizing, Emptying, Partition, ABC, title="Transformed"):
     def __init__(self, *args, header, **kwargs):
         super().__init__(*args, **kwargs)
         index, columns = list(header)
@@ -30,13 +28,13 @@ class Transform(Partition, Sizing, Emptying, ABC):
     def execute(self, dataframes, *args, **kwargs):
         assert isinstance(dataframes, pd.DataFrame)
         if self.empty(dataframes): return
-        for query, dataframe in self.separate(dataframes, *args, **kwargs):
+        for query, dataframe in self.partition(dataframes):
             prior = self.size(dataframe)
             dataframe = self.calculate(dataframe, *args, **kwargs)
             dataframe = dataframe.reset_index(drop=True, inplace=False)
             post = self.size(dataframe)
-            string = f"Transformed: {repr(self)}|{str(query)}[{prior:.0f}|{post:.0f}]"
-            __logger__.info(string)
+            string = f"{str(query)}[{prior:.0f}|{post:.0f}]"
+            self.console(string)
             if self.empty(dataframe): continue
             yield dataframe
 
@@ -49,7 +47,7 @@ class Transform(Partition, Sizing, Emptying, ABC):
     def index(self): return self.__index
 
 
-class Pivot(Transform):
+class Pivot(Transform, title="Pivoted"):
     def calculate(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
         index = set(dataframe.columns) - ({self.index} | set(self.columns))
@@ -58,7 +56,7 @@ class Pivot(Transform):
         return dataframe
 
 
-class Unpivot(Transform):
+class Unpivot(Transform, title="Unpivoted"):
     def calculate(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
         dataframe.index.name = "index"
@@ -69,4 +67,6 @@ class Unpivot(Transform):
         columns = dataframe[list(columns)].stack().reset_index(drop=False, inplace=False)
         dataframe = pd.merge(index, columns, how="outer", on="index").drop(columns="index")
         return dataframe
+
+
 
