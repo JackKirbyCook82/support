@@ -13,7 +13,7 @@ import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.mixins import Emptying, Sizing, Partition
+from support.mixins import Emptying, Sizing, Partition, Querys, Mixin
 from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
@@ -38,7 +38,7 @@ class FileMeta(ABCMeta):
         attributes["parsers"] = kwargs.get("parsers", attributes.get("parsers", {}))
         attributes["types"] = kwargs.get("types", attributes.get("types", {}))
         attributes["dates"] = kwargs.get("dates", attributes.get("dates", {}))
-        attributes["order"] = kwargs.get("order", attributes.get("order", {}))
+        attributes["order"] = kwargs.get("order", attributes.get("order", []))
         cls.__attributes__ = attributes
 
     def __call__(cls, *args, **kwargs):
@@ -50,12 +50,15 @@ class FileMeta(ABCMeta):
     def attributes(cls): return cls.__attributes__
 
 
-class File(object, metaclass=FileMeta):
+class File(Mixin, metaclass=FileMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __new__(cls, *args, repository, **kwargs):
+    def __new__(cls, *args, repository, folder, **kwargs):
+        assert repository is not None and folder is not None
+        assert os.path.exists(repository)
         instance = super().__new__(cls)
-        if not os.path.exists(repository):
-            os.mkdir(repository)
+        directory = os.path.join(repository, folder)
+        if not os.path.exists(directory):
+            os.mkdir(directory)
         return instance
 
     def __init__(self, *args, repository, folder, mutex, order, **kwargs):
@@ -75,7 +78,9 @@ class File(object, metaclass=FileMeta):
 
     def __iter__(self):
         directory = os.path.join(self.repository, self.folder)
-        for file in os.listdir(directory): yield str(file).split(".")[0]
+        for file in os.listdir(directory):
+            file = str(file).split(".")[0]
+            yield file
 
     def read(self, *args, file, mode="r", **kwargs):
         directory = os.path.join(self.repository, self.folder)
@@ -92,8 +97,7 @@ class File(object, metaclass=FileMeta):
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode)
             self.save(content, *args, **parameters, **kwargs)
-        string = f"Saved: {str(file)}"
-        __logger__.info(string)
+        self.console(f"{str(file)}", title="Saved")
 
     def load(self, *args, file, mode, **kwargs):
         assert mode == "r" and str(file).split(".")[-1] == "csv"
@@ -130,7 +134,7 @@ class File(object, metaclass=FileMeta):
     def mutex(self): return self.__mutex
 
 
-class Process(Sizing, Emptying, Partition, ABC):
+class Process(Sizing, Emptying, ABC):
     def __init__(self, *args, file, mode, **kwargs):
         try: super().__init__(*args, **kwargs)
         except TypeError: super().__init__()
@@ -151,7 +155,7 @@ class Process(Sizing, Emptying, Partition, ABC):
     def mode(self): return self.__mode
 
 
-class Directory(Process, ABC):
+class Directory(Process, Querys, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.file): return
         for file in iter(self.file):
@@ -160,21 +164,23 @@ class Directory(Process, ABC):
             yield query
 
 
-class Loader(Process, ABC, title="Loaded"):
-    def execute(self, query, *args, **kwargs):
-        if query is None: return
+class Loader(Process, Partition, ABC, title="Loaded"):
+    def execute(self, contents, *args, **kwargs):
+        contents = list(contents) if isinstance(contents, list) else [contents]
+        if not bool(contents): return
         if not bool(self.file): return
-        file = self.filename(query)
-        dataframes = self.file.read(*args, file=file, mode=self.mode, **kwargs)
-        for query, dataframe in self.partition(dataframes):
-            size = self.size(dataframe)
-            string = f"{str(query)}[{size:.0f}]"
-            self.console(string)
-            if self.empty(dataframe): continue
-            yield dataframe
+        for content in list(contents):
+            query = type(self).query(content)
+            file = self.filename(query)
+            dataframes = self.file.read(*args, file=file, mode=self.mode, **kwargs)
+            for query, dataframe in self.partition(dataframes):
+                size = self.size(dataframe)
+                self.console(f"{str(query)}[{size:.0f}]")
+                if self.empty(dataframe): continue
+                yield dataframe
 
 
-class Saver(Process, ABC, title="Saved"):
+class Saver(Process, Partition, ABC, title="Saved"):
     def execute(self, dataframes, *args, **kwargs):
         assert isinstance(dataframes, (pd.DataFrame, types.NoneType))
         if self.empty(dataframes): return
@@ -182,7 +188,6 @@ class Saver(Process, ABC, title="Saved"):
             file = self.filename(query)
             self.file.write(dataframe, *args, file=file, mode=self.mode, **kwargs)
             size = self.size(dataframe)
-            string = f"{str(query)}[{size:.0f}]"
-            self.console(string)
+            self.console(f"{str(query)}[{size:.0f}]")
 
 

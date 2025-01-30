@@ -212,8 +212,7 @@ class Reader(Process, Partition, ABC, title="Read"):
         if self.empty(dataframes): return
         for query, dataframe in self.partition(dataframes):
             size = self.size(dataframe)
-            string = f"{str(query)}[{size:.0f}]"
-            self.console(string)
+            self.console(f"{str(query)}[{size:.0f}]")
             if self.empty(dataframe): continue
             yield dataframe
 
@@ -229,8 +228,7 @@ class Writer(Process, Partition, ABC, title="Wrote"):
             with self.table.mutex:
                 self.write(dataframe, *args, **kwargs)
             size = self.size(dataframe)
-            string = f"{str(query)}[{size:.0f}]"
-            self.console(string)
+            self.console(f"{str(query)}[{size:.0f}]")
 
     @abstractmethod
     def write(self, content, *args, **kwargs): pass

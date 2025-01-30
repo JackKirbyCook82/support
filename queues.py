@@ -11,6 +11,7 @@ from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 
 from support.meta import AttributeMeta
+from support.mixins import Querys
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -110,20 +111,38 @@ class PIFOQueue(Queue, datatype=queue.PriorityQueue, queuetype=QueueTypes.PIFO):
     def priority(self): return self.__priority
 
 
-class Dequeuer(object):
+class Process(Querys, ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__queue = kwargs["queue"]
 
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
+
+    @property
+    def queue(self): return self.__queue
+
+
+class Dequeuer(Process):
     def execute(self, *args, **kwargs):
         if not bool(self.queue): return
         while bool(self.queue):
             content = self.queue.read(*args, **kwargs)
-            yield content
+            query = type(self).query(content)
+            yield query
             self.queue.complete()
 
-    @property
-    def queue(self): return self.__queue
+
+class Requeuer(Process):
+    def execute(self, contents, *args, **kwargs):
+        contents = list(contents) if isinstance(contents, list) else [contents]
+        if not bool(contents): return
+        for content in list(contents):
+            query = type(self).query(content)
+            self.queue.write(query, *args, **kwargs)
+
+
+
 
 
 

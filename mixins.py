@@ -20,7 +20,7 @@ from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Mixin", "Emptying", "Memory", "Sizing", "Function", "Generator", "Partition", "Publisher", "Subscriber"]
+__all__ = ["Mixin", "Emptying", "Memory", "Sizing", "Function", "Generator", "Querys", "Partition", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -44,12 +44,11 @@ class Mixin(ABC):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__logger = __logger__
 
-    def console(self, *strings, **parameters):
-        assert all([isinstance(string, str) for string in strings])
-        title, name = parameters.get("title", self.title), repr(self)
-        for string in strings:
-            string = f"{str(title)}[{repr(name)}]: {str(string)}"
-            self.logger.info(string)
+    def console(self, string, **parameters):
+        assert isinstance(string, str)
+        title = parameters.get("title", self.title)
+        string = f"{str(title)}[{repr(self)}]: {str(string)}"
+        self.logger.info(string)
 
     @property
     def logger(self): return self.__logger
@@ -207,16 +206,18 @@ class Memory(Mixin):
     def __nothing(self, *args, **kwargs): return 0
 
 
-class Partition(Mixin):
+class Querys(Mixin):
     def __init_subclass__(cls, *args, **kwargs):
         super().__init_subclass__(*args, **kwargs)
         cls.query = kwargs.get("query", getattr(cls, "query", None))
 
     def __new__(cls, *args, **kwargs):
-        assert not isinstance(cls.by, types.NoneType)
+        assert not isinstance(cls.query, types.NoneType)
         instance = super().__new__(cls, *args, **kwargs)
         return instance
 
+
+class Partition(Querys):
     @TypeDispatcher(locator=0)
     def partition(self, contents): raise TypeError(type(contents))
 
