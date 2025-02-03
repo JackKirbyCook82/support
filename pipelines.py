@@ -8,19 +8,17 @@ Created on Weds Jul 12 2023
 
 import time
 import types
-import logging
 import inspect
 from functools import reduce
 from abc import ABC, abstractmethod
 
-from support.mixins import Function, Generator
+from support.mixins import Function, Generator, Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Routine", "Producer", "Processor", "Consumer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-__logger__ = logging.getLogger(__name__)
 
 
 class Pipeline(ABC):
@@ -76,7 +74,7 @@ class ClosedPipeline(Pipeline):
     def source(self): return self.__source
 
 
-class Stage(ABC):
+class Stage(Logging, ABC):
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
@@ -88,8 +86,7 @@ class Source(Stage, ABC):
         start = time.time()
         for content in source:
             elapsed = time.time() - start
-            string = f"Produced: {repr(self)}[{elapsed:.02f}s]"
-            __logger__.info(string)
+            self.console(f"{elapsed:.02f sec}", title="Produced")
             yield content
             start = time.time()
 
@@ -100,8 +97,7 @@ class Routine(Stage, ABC):
         assert not inspect.isgeneratorfunction(self.execute)
         self.execute(*args, **kwargs)
         elapsed = time.time() - start
-        string = f"Routined: {repr(self)}[{elapsed:.02f}s]"
-        __logger__.info(string)
+        self.console(f"{elapsed:.02f sec}", title="Routined")
 
 
 class Producer(Generator, Source, ABC):
@@ -132,7 +128,7 @@ class Consumer(Function, Stage, ABC):
             assert not inspect.isgeneratorfunction(self.execute)
             self.execute(content, *args, **kwargs)
             elapsed = time.time() - start
-            string = f"Consumed: {repr(self)}[{elapsed:.02f}s]"
-            __logger__.info(string)
+            self.console(f"{elapsed:.02f sec}", title="Consumed")
+
 
 

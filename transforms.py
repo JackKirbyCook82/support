@@ -9,7 +9,7 @@ Created on Tues Dec 10 2024
 import pandas as pd
 from abc import ABC, abstractmethod
 
-from support.mixins import Sizing, Emptying, Partition
+from support.mixins import Sizing, Emptying, Partition, Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -18,7 +18,7 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Transform(Sizing, Emptying, Partition, ABC, title="Transformed"):
+class Transform(Sizing, Emptying, Partition, Logging, ABC, title="Transformed"):
     def __init__(self, *args, header, **kwargs):
         super().__init__(*args, **kwargs)
         index, columns = list(header)

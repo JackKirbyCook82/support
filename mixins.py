@@ -20,7 +20,7 @@ from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Mixin", "Emptying", "Memory", "Sizing", "Function", "Generator", "Querys", "Partition", "Publisher", "Subscriber"]
+__all__ = ["Mixin", "Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Querys", "Partition", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -28,26 +28,35 @@ __logger__ = logging.getLogger(__name__)
 
 class Mixin(ABC):
     def __init_subclass__(cls, *args, **kwargs):
-        try: return super().__init_subclass__(*args, **kwargs)
-        except TypeError: return super().__init_subclass__()
-        cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
+        try: super().__init_subclass__(*args, **kwargs)
+        except TypeError: super().__init_subclass__()
 
     def __new__(cls, *args, **kwargs):
         try: return super().__new__(cls, *args, **kwargs)
         except TypeError: return super().__new__(cls)
 
-    def __repr__(self): return str(self.name)
     def __init__(self, *args, **kwargs):
         try: super().__init__(*args, **kwargs)
         except TypeError: super().__init__()
+
+
+class Logging(Mixin):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__title__ = kwargs.get("title", getattr(cls, "__title__", None))
+
+    def __repr__(self): return str(self.name)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__title = kwargs.get("title", self.__class__.__title__)
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__logger = __logger__
 
-    def console(self, string, **parameters):
-        assert isinstance(string, str)
+    def console(self, *strings, **parameters):
         title = parameters.get("title", self.title)
-        string = f"{str(title)}[{repr(self)}]: {str(string)}"
+        string = "|".join(list(strings))
+        if not bool(string): string = f"{str(title)}[{repr(self)}]"
+        else: string = f"{str(title)}[{repr(self)}]: {str(string)}"
         self.logger.info(string)
 
     @property
@@ -56,6 +65,49 @@ class Mixin(ABC):
     def title(self): return self.__title
     @property
     def name(self): return self.__name
+
+
+class Querys(Mixin):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__query__ = kwargs.get("query", getattr(cls, "query", None))
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__query = kwargs.get("query", self.__class__.__query__)
+
+    @property
+    def query(self): return self.__query
+
+
+class Partition(Querys):
+    @TypeDispatcher(locator=0)
+    def partition(self, contents): raise TypeError(type(contents))
+
+    @partition.register(list)
+    def __collection(self, collection):
+        for content in iter(collection):
+            yield from self.partition(content)
+
+    @partition.register(pd.DataFrame)
+    def __dataframe(self, dataframe):
+        keys = list(self.query)
+        generator = dataframe.groupby(keys)
+        for values, dataframe in iter(generator):
+            partition = ODict(zip(keys, values))
+            query = self.query(partition)
+            yield query, dataframe
+
+    @partition.register(xr.Dataset)
+    def __dataset(self, dataset):
+        keys = list(self.query)
+        dataset = dataset.stack(stack=keys)
+        generator = dataset.groupby("stack")
+        for values, dataset in iter(generator):
+            dataset = dataset.unstack().drop_vars("stack")
+            partition = ODict(zip(keys, values))
+            query = self.query(partition)
+            yield query, dataset
 
 
 class Function(Mixin):
@@ -205,46 +257,6 @@ class Memory(Mixin):
     @memory.register(types.NoneType)
     def __nothing(self, *args, **kwargs): return 0
 
-
-class Querys(Mixin):
-    def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        cls.query = kwargs.get("query", getattr(cls, "query", None))
-
-    def __new__(cls, *args, **kwargs):
-        assert not isinstance(cls.query, types.NoneType)
-        instance = super().__new__(cls, *args, **kwargs)
-        return instance
-
-
-class Partition(Querys):
-    @TypeDispatcher(locator=0)
-    def partition(self, contents): raise TypeError(type(contents))
-
-    @partition.register(list)
-    def __collection(self, collection):
-        for content in iter(collection):
-            yield from self.partition(content)
-
-    @partition.register(pd.DataFrame)
-    def __dataframe(self, dataframe):
-        keys = list(type(self).query)
-        generator = dataframe.groupby(keys)
-        for values, dataframe in iter(generator):
-            partition = ODict(zip(keys, values))
-            query = type(self).query(partition)
-            yield query, dataframe
-
-    @partition.register(xr.Dataset)
-    def __dataset(self, dataset):
-        keys = list(type(self).query)
-        dataset = dataset.stack(stack=keys)
-        generator = dataset.groupby("stack")
-        for values, dataset in iter(generator):
-            dataset = dataset.unstack().drop_vars("stack")
-            partition = ODict(zip(keys, values))
-            query = type(self).query(partition)
-            yield query, dataset
 
 
 

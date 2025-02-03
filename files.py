@@ -10,10 +10,11 @@ import os
 import types
 import logging
 import multiprocessing
+import regex as re
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.mixins import Emptying, Sizing, Partition, Querys, Mixin
+from support.mixins import Emptying, Sizing, Partition, Querys, Logging
 from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
@@ -21,7 +22,6 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["Loader", "Saver", "Directory", "File"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
-__logger__ = logging.getLogger(__name__)
 
 
 class FileLock(dict, metaclass=SingletonMeta):
@@ -31,6 +31,7 @@ class FileLock(dict, metaclass=SingletonMeta):
 
 
 class FileMeta(ABCMeta):
+    def __repr__(cls): return str(cls.__name__)
     def __init__(cls, *args, **kwargs):
         super(FileMeta, cls).__init__(*args, **kwargs)
         attributes = dict(getattr(cls, "__attributes__", {}))
@@ -38,19 +39,34 @@ class FileMeta(ABCMeta):
         attributes["parsers"] = kwargs.get("parsers", attributes.get("parsers", {}))
         attributes["types"] = kwargs.get("types", attributes.get("types", {}))
         attributes["dates"] = kwargs.get("dates", attributes.get("dates", {}))
-        attributes["order"] = kwargs.get("order", attributes.get("order", []))
+        cls.__order__ = kwargs.get("order", getattr(cls, "__order__", []))
         cls.__attributes__ = attributes
 
+    def __getitem__(cls, attribute): return cls.attributes[attribute]
+    def __setitem__(cls, attribute, value): cls.attributes[attribute] = value
+
+    def __add__(cls, other):
+        primary = list(re.findall("[A-Z][^A-Z]*", repr(cls).replace("File", "")))
+        secondary = list(re.findall("[A-Z][^A-Z]*", repr(cls).replace("File", "")))
+        titles = list(primary) + [title for title in secondary if title not in primary]
+        title = f"{''.join(titles)}File"
+        attributes = list(cls.attributes)
+        attributes = {attribute: cls[attribute] | other[attribute] for attribute in attributes}
+        order = cls.order + [value for value in list(other.order) if value not in cls.order]
+        return type(title, (File,), {}, order=order, **attributes)
+
     def __call__(cls, *args, **kwargs):
-        parameters = dict(mutex=FileLock()) | dict(cls.attributes)
+        parameters = dict(mutex=FileLock(), header=cls.order) | dict(cls.attributes)
         instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
     @property
     def attributes(cls): return cls.__attributes__
+    @property
+    def order(cls): return cls.__order__
 
 
-class File(Mixin, metaclass=FileMeta):
+class File(ABC, metaclass=FileMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, *args, repository, folder, **kwargs):
         assert repository is not None and folder is not None
@@ -61,16 +77,15 @@ class File(Mixin, metaclass=FileMeta):
             os.mkdir(directory)
         return instance
 
-    def __init__(self, *args, repository, folder, mutex, order, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(self, *args, repository, folder, header, mutex, **kwargs):
         self.__formatters = kwargs.get("formatters", {})
         self.__parsers = kwargs.get("parsers", {})
         self.__types = kwargs.get("types", {})
         self.__dates = kwargs.get("dates", {})
         self.__repository = repository
         self.__folder = folder
+        self.__order = header
         self.__mutex = mutex
-        self.__order = order
 
     def __bool__(self): return bool(os.listdir(os.path.join(self.repository, self.folder)))
     def __len__(self): return len(os.listdir(os.path.join(self.repository, self.folder)))
@@ -97,13 +112,13 @@ class File(Mixin, metaclass=FileMeta):
         with self.mutex[file]:
             parameters = dict(file=str(file), mode=mode)
             self.save(content, *args, **parameters, **kwargs)
-        self.console(f"{str(file)}", title="Saved")
+        return str(file)
 
     def load(self, *args, file, mode, **kwargs):
         assert mode == "r" and str(file).split(".")[-1] == "csv"
         parameters = dict(infer_datetime_format=False, parse_dates=list(self.dates.keys()), date_format=self.dates, dtype=self.types, converters=self.parsers)
         dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
-        columns = [column for column in list(self.order if bool(self.order) else dataframe.columns) if column in dataframe.columns]
+        columns = [column for column in list(self.header if bool(self.header) else dataframe.columns) if column in dataframe.columns]
         return dataframe[columns]
 
     def save(self, dataframe, *args, file, mode, **kwargs):
@@ -113,13 +128,15 @@ class File(Mixin, metaclass=FileMeta):
             dataframe[column] = dataframe[column].apply(formatter)
         for column, dateformat in self.dates.items():
             dataframe[column] = dataframe[column].dt.strftime(dateformat)
-        columns = [column for column in list(self.order if bool(self.order) else dataframe.columns) if column in dataframe.columns]
+        columns = [column for column in list(self.header if bool(self.header) else dataframe.columns) if column in dataframe.columns]
         dataframe[columns].to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
     @property
     def repository(self): return self.__repository
     @property
     def folder(self): return self.__folder
+    @property
+    def header(self): return self.__header
     @property
     def formatters(self): return self.__formatters
     @property
@@ -129,15 +146,12 @@ class File(Mixin, metaclass=FileMeta):
     @property
     def dates(self): return self.__dates
     @property
-    def order(self): return self.__order
-    @property
     def mutex(self): return self.__mutex
 
 
-class Process(Sizing, Emptying, ABC):
+class Process(Sizing, Emptying, Logging, ABC):
     def __init__(self, *args, file, mode, **kwargs):
-        try: super().__init__(*args, **kwargs)
-        except TypeError: super().__init__()
+        super().__init__(*args, **kwargs)
         self.__file = file
         self.__mode = mode
 
@@ -186,8 +200,9 @@ class Saver(Process, Partition, ABC, title="Saved"):
         if self.empty(dataframes): return
         for query, dataframe in self.partition(dataframes):
             file = self.filename(query)
-            self.file.write(dataframe, *args, file=file, mode=self.mode, **kwargs)
+            file = self.file.write(dataframe, *args, file=file, mode=self.mode, **kwargs)
             size = self.size(dataframe)
             self.console(f"{str(query)}[{size:.0f}]")
+            self.console(file)
 
 

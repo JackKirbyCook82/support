@@ -6,7 +6,6 @@ Created on Mon Nov 4 2024
 
 """
 
-import logging
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
@@ -18,7 +17,6 @@ __author__ = "Jack Kirby Cook"
 __all__ = ["Node", "ParentalNode"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
-__logger__ = logging.getLogger(__name__)
 
 
 Style = ntuple("Style", "branch terminate run blank")

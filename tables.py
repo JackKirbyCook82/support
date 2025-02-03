@@ -11,7 +11,7 @@ import multiprocessing
 import pandas as pd
 from abc import ABC, abstractmethod
 
-from support.mixins import Emptying, Sizing, Partition
+from support.mixins import Emptying, Sizing, Partition, Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -181,7 +181,7 @@ class Table(ABC):
     def index(self): return self.data.index
 
 
-class Process(Sizing, Emptying, ABC):
+class Process(Sizing, Emptying, Logging, ABC):
     def __init__(self, *args, table, **kwargs):
         super().__init__(*args, **kwargs)
         self.__table = table

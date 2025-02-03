@@ -10,8 +10,8 @@ import queue
 from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 
+from support.mixins import Querys, Logging
 from support.meta import AttributeMeta
-from support.mixins import Querys
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -47,12 +47,10 @@ class QueueMeta(AttributeMeta, ABCMeta):
 
 
 class Queue(ABC, metaclass=QueueMeta):
-    def __repr__(self): return f"{str(self.name)}[{len(self):.0f}]"
     def __bool__(self): return not bool(self.empty)
     def __len__(self): return int(self.size)
 
     def __init__(self, *args, data, timeout=None, **kwargs):
-        super().__init__(*args, **kwargs)
         self.__timeout = timeout
         self.__data = data
 
@@ -111,7 +109,7 @@ class PIFOQueue(Queue, datatype=queue.PriorityQueue, queuetype=QueueTypes.PIFO):
     def priority(self): return self.__priority
 
 
-class Process(Querys, ABC):
+class Process(Logging, Querys, ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__queue = kwargs["queue"]
@@ -123,7 +121,7 @@ class Process(Querys, ABC):
     def queue(self): return self.__queue
 
 
-class Dequeuer(Process):
+class Dequeuer(Process, title="Dequeued"):
     def execute(self, *args, **kwargs):
         if not bool(self.queue): return
         while bool(self.queue):
@@ -133,7 +131,7 @@ class Dequeuer(Process):
             self.queue.complete()
 
 
-class Requeuer(Process):
+class Requeuer(Process, title="Requeued"):
     def execute(self, contents, *args, **kwargs):
         contents = list(contents) if isinstance(contents, list) else [contents]
         if not bool(contents): return

@@ -8,7 +8,7 @@ Created on Tues Dec 10 2024
 
 from functools import reduce
 
-from support.mixins import Sizing, Emptying, Partition
+from support.mixins import Sizing, Emptying, Partition, Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -17,7 +17,7 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Filter(Partition, Sizing, Emptying, title="Filtered"):
+class Filter(Partition, Sizing, Emptying, Logging, title="Filtered"):
     def __init__(self, *args, criterion, **kwargs):
         assert isinstance(criterion, list) or callable(criterion)
         assert all([callable(function) for function in criterion]) if isinstance(criterion, list) else callable(criterion)
