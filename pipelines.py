@@ -86,7 +86,7 @@ class Source(Stage, ABC):
         start = time.time()
         for content in source:
             elapsed = time.time() - start
-            self.console(f"{elapsed:.02f sec}", title="Produced")
+            self.console(f"{elapsed:.02f} sec", title="Produced")
             yield content
             start = time.time()
 
@@ -97,7 +97,7 @@ class Routine(Stage, ABC):
         assert not inspect.isgeneratorfunction(self.execute)
         self.execute(*args, **kwargs)
         elapsed = time.time() - start
-        self.console(f"{elapsed:.02f sec}", title="Routined")
+        self.console(f"{elapsed:.02f} sec", title="Routined")
 
 
 class Producer(Generator, Source, ABC):

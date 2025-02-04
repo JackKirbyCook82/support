@@ -126,7 +126,7 @@ class Dequeuer(Process, title="Dequeued"):
         if not bool(self.queue): return
         while bool(self.queue):
             content = self.queue.read(*args, **kwargs)
-            query = type(self).query(content)
+            query = self.query(content)
             yield query
             self.queue.complete()
 
@@ -136,7 +136,7 @@ class Requeuer(Process, title="Requeued"):
         contents = list(contents) if isinstance(contents, list) else [contents]
         if not bool(contents): return
         for content in list(contents):
-            query = type(self).query(content)
+            query = self.query(content)
             self.queue.write(query, *args, **kwargs)
 
 
