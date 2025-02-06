@@ -182,6 +182,10 @@ class Table(ABC):
 
 
 class Process(Sizing, Emptying, Logging, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
+
     def __init__(self, *args, table, **kwargs):
         super().__init__(*args, **kwargs)
         self.__table = table
@@ -189,6 +193,8 @@ class Process(Sizing, Emptying, Logging, ABC):
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
+    @property
+    def query(self): return type(self).__query__
     @property
     def table(self): return self.__table
 
@@ -210,7 +216,7 @@ class Reader(Process, Partition, ABC, title="Read"):
             dataframes = self.read(*args, **kwargs)
             assert isinstance(dataframes, (pd.DataFrame, types.NoneType))
         if self.empty(dataframes): return
-        for query, dataframe in self.partition(dataframes):
+        for query, dataframe in self.partition(dataframes, by=self.query):
             size = self.size(dataframe)
             self.console(f"{str(query)}[{size:.0f}]")
             if self.empty(dataframe): continue
@@ -224,7 +230,7 @@ class Writer(Process, Partition, ABC, title="Wrote"):
     def execute(self, dataframes, *args, **kwargs):
         assert isinstance(dataframes, (pd.DataFrame, types.NoneType))
         if self.empty(dataframes): return
-        for query, dataframe in self.partition(dataframes):
+        for query, dataframe in self.partition(dataframes, by=self.query):
             with self.table.mutex:
                 self.write(dataframe, *args, **kwargs)
             size = self.size(dataframe)

@@ -10,12 +10,12 @@ import queue
 from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.mixins import Querys, Logging
 from support.meta import AttributeMeta
+from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Dequeuer", "Queue"]
+__all__ = ["Dequeuer", "Requeuer", "Queue"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -109,14 +109,21 @@ class PIFOQueue(Queue, datatype=queue.PriorityQueue, queuetype=QueueTypes.PIFO):
     def priority(self): return self.__priority
 
 
-class Process(Logging, Querys, ABC):
+class Process(Logging, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__parser__ = kwargs.get("parser", getattr(cls, "__parser__", lambda content: content))
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__queue = kwargs["queue"]
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
+    def parse(self, content): return self.parser(content)
 
+    @property
+    def parser(self): return type(self).__parser__
     @property
     def queue(self): return self.__queue
 
@@ -126,8 +133,8 @@ class Dequeuer(Process, title="Dequeued"):
         if not bool(self.queue): return
         while bool(self.queue):
             content = self.queue.read(*args, **kwargs)
-            query = self.query(content)
-            yield query
+            content = self.parse(content)
+            yield content
             self.queue.complete()
 
 
@@ -136,8 +143,8 @@ class Requeuer(Process, title="Requeued"):
         contents = list(contents) if isinstance(contents, list) else [contents]
         if not bool(contents): return
         for content in list(contents):
-            query = self.query(content)
-            self.queue.write(query, *args, **kwargs)
+            content = self.parse(content)
+            self.queue.write(content, *args, **kwargs)
 
 
 

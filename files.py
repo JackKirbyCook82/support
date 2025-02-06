@@ -8,7 +8,6 @@ Created on Sun 14 2023
 
 import os
 import types
-import logging
 import multiprocessing
 import regex as re
 import pandas as pd
@@ -56,7 +55,8 @@ class FileMeta(ABCMeta):
         return type(title, (File,), {}, order=order, **attributes)
 
     def __call__(cls, *args, **kwargs):
-        parameters = dict(mutex=FileLock(), header=cls.order) | dict(cls.attributes)
+        attributes = {attribute: {column: value for column, value in mapping.items() if column in cls.order} for attribute, mapping in cls.attributes.items()}
+        parameters = dict(mutex=FileLock(), header=cls.order) | dict(attributes)
         instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
         return instance
 
@@ -84,7 +84,7 @@ class File(ABC, metaclass=FileMeta):
         self.__dates = kwargs.get("dates", {})
         self.__repository = repository
         self.__folder = folder
-        self.__order = header
+        self.__header = header
         self.__mutex = mutex
 
     def __bool__(self): return bool(os.listdir(os.path.join(self.repository, self.folder)))
@@ -150,6 +150,10 @@ class File(ABC, metaclass=FileMeta):
 
 
 class Process(Sizing, Emptying, Logging, ABC):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
+
     def __init__(self, *args, file, mode, **kwargs):
         super().__init__(*args, **kwargs)
         self.__file = file
@@ -164,6 +168,8 @@ class Process(Sizing, Emptying, Logging, ABC):
     def execute(self, *args, **kwargs): pass
 
     @property
+    def query(self): return type(self).__query__
+    @property
     def file(self): return self.__file
     @property
     def mode(self): return self.__mode
@@ -174,7 +180,7 @@ class Directory(Process, Querys, ABC):
         if not bool(self.file): return
         for file in iter(self.file):
             queryname = self.queryname(file)
-            query = type(self).query(queryname)
+            query = self.query(queryname)
             yield query
 
 
@@ -187,7 +193,7 @@ class Loader(Process, Partition, ABC, title="Loaded"):
             query = type(self).query(content)
             file = self.filename(query)
             dataframes = self.file.read(*args, file=file, mode=self.mode, **kwargs)
-            for query, dataframe in self.partition(dataframes):
+            for query, dataframe in self.partition(dataframes, by=self.query):
                 size = self.size(dataframe)
                 self.console(f"{str(query)}[{size:.0f}]")
                 if self.empty(dataframe): continue
@@ -198,7 +204,7 @@ class Saver(Process, Partition, ABC, title="Saved"):
     def execute(self, dataframes, *args, **kwargs):
         assert isinstance(dataframes, (pd.DataFrame, types.NoneType))
         if self.empty(dataframes): return
-        for query, dataframe in self.partition(dataframes):
+        for query, dataframe in self.partition(dataframes, by=self.query):
             file = self.filename(query)
             file = self.file.write(dataframe, *args, file=file, mode=self.mode, **kwargs)
             size = self.size(dataframe)

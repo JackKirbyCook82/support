@@ -19,6 +19,10 @@ __license__ = "MIT License"
 
 
 class Transform(Sizing, Emptying, Partition, Logging, ABC, title="Transformed"):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
+
     def __init__(self, *args, header, **kwargs):
         super().__init__(*args, **kwargs)
         index, columns = list(header)
@@ -28,7 +32,7 @@ class Transform(Sizing, Emptying, Partition, Logging, ABC, title="Transformed"):
     def execute(self, dataframes, *args, **kwargs):
         assert isinstance(dataframes, pd.DataFrame)
         if self.empty(dataframes): return
-        for query, dataframe in self.partition(dataframes):
+        for query, dataframe in self.partition(dataframes, by=self.query):
             prior = self.size(dataframe)
             dataframe = self.calculate(dataframe, *args, **kwargs)
             dataframe = dataframe.reset_index(drop=True, inplace=False)
@@ -41,6 +45,8 @@ class Transform(Sizing, Emptying, Partition, Logging, ABC, title="Transformed"):
     @abstractmethod
     def calculate(self, dataframe, *args,  **kwargs): pass
 
+    @property
+    def query(self): return type(self).__query__
     @property
     def columns(self): return self.__columns
     @property

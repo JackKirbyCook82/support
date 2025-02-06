@@ -17,7 +17,11 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Filter(Partition, Sizing, Emptying, Logging, title="Filtered"):
+class Filter(Sizing, Emptying, Partition, Logging, title="Filtered"):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
+
     def __init__(self, *args, criterion, **kwargs):
         assert isinstance(criterion, list) or callable(criterion)
         assert all([callable(function) for function in criterion]) if isinstance(criterion, list) else callable(criterion)
@@ -26,7 +30,7 @@ class Filter(Partition, Sizing, Emptying, Logging, title="Filtered"):
 
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
-        for query, content in self.partition(contents):
+        for query, content in self.partition(contents, by=self.query):
             prior = self.size(content)
             content = self.calculate(content, *args, **kwargs)
             content = content.reset_index(drop=True, inplace=False)
@@ -42,6 +46,8 @@ class Filter(Partition, Sizing, Emptying, Logging, title="Filtered"):
         if bool(mask is None): return content
         else: return content.where(mask, axis=0).dropna(how="all", inplace=False)
 
+    @property
+    def query(self): return type(self).__query__
     @property
     def criterion(self): return self.__criterion
 

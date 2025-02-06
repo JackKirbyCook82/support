@@ -128,7 +128,7 @@ class Consumer(Function, Stage, ABC):
             assert not inspect.isgeneratorfunction(self.execute)
             self.execute(content, *args, **kwargs)
             elapsed = time.time() - start
-            self.console(f"{elapsed:.02f sec}", title="Consumed")
+            self.console(f"{elapsed:.02f} sec", title="Consumed")
 
 
 
