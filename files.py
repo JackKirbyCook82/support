@@ -13,7 +13,7 @@ import regex as re
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.mixins import Emptying, Sizing, Partition, Querys, Logging
+from support.mixins import Emptying, Sizing, Partition, Logging
 from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
@@ -175,7 +175,7 @@ class Process(Sizing, Emptying, Logging, ABC):
     def mode(self): return self.__mode
 
 
-class Directory(Process, Querys, ABC):
+class Directory(Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.file): return
         for file in iter(self.file):
@@ -190,7 +190,7 @@ class Loader(Process, Partition, ABC, title="Loaded"):
         if not bool(contents): return
         if not bool(self.file): return
         for content in list(contents):
-            query = type(self).query(content)
+            query = self.query(content)
             file = self.filename(query)
             dataframes = self.file.read(*args, file=file, mode=self.mode, **kwargs)
             for query, dataframe in self.partition(dataframes, by=self.query):
