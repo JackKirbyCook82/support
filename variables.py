@@ -158,6 +158,7 @@ class CategoryMeta(ABCMeta):
         content = int(content) if str(content).isdigit() else content
         if isinstance(content, Collection): return cls.encodings[hash(content)]
         elif isinstance(content, Variable): return cls.encodings[hash(content)]
+        elif isinstance(content, list): return cls.values[tuple(content)]
         elif isinstance(content, tuple): return cls.values[content]
         elif isinstance(content, int): return cls.numbers[content]
         elif isinstance(content, str): return cls.strings[content]

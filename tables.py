@@ -37,7 +37,6 @@ def render(dataframe, *args, style, order, formats, numbers, width, columns, row
 class Table(ABC):
     def __init__(self, *args, header, layout, **kwargs):
         assert all([hasattr(layout, attribute) for attribute in ("order", "formats", "numbers", "width", "columns", "rows")])
-        super().__init__(*args, **kwargs)
         self.__mutex = multiprocessing.RLock()
         self.__data = pd.DataFrame(columns=list(header))
         self.__header = header
