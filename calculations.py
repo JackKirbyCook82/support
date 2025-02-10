@@ -171,6 +171,10 @@ class Source(Variable):
         super().__init__(*args, domain=[], **kwargs)
         self.__locator = locator
 
+    def __call__(self, *args, **kwargs):
+        assert bool(self)
+        return self.content
+
     def execute(self, order):
         wrapper = lambda arguments, parameters: parameters[str(self)] if str(self) in parameters else arguments[order.index(self)]
         wrapper.__name__ = str(self)
@@ -193,17 +197,20 @@ class EquationMeta(ABCMeta):
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(EquationMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        existing = {key: variable for key, variable in getattr(cls, "__variables__", {}).items()}
+        existing = {key: variable for key, variable in getattr(cls, "__parameters__", {}).items()}
         updated = {key: variable for key, variable in attrs.items() if isinstance(variable, Variable)}
-        cls.__variables__ = existing | updated
+        cls.__parameters__ = existing | updated
 
     def __call__(cls, *args, **kwargs):
-        variables = {key: copy(variable) for key, variable in cls.__variables__.items()}
+        variables = {key: copy(variable) for key, variable in cls.parameters.items()}
         for variable in variables.values():
             for key in list(variable.domain):
                 variable[key] = variables[key]
         instance = super(EquationMeta, cls).__call__(*args, variables=variables, **kwargs)
         return instance
+
+    @property
+    def parameters(cls): return cls.__parameters__
 
 
 class Equation(ABC, metaclass=EquationMeta):
