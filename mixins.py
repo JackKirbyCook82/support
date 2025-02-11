@@ -56,7 +56,7 @@ class Logging(Mixin):
         title = parameters.get("title", self.title)
         string = "|".join(list(strings))
         if not bool(string): string = f"{str(title)}[{repr(self)}]"
-        else: string = f"{str(title)}[{repr(self)}]: {str(string)}"
+        else: string = f"{str(title)}[{repr(self)}]:  {str(string)}"
         self.logger.info(string)
 
     @property
@@ -67,7 +67,25 @@ class Logging(Mixin):
     def name(self): return self.__name
 
 
-class Partition(Mixin):
+class Groups(Mixin):
+    @TypeDispatcher(locator=0)
+    def groups(self, contents, *args, **kwargs): raise TypeError(type(contents))
+
+    @groups.register(pd.DataFrame)
+    def __dataframe(self, dataframe, *args, by, **kwargs):
+        for group in dataframe.groupby(list(by)).groups.keys():
+            if callable(by): group = by(list(group))
+            yield group
+
+    @groups.register(xr.Dataset)
+    def __dataset(self, dataset, *args, by, **kwargs):
+        dataset = dataset.stack(stack=list(by))
+        for group in dataset.groupby("stack").groups.keys():
+            if callable(by): group = by(list(group))
+            yield group
+
+
+class Partition(Groups):
     @TypeDispatcher(locator=0)
     def partition(self, contents, *args, **kwargs): raise TypeError(type(contents))
 

@@ -43,7 +43,8 @@ class OpenPipeline(Pipeline):
 
     def __call__(self, *args, **kwargs):
         source = self.source(*args, **kwargs)
-        generator = reduce(lambda lead, lag: lag(lead, *args, **kwargs), self.processors, source)
+        function = lambda lead, lag: lag(lead, *args, **kwargs)
+        generator = reduce(function, self.processors, source)
         yield from generator
 
     @property
@@ -63,7 +64,8 @@ class ClosedPipeline(Pipeline):
 
     def __call__(self, *args, **kwargs):
         source = self.source(*args, **kwargs)
-        generator = reduce(lambda lead, lag: lag(lead, *args, **kwargs), self.processors, source)
+        function = lambda lead, lag: lag(lead, *args, **kwargs)
+        generator = reduce(function, self.processors, source)
         self.destination(generator, *args, **kwargs)
 
     @property
@@ -94,8 +96,8 @@ class Source(Stage, ABC):
 class Routine(Stage, ABC):
     def __call__(self, *args, **kwargs):
         start = time.time()
-        assert not inspect.isgeneratorfunction(self.execute)
-        self.execute(*args, **kwargs)
+        if not inspect.isgeneratorfunction(self.execute): self.execute(*args, **kwargs)
+        else: list(self.execute(*args, **kwargs))
         elapsed = time.time() - start
         self.console(f"{elapsed:.02f} sec", title="Routined")
 

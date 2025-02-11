@@ -102,6 +102,14 @@ class Table(ABC):
             self.dataframe.where(~mask, inplace=True)
             self.dataframe.dropna(how="all", inplace=True)
 
+    def image(self, mask):
+        if not bool(self): return
+        assert isinstance(mask, pd.Series)
+        with self.mutex:
+            dataframe = self.dataframe.where(mask, inplace=False)
+            dataframe = dataframe.dropna(how="all", inplace=False)
+            return dataframe
+
     def take(self, mask):
         if not bool(self): return
         assert isinstance(mask, pd.Series)
@@ -202,10 +210,10 @@ class Routine(Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex:
-            self.invoke(*args, **kwargs)
+            self.routine(*args, **kwargs)
 
     @abstractmethod
-    def invoke(self, *args, **kwargs): pass
+    def routine(self, *args, **kwargs): pass
 
 
 class Reader(Process, Partition, ABC, title="Read"):

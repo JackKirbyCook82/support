@@ -30,10 +30,8 @@ class Thread(Logging):
         self.__arguments = list()
         self.__parameters = dict()
         self.__active = False
-        self.__results = None
 
     def setup(self, *arguments, **parameters):
-        assert self.results is None
         self.arguments.extend(list(arguments)) if arguments else False
         self.parameters.update(dict(parameters)) if parameters else False
         return self
@@ -54,20 +52,13 @@ class Thread(Logging):
 
     def process(self, *args, **kwargs):
         routine = self.routine.__call__ if hasattr(self.routine, "__call__") else self.routine
-        if not inspect.isgeneratorfunction(routine):
-            self.results = routine(*args, **kwargs)
-        else:
-            generator = routine(*args, **kwargs)
-            self.results = list(generator)
+        if not inspect.isgeneratorfunction(routine): routine(*args, **kwargs)
+        else: list(routine(*args, **kwargs))
 
     @property
     def active(self): return self.__active
     @active.setter
     def active(self, active): self.__active = active
-    @property
-    def results(self): return self.__results
-    @results.setter
-    def results(self, results): self.__results = results
     @property
     def arguments(self): return self.__arguments
     @property
