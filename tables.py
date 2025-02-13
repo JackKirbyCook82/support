@@ -116,6 +116,9 @@ class Table(ABC):
         with self.mutex:
             dataframe = self.dataframe.where(mask, inplace=False)
             dataframe = dataframe.dropna(how="all", inplace=False)
+
+            print(dataframe)
+
             self.dataframe.where(~mask, inplace=True)
             self.dataframe.dropna(how="all", inplace=True)
             return dataframe

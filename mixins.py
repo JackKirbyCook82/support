@@ -20,7 +20,7 @@ from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Mixin", "Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Partition", "Publisher", "Subscriber"]
+__all__ = ["Mixin", "Naming", "Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Partition", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -38,6 +38,27 @@ class Mixin(ABC):
     def __init__(self, *args, **kwargs):
         try: super().__init__(*args, **kwargs)
         except TypeError: super().__init__()
+
+
+class Naming(Mixin):
+    def __init_subclass__(cls, *args, **kwargs):
+        super().__init_subclass__(*args, **kwargs)
+        fields = getattr(cls, "fields", []) + kwargs.get("fields", [])
+        assert "fields" not in fields
+        cls.fields = fields
+
+    def __iter__(self): return self.fields.items()
+    def __getitem__(self, field): return self.fields[field]
+    def __getattr__(self, field):
+        if field in self.fields.keys(): return self.fields[field]
+        raise AttributeError(field)
+
+    def __new__(cls, *args, **kwargs):
+        fields = {field: kwargs.get(field, None) for field in cls.fields}
+        instance = super().__new__(cls)
+        for key, value in fields.items(): setattr(instance, key, value)
+        setattr(instance, "fields", fields)
+        return instance
 
 
 class Logging(Mixin):
