@@ -48,6 +48,7 @@ class Node(Mixin):
     def __contains__(self, key): return bool(key in self.children.keys())
     def __setitem__(self, key, value): self.set(key, value)
     def __getitem__(self, key): return self.get(key)
+    def __reversed__(self): return reversed(self.items())
     def __iter__(self): return iter(self.items())
 
     def keys(self): return self.children.keys()
