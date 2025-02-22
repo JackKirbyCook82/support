@@ -152,7 +152,7 @@ class Function(Mixin):
             generator = execute(self, *arguments, **parameters)
             collection = list(generator)
             if not bool(collection): return
-            elif bool(cls.assemble): return self.combination(*collection)
+            elif bool(cls.assemble): return self.consolidate(*collection)
             else: return collection
 
         update_wrapper(wrapper, execute)
@@ -162,10 +162,10 @@ class Function(Mixin):
         return super().__new__(cls, *args, **kwargs)
 
     @TypeDispatcher(locator=0)
-    def combination(self, content, *contents): raise TypeError(type(content))
-    @combination.register(xr.Dataset)
+    def consolidate(self, content, *contents): raise TypeError(type(content))
+    @consolidate.register(xr.Dataset)
     def __dataset(self, content, *contents): return xr.merge([content] + list(contents))
-    @combination.register(pd.DataFrame)
+    @consolidate.register(pd.DataFrame)
     def __dataframe(self, content, *contents): return pd.concat([content] + list(contents), axis=0)
 
     @abstractmethod
