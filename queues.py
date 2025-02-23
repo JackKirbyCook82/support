@@ -110,32 +110,23 @@ class PIFOQueue(Queue, datatype=queue.PriorityQueue, queuetype=QueueTypes.PIFO):
 
 
 class Process(Logging, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        cls.__parser__ = kwargs.get("parser", getattr(cls, "__parser__", lambda content: content))
-
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, feed, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__queue = kwargs["queue"]
+        self.__feed = feed
 
     @abstractmethod
     def execute(self, *args, **kwargs): pass
-    def parse(self, content): return self.parser(content)
-
     @property
-    def parser(self): return type(self).__parser__
-    @property
-    def queue(self): return self.__queue
+    def feed(self): return self.__feed
 
 
 class Dequeuer(Process, title="Dequeued"):
     def execute(self, *args, **kwargs):
-        if not bool(self.queue): return
-        while bool(self.queue):
-            content = self.queue.read(*args, **kwargs)
-            content = self.parse(content)
+        if not bool(self.feed): return
+        while bool(self.feed):
+            content = self.feed.read(*args, **kwargs)
             yield content
-            self.queue.complete()
+            self.feed.complete()
 
 
 class Requeuer(Process, title="Requeued"):
@@ -143,8 +134,7 @@ class Requeuer(Process, title="Requeued"):
         contents = list(contents) if isinstance(contents, list) else [contents]
         if not bool(contents): return
         for content in list(contents):
-            content = self.parse(content)
-            self.queue.write(content, *args, **kwargs)
+            self.feed.write(content, *args, **kwargs)
 
 
 

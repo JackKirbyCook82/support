@@ -47,7 +47,7 @@ class Naming(Mixin):
         assert "fields" not in fields
         cls.fields = fields
 
-    def __iter__(self): return self.fields.items()
+    def __iter__(self): return iter(self.fields.items())
     def __getitem__(self, field): return self.fields[field]
     def __getattr__(self, field):
         if field in self.fields.keys(): return self.fields[field]
