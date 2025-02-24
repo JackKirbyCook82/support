@@ -15,7 +15,7 @@ from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Dequeuer", "Requeuer", "Queue"]
+__all__ = ["Queue", "Dequeuer", "Requeuer"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -135,7 +135,6 @@ class Requeuer(Process, title="Requeued"):
         if not bool(contents): return
         for content in list(contents):
             self.feed.write(content, *args, **kwargs)
-
 
 
 

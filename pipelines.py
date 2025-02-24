@@ -117,8 +117,7 @@ class Processor(Generator, Source, ABC):
     def __call__(self, source, *args, **kwargs):
         assert isinstance(source, types.GeneratorType)
         for content in source:
-            if not isinstance(content, tuple): generator = self.generator(content, *args, **kwargs)
-            else: generator = self.generator(*content, *args, **kwargs)
+            generator = self.generator(content, *args, **kwargs)
             yield from generator
 
 
