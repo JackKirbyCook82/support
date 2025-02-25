@@ -16,7 +16,7 @@ from support.mixins import Function, Generator, Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Routine", "Producer", "Processor", "Consumer"]
+__all__ = ["Routine", "Producer", "Processor", "Consumer", "Carryover"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -81,18 +81,6 @@ class Stage(Logging, ABC):
     def execute(self, *args, **kwargs): pass
 
 
-class Source(Stage, ABC):
-    def generator(self, *args, **kwargs):
-        assert inspect.isgeneratorfunction(self.execute)
-        source = self.execute(*args, **kwargs)
-        start = time.time()
-        for content in source:
-            elapsed = time.time() - start
-            self.console(f"{elapsed:.02f} sec", title="Produced")
-            yield content
-            start = time.time()
-
-
 class Routine(Stage, ABC):
     def __call__(self, *args, **kwargs):
         start = time.time()
@@ -102,34 +90,117 @@ class Routine(Stage, ABC):
         self.console(f"{elapsed:.02f} sec", title="Routined")
 
 
-class Producer(Generator, Source, ABC):
+class Producer(Generator, Stage, ABC):
     def __add__(self, other):
         assert isinstance(other, (Processor, Consumer))
         if isinstance(other, Processor): return OpenPipeline(self, [other])
         else: return ClosedPipeline(self, [], other)
 
     def __call__(self, *args, **kwargs):
-        generator = self.generator(*args, **kwargs)
-        yield from generator
+        assert inspect.isgeneratorfunction(self.execute)
+        start = time.time()
+        for content in self.producer(*args, **kwargs):
+            elapsed = time.time() - start
+            self.console(f"{elapsed:.02f} sec", title="Produced")
+            yield content
+            start = time.time()
+
+    def producer(self, *args, **kwargs):
+        for content in self.execute(*args, **kwargs):
+            content = [content] if not isinstance(content, tuple) else list(content)
+            yield content
+
+    def producer(self, *args, **kwargs):
+        for content in self.execute(*args, **kwargs):
+            assert isinstance(content, dict)
+            assert len(self.range) == len(content)
+            content = dict(zip(self.range, content))
+            yield content
 
 
-class Processor(Generator, Source, ABC):
+class Processor(Generator, Stage, ABC):
     def __call__(self, source, *args, **kwargs):
         assert isinstance(source, types.GeneratorType)
-        for content in source:
-            generator = self.generator(content, *args, **kwargs)
-            yield from generator
+        assert inspect.isgeneratorfunction(self.execute)
+        for feed in source:
+            start = time.time()
+            for content in self.processor(feed, *args, **kwargs):
+                elapsed = time.time() - start
+                self.console(f"{elapsed:.02f} sec", title="Processed")
+                yield content
+                start = time.time()
+
+    def processor(self, feed, *args, **kwargs):
+        assert isinstance(feed, tuple)
+        for content in self.execute(*feed, *args, **kwargs):
+            content = [content] if not isinstance(content, tuple) else list(content)
+            yield content
+
+    def processor(self, feed, *args, **kwargs):
+        assert isinstance(feed, dict)
+        assert not set(self.domain) - set(feed.keys())
+        feed = [feed[key] for key in self.domain]
+        for content in self.execute(*feed, *args, **kwargs):
+            assert isinstance(content, dict)
+            assert len(self.range) == len(content)
+            content = dict(zip(self.range, content))
+            yield feed | content
 
 
 class Consumer(Function, Stage, ABC):
     def __call__(self, source, *args, **kwargs):
         assert isinstance(source, types.GeneratorType)
-        for content in source:
+        assert not inspect.isgeneratorfunction(self.execute)
+        for feed in source:
             start = time.time()
-            assert not inspect.isgeneratorfunction(self.execute)
-            self.execute(content, *args, **kwargs)
+            self.consumer(feed, *args, **kwargs)
             elapsed = time.time() - start
             self.console(f"{elapsed:.02f} sec", title="Consumed")
+
+    def consumer(self, feed, *args, **kwargs):
+        assert isinstance(feed, tuple)
+        self.execute(*feed, *args, **kwargs)
+
+    def consumer(self, feed, *args, **kwargs):
+        assert isinstance(feed, dict)
+        assert not set(self.domain) - set(feed.keys())
+        feed = [feed[key] for key in self.domain]
+        self.execute(*feed, *args, **kwargs)
+
+
+
+# class Carryover(Source, ABC):
+#     def __init_subclass__(cls, *args, signature="", **kwargs):
+#         assert isinstance(signature, str)
+#         super().__init_subclass__(*args, **kwargs)
+#         if not bool(signature): return
+#         assert "->" in str(signature)
+#         inlet, outlet = str(signature).split("->")
+#         cls.__domain__ = list(filter(bool, str(inlet).split(",")))
+#         cls.__range__ = list(filter(bool, str(outlet).split(",")))
+#
+#     def generator(self, *args, **kwargs):
+#         generator = super().generator(*args, **kwargs)
+#         for content in generator:
+#             if not isinstance(content, tuple): content = tuple([content])
+#             assert len(self.range) == len(content)
+#             content = dict(zip(self.range, content))
+#             yield content
+#
+#     def inlet(self, feed):
+#         feed = {key: feed.get(key, None) for key in self.domain}
+#         assert len(self.domain) == len(feed)
+#         return feed
+#
+#     def outlet(self, content, previous={}):
+#         assert len(self.range) == len(content)
+#         content = dict(previous) | dict(zip(self.range, content))
+#         return content
+#
+#     @property
+#     def domain(self): return type(self).__domain__
+#     @property
+#     def range(self): return type(self).__range__
 
 
 
