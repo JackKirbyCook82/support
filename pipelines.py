@@ -77,6 +77,21 @@ class ClosedPipeline(Pipeline):
 
 
 class Stage(Logging, ABC):
+    def producer(self, *args, **kwargs):
+        for content in self.execute(*args, **kwargs):
+            content = [content] if not isinstance(content, tuple) else list(content)
+            yield content
+
+    def processor(self, feed, *args, **kwargs):
+        assert isinstance(feed, tuple)
+        for content in self.execute(*feed, *args, **kwargs):
+            content = [content] if not isinstance(content, tuple) else list(content)
+            yield content
+
+    def consumer(self, feed, *args, **kwargs):
+        assert isinstance(feed, tuple)
+        self.execute(*feed, *args, **kwargs)
+
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
@@ -105,18 +120,6 @@ class Producer(Generator, Stage, ABC):
             yield content
             start = time.time()
 
-    def producer(self, *args, **kwargs):
-        for content in self.execute(*args, **kwargs):
-            content = [content] if not isinstance(content, tuple) else list(content)
-            yield content
-
-    def producer(self, *args, **kwargs):
-        for content in self.execute(*args, **kwargs):
-            assert isinstance(content, dict)
-            assert len(self.range) == len(content)
-            content = dict(zip(self.range, content))
-            yield content
-
 
 class Processor(Generator, Stage, ABC):
     def __call__(self, source, *args, **kwargs):
@@ -130,22 +133,6 @@ class Processor(Generator, Stage, ABC):
                 yield content
                 start = time.time()
 
-    def processor(self, feed, *args, **kwargs):
-        assert isinstance(feed, tuple)
-        for content in self.execute(*feed, *args, **kwargs):
-            content = [content] if not isinstance(content, tuple) else list(content)
-            yield content
-
-    def processor(self, feed, *args, **kwargs):
-        assert isinstance(feed, dict)
-        assert not set(self.domain) - set(feed.keys())
-        feed = [feed[key] for key in self.domain]
-        for content in self.execute(*feed, *args, **kwargs):
-            assert isinstance(content, dict)
-            assert len(self.range) == len(content)
-            content = dict(zip(self.range, content))
-            yield feed | content
-
 
 class Consumer(Function, Stage, ABC):
     def __call__(self, source, *args, **kwargs):
@@ -157,9 +144,33 @@ class Consumer(Function, Stage, ABC):
             elapsed = time.time() - start
             self.console(f"{elapsed:.02f} sec", title="Consumed")
 
-    def consumer(self, feed, *args, **kwargs):
-        assert isinstance(feed, tuple)
-        self.execute(*feed, *args, **kwargs)
+
+class Carryover(Stage, ABC):
+    def __init_subclass__(cls, *args, signature="", **kwargs):
+        assert isinstance(signature, str)
+        super().__init_subclass__(*args, **kwargs)
+        if not bool(signature): return
+        assert "->" in str(signature)
+        inlet, outlet = str(signature).split("->")
+        cls.__domain__ = list(filter(bool, str(inlet).split(",")))
+        cls.__range__ = list(filter(bool, str(outlet).split(",")))
+
+    def producer(self, *args, **kwargs):
+        for content in self.execute(*args, **kwargs):
+            content = [content] if not isinstance(content, tuple) else list(content)
+            assert len(self.range) == len(content)
+            content = dict(zip(self.range, content))
+            yield content
+
+    def processor(self, feed, *args, **kwargs):
+        assert isinstance(feed, dict)
+        assert not set(self.domain) - set(feed.keys())
+        domain = [feed[key] for key in self.domain]
+        for content in self.execute(*domain, *args, **kwargs):
+            content = [content] if not isinstance(content, tuple) else list(content)
+            assert len(self.range) == len(content)
+            content = dict(zip(self.range, content))
+            yield feed | content
 
     def consumer(self, feed, *args, **kwargs):
         assert isinstance(feed, dict)
@@ -167,40 +178,10 @@ class Consumer(Function, Stage, ABC):
         feed = [feed[key] for key in self.domain]
         self.execute(*feed, *args, **kwargs)
 
-
-
-# class Carryover(Source, ABC):
-#     def __init_subclass__(cls, *args, signature="", **kwargs):
-#         assert isinstance(signature, str)
-#         super().__init_subclass__(*args, **kwargs)
-#         if not bool(signature): return
-#         assert "->" in str(signature)
-#         inlet, outlet = str(signature).split("->")
-#         cls.__domain__ = list(filter(bool, str(inlet).split(",")))
-#         cls.__range__ = list(filter(bool, str(outlet).split(",")))
-#
-#     def generator(self, *args, **kwargs):
-#         generator = super().generator(*args, **kwargs)
-#         for content in generator:
-#             if not isinstance(content, tuple): content = tuple([content])
-#             assert len(self.range) == len(content)
-#             content = dict(zip(self.range, content))
-#             yield content
-#
-#     def inlet(self, feed):
-#         feed = {key: feed.get(key, None) for key in self.domain}
-#         assert len(self.domain) == len(feed)
-#         return feed
-#
-#     def outlet(self, content, previous={}):
-#         assert len(self.range) == len(content)
-#         content = dict(previous) | dict(zip(self.range, content))
-#         return content
-#
-#     @property
-#     def domain(self): return type(self).__domain__
-#     @property
-#     def range(self): return type(self).__range__
+    @property
+    def domain(self): return type(self).__domain__
+    @property
+    def range(self): return type(self).__range__
 
 
 

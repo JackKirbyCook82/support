@@ -248,9 +248,7 @@ class Calculation(ABC):
     def __init_subclass__(cls, *args, **kwargs):
         cls.__equation__ = kwargs.get("equation", getattr(cls, "__equation__", None))
 
-    def __init__(self, *args, **kwargs):
-        self.__equation = self.__class__.__equation__
-
+    def __init__(self, *args, **kwargs): pass
     def __call__(self, *args, **kwargs):
         generator = self.execute(*args, **kwargs)
         contents = list(generator)
@@ -268,7 +266,7 @@ class Calculation(ABC):
     @abstractmethod
     def execute(self, *args, **kwargs): pass
     @property
-    def equation(self): return self.__equation
+    def equation(self): return type(self).__equation__
 
 
 
