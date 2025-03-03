@@ -43,6 +43,13 @@ class TreeMeta(Meta):
     def __repr__(cls): return str(cls.__name__)
     def __str__(cls): return str(cls.__key__)
 
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        function = lambda value: type(value) is TreeMeta or issubclass(type(value), TreeMeta)
+        exclude = [key for key, value in attrs.items() if function(value)]
+        attrs = {key: value for key, value in attrs.items() if key not in exclude}
+        cls = super(TreeMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+        return cls
+
     def __init__(cls, name, bases, attrs, *args, dependents=[], **kwargs):
         function = lambda value: type(value) is TreeMeta or issubclass(type(value), TreeMeta)
         assert isinstance(dependents, list)
