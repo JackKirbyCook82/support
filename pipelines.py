@@ -102,7 +102,7 @@ class Routine(Stage, ABC):
         if not inspect.isgeneratorfunction(self.execute): self.execute(*args, **kwargs)
         else: list(self.execute(*args, **kwargs))
         elapsed = time.time() - start
-        self.console(f"{elapsed:.02f} sec", title="Routined")
+        self.console(f"{elapsed:.02f} seconds", title="Routined")
 
 
 class Producer(Generator, Stage, ABC):
@@ -116,7 +116,7 @@ class Producer(Generator, Stage, ABC):
         start = time.time()
         for content in self.producer(*args, **kwargs):
             elapsed = time.time() - start
-            self.console(f"{elapsed:.02f} sec", title="Produced")
+            self.console(f"{elapsed:.02f} seconds", title="Produced")
             yield content
             start = time.time()
 
@@ -129,7 +129,7 @@ class Processor(Generator, Stage, ABC):
             start = time.time()
             for content in self.processor(feed, *args, **kwargs):
                 elapsed = time.time() - start
-                self.console(f"{elapsed:.02f} sec", title="Processed")
+                self.console(f"{elapsed:.02f} seconds", title="Processed")
                 yield content
                 start = time.time()
 
@@ -142,7 +142,7 @@ class Consumer(Function, Stage, ABC):
             start = time.time()
             self.consumer(feed, *args, **kwargs)
             elapsed = time.time() - start
-            self.console(f"{elapsed:.02f} sec", title="Consumed")
+            self.console(f"{elapsed:.02f} seconds", title="Consumed")
 
 
 class Carryover(Stage, ABC):
