@@ -141,7 +141,7 @@ class QueryBase(ABC):
         self.__delimiter = str(delimiter)
         self.__contents = tuple(contents)
 
-    def __iter__(self): return iter(self.contents)
+    def __iter__(self): return iter(ODict([(content.name, content.value) for content in self.contents]).items())
     def __hash__(self): return hash(tuple([hash(content) for content in self.contents]))
     def __str__(self): return str(self.delimiter).join([str(content) for content in self.contents])
 
