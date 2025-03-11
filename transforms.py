@@ -23,9 +23,9 @@ class Transform(Sizing, Emptying, Partition, Logging, ABC, title="Transformed"):
         super().__init_subclass__(*args, **kwargs)
         cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
 
-    def __init__(self, *args, header, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__header = header
+#    def __init__(self, *args, header, **kwargs):
+#        super().__init__(*args, **kwargs)
+#        self.__header = header
 
     def execute(self, dataframes, *args, **kwargs):
         assert isinstance(dataframes, pd.DataFrame)
@@ -45,31 +45,35 @@ class Transform(Sizing, Emptying, Partition, Logging, ABC, title="Transformed"):
 
     @property
     def query(self): return type(self).__query__
-    @property
-    def header(self): return self.__header
+#    @property
+#    def header(self): return self.__header
 
 
 class Pivoter(Transform, title="Pivoted"):
     def calculate(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
-        by, values = self.header.pivot
-        index = set(dataframe.columns) - ({by} | set(values))
-        dataframe = dataframe.pivot(index=list(index), columns=[by])
-        dataframe = dataframe.reset_index(drop=False, inplace=False)
+
+#        criteria = lambda column: column != str(self.header.stacking) and column not in self.header.stacking
+#        index = [column for column in dataframe.columns if criteria(column)]
+#        dataframe = dataframe.pivot(index=list(index), columns=[str(self.header.stacking)])
+#        dataframe = dataframe.reset_index(drop=False, inplace=False)
+
         return dataframe
 
 
 class Unpivoter(Transform, title="Unpivoted"):
     def calculate(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
-        by, values = self.header.unpivot
-        dataframe.index.name = "index"
-        level = list(dataframe.columns.names).index(by)
-        index = set(dataframe.columns) - set(values)
-        columns = set([values for values in dataframe.columns.values if bool(values[level])])
-        index = dataframe[list(index)].stack().reset_index(drop=False, inplace=False).drop(columns=by)
-        columns = dataframe[list(columns)].stack().reset_index(drop=False, inplace=False)
-        dataframe = pd.merge(index, columns, how="outer", on="index").drop(columns="index")
+
+#        by, values = self.header.unpivot
+#        dataframe.index.name = "index"
+#        level = list(dataframe.columns.names).index(by)
+#        index = set(dataframe.columns) - set(values)
+#        columns = set([values for values in dataframe.columns.values if bool(values[level])])
+#        index = dataframe[list(index)].stack().reset_index(drop=False, inplace=False).drop(columns=by)
+#        columns = dataframe[list(columns)].stack().reset_index(drop=False, inplace=False)
+#        dataframe = pd.merge(index, columns, how="outer", on="index").drop(columns="index")
+
         return dataframe
 
 

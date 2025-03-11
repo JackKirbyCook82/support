@@ -33,11 +33,15 @@ class FileMeta(ABCMeta):
     def __repr__(cls): return str(cls.__name__)
     def __init__(cls, *args, **kwargs):
         super(FileMeta, cls).__init__(*args, **kwargs)
+        formatters = kwargs.get("formatters", {})
+        generator = lambda keys: iter(str(keys).split(" ")) if isinstance(keys, str) else iter(keys)
+        formatters = {key: value for keys, value in formatters.items() for key in generator(keys)}
+        assert all([callable(value) for value in formatters.values()])
         attributes = dict(getattr(cls, "__attributes__", {}))
-        attributes["formatters"] = kwargs.get("formatters", attributes.get("formatters", {}))
-        attributes["parsers"] = kwargs.get("parsers", attributes.get("parsers", {}))
-        attributes["types"] = kwargs.get("types", attributes.get("types", {}))
-        attributes["dates"] = kwargs.get("dates", attributes.get("dates", {}))
+        attributes["formatters"] = attributes.get("formatters", {}) | formatters
+        attributes["parsers"] = attributes.get("parsers", {}) | kwargs.get("parsers", {})
+        attributes["types"] = attributes.get("types", {}) | kwargs.get("types", {})
+        attributes["dates"] = attributes.get("dates", {}) | kwargs.get("dates", {})
         cls.__order__ = kwargs.get("order", getattr(cls, "__order__", []))
         cls.__attributes__ = attributes
 
