@@ -11,43 +11,44 @@ import multiprocessing
 import pandas as pd
 from itertools import product
 from abc import ABC, abstractmethod
-from collections import namedtuple as ntuple
 
-from support.mixins import Emptying, Sizing, Partition, Logging
+from support.mixins import Emptying, Sizing, Partition, Logging, Naming
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Reader", "Routine", "Writer", "Table", "Renderer", "Header", "Stacking"]
+__all__ = ["Reader", "Routine", "Writer", "Table", "Renderer", "Header", "Stacking", "Layout"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-split = lambda contents: iter(str(contents).split(" ")) if isinstance(contents, str) else iter(contents)
-stack = lambda contents, stacking: product([contents], stacking.get(contents, [""])) if bool(stacking) else iter([contents])
+class Stacking(Naming, fields=["name", "columns", "layers"]):
+    pass
 
+#    def __contains__(self, column): return column == self.name or column in self.columns
+#    def __iter__(self): return iter(product(self.columns, self.layers))
+#    def __str__(self): return str(self.name)
 
-class Layout("Layout", "width columns rows"): pass
-class Stacking("Stacking", "name columns layers"): pass
-
-
-class Header(ntuple("Header", "index columns")):
-    def __new__(cls, *args, index=[], columns=[], **kwargs):
-        index, columns = list(index), list(columns)
-        return super().__new__(cls, index, columns)
-
+class Header(Naming, fields=["index", "columns"]):
     def __iter__(self): return iter(self.index + self.columns)
     def __init__(self, *args, stacking=None, **kwargs): self.stacking = stacking
 
+    @property
+    def levels(self): return len(self.stacking) if bool(self.stacking) else 0
+    @property
+    def length(self): return len(self.index) + len(self.columns)
 
-class Renderer(ntuple("Renderer", "formatting layout order")):
+
+class Layout(Naming, fields=["width", "columns", "rows"]): pass
+class Renderer(Naming, fields=["formatting", "layout", "order"]):
     def __new__(cls, *args, order=[], stacking=None, **kwargs):
+        split = lambda contents: iter(str(contents).split(" ")) if isinstance(contents, str) else iter(contents)
         formatting = {key: value for keys, value in kwargs.get("formatting", {}).items() for key in split(keys)}
         layout = kwargs.get("layout", {"width": 250, "columns": 35, "rows": 35})
         layout = Layout(*[layout[field] for field in getattr(Layout, "_fields")])
         if bool(stacking):
             formatting = {column: function for key, function in formatting.items() for column in stacking(key)}
             order = [column for key in order for column in stacking(key)]
-        return super().__new__(cls, formatting, layout, order)
+        return super().__new__(cls, formatting=formatting, layout=layout, order=order)
 
     def __call__(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
@@ -63,14 +64,13 @@ class Renderer(ntuple("Renderer", "formatting layout order")):
 
 
 class Table(ABC):
-    def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, renderer, header, **kwargs):
         self.__data = pd.DataFrame(columns=list(header))
         self.__mutex = multiprocessing.RLock()
-#        self.__renderer = renderer
-#        self.__header = header
+        self.__renderer = renderer
+        self.__header = header
 
-#    def __str__(self): return self.renderer(self.dataframe) if not self.empty else ""
+    def __str__(self): return self.renderer(self.dataframe) if not self.empty else ""
     def __repr__(self): return f"{str(self.name)}[{len(self):.0f}]"
     def __len__(self): return int(self.size) if bool(self) else 0
     def __bool__(self): return not bool(self.empty)
@@ -81,7 +81,8 @@ class Table(ABC):
     def append(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
-            dataframe = dataframe[list(self.header)]
+            columns = list(self.header)
+            dataframe = dataframe[columns]
             if bool(self.dataframe.empty): self.dataframe = dataframe
             else: self.dataframe = pd.concat([self.dataframe, dataframe], axis=0, ignore_index=True)
 
@@ -100,11 +101,9 @@ class Table(ABC):
         elif locator in self.columns: index, columns = slice(None, None, None), locator
         elif len(locator) == 2: index, columns = list(locator)
         else: raise ValueError(locator)
-
-#        function = lambda column: self.header.align(column)
-#        locate = lambda column: list(self.columns).index(function(column))
-#        if not isinstance(columns, list): return index, locate(columns)
-#        else: return index, [locate(column) for column in columns]
+        locate = lambda column: list(self.columns).index(column)
+        if not isinstance(columns, list): return index, locate(self.reconcile[index])
+        else: return index, [locate(self.reconcile[column]) for column in columns]
 
     def retain(self, mask):
         if not bool(self): return
@@ -142,16 +141,16 @@ class Table(ABC):
         if not bool(self): return
         assert isinstance(mask, pd.Series)
         with self.mutex:
-#            column = self.header.align(column)
-#            self.dataframe.loc[mask, column] = value
+            column = self.reconcile[column]
+            self.dataframe.loc[mask, column] = value
 
     def unique(self, columns, reverse=True):
         if not bool(self): return
         with self.mutex:
-#            columns = [self.header.align(column) for column in columns]
-#            keep = ("last" if bool(reverse) else "first")
-#            parameters = dict(keep=keep, inplace=True)
-#            self.dataframe.drop_duplicates(columns, **parameters)
+            columns = [self.reconcile[column] for column in columns]
+            keep = ("last" if bool(reverse) else "first")
+            parameters = dict(keep=keep, inplace=True)
+            self.dataframe.drop_duplicates(columns, **parameters)
 
     def sort(self, columns, reverse):
         if not bool(self): return
@@ -161,22 +160,33 @@ class Table(ABC):
         reverse = reverse * len(columns) if len(reverse) == 1 else reverse
         assert len(columns) == len(reverse)
         with self.mutex:
-#            columns = [self.header.align(column) for column in columns]
-#            ascending = [not bool(value) for value in reverse]
-#            parameters = dict(ascending=ascending, axis=0, ignore_index=False, inplace=True)
-#            self.dataframe.sort_values(columns, **parameters)
+            columns = [self.reconcile[column] for column in columns]
+            ascending = [not bool(value) for value in reverse]
+            parameters = dict(ascending=ascending, axis=0, ignore_index=False, inplace=True)
+            self.dataframe.sort_values(columns, **parameters)
 
     def reindex(self):
         if not bool(self): return
         with self.mutex:
             self.dataframe.reset_index(drop=True, inplace=True)
 
+    def reconcile(self, column):
+        if not self.stacked: return column
+        column = tuple([column]) if not isinstance(column, tuple) else tuple(column)
+        return column + tuple([""]) * (len(column) - int(self.levels))
+
     @property
-    def renderer(self): return self.__renderer
+    def levels(self): return int(self.index.nlevels) if isinstance(self.index, pd.MultiIndex) else 0
     @property
-    def header(self): return self.__header
+    def stacked(self): return isinstance(self.index, pd.MultiIndex)
     @property
-    def mutex(self): return self.__mutex
+    def empty(self): return bool(self.data.empty)
+    @property
+    def size(self): return len(self.data.index)
+    @property
+    def columns(self): return self.data.columns
+    @property
+    def index(self): return self.data.index
 
     @property
     def data(self): return self.__data
@@ -188,13 +198,11 @@ class Table(ABC):
     def dataframe(self, dataframe): self.data = dataframe
 
     @property
-    def empty(self): return bool(self.data.empty)
+    def renderer(self): return self.__renderer__
     @property
-    def size(self): return len(self.data.index)
+    def header(self): return self.__header__
     @property
-    def columns(self): return self.data.columns
-    @property
-    def index(self): return self.data.index
+    def mutex(self): return self.__mutex
 
 
 class Process(Sizing, Emptying, Logging, ABC):
