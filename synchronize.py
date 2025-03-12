@@ -76,7 +76,6 @@ class RoutineThread(Thread, threading.Thread):
         self.console(title="Started")
         threading.Thread.start(self)
 
-    def cease(self, *args, **kwargs): pass
     def join(self, *args, **kwargs):
         threading.Thread.join(self)
         self.console(title="Stopped")

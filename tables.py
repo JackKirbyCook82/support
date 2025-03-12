@@ -36,13 +36,12 @@ class Header(Naming, fields=["index", "columns", "stacking"]):
         else: yield from iter([value for column in generator for value in self.stacking[column]])
 
 
-class Layout(Naming, fields=["width", "columns", "rows"]): pass
+class Layout(Naming, fields=["width", "space", "columns", "rows"]): pass
 class Renderer(Naming, fields=["formatting", "layout", "order"]):
     def __new__(cls, *args, order=[], stacking=None, **kwargs):
         split = lambda contents: iter(str(contents).split(" ")) if isinstance(contents, str) else iter(contents)
         formatting = {key: value for keys, value in kwargs.get("formatting", {}).items() for key in split(keys)}
-        layout = kwargs.get("layout", {"width": 250, "columns": 35, "rows": 35})
-        layout = Layout(*[layout[field] for field in Layout.fields])
+        layout = kwargs.get("layout", Layout(width=250, space=10, columns=30, rows=30))
         if bool(stacking):
             formatting = {column: function for key, function in formatting.items() for column in stacking[key]}
             order = [column for key in order for column in stacking[key]]
@@ -51,7 +50,7 @@ class Renderer(Naming, fields=["formatting", "layout", "order"]):
     def __call__(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
         numbers = {"float_format": lambda value: f"{value:.02f}"}
-        layout = {"line_width": self.layout.width, "max_cols": self.layout.columns, "max_rows": self.layout.rows}
+        layout = {"line_width": self.layout.width, "col_space": self.layout.space, "max_cols": self.layout.columns, "max_rows": self.layout.rows}
         boundary = str("=") * int(self.layout.width)
         formatting = {"formatters": self.formatting}
         parameters = formatting | numbers | layout
