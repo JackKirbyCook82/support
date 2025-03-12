@@ -110,7 +110,7 @@ class MappingMeta(Meta):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(MappingMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         dunder = lambda key: str(key).startswith('__') and str(key).endswith('__')
-        function = lambda value: isinstance(value, (bool, str, int, float, tuple, set, list, dict))
+        function = lambda value: isinstance(value, (object, bool, str, int, float, tuple, set, list, dict))
         mapping = {key: value for key, value in attrs.items() if not dunder(key) and function(value)}
         cls.__mapping__ = mapping
 

@@ -16,24 +16,21 @@ from support.mixins import Emptying, Sizing, Partition, Logging, Naming
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Reader", "Routine", "Writer", "Table", "Renderer", "Header", "Stacking", "Layout"]
+__all__ = ["Reader", "Routine", "Writer", "Table", "Renderer", "Header", "Stack", "Layout"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Stacking(Naming, fields=["name", "columns", "layers"]):
-    pass
-
-#    def __contains__(self, column): return column == self.name or column in self.columns
-#    def __iter__(self): return iter(product(self.columns, self.layers))
-#    def __str__(self): return str(self.name)
-
-class Header(Naming, fields=["index", "columns"]):
-    def __iter__(self): return iter(self.index + self.columns)
-    def __init__(self, *args, stacking=None, **kwargs): self.stacking = stacking
+class Stack(Naming, fields=["axis", "primary", "secondary"]): pass
+class Header(Naming, fields=["index", "columns", "stack"]):
+    def __iter__(self):
+        generator = iter(self.index + self.columns)
+        stacker = lambda value: product([value], list(self.stack.secondary)) if value in self.stack.primary else product([value], [""])
+        if not bool(self.stack): yield from generator
+        else: yield from iter([stack for value in generator for stack in stacker(value)])
 
     @property
-    def levels(self): return len(self.stacking) if bool(self.stacking) else 0
+    def levels(self): return len(self.stack) if bool(self.stack) else 0
     @property
     def length(self): return len(self.index) + len(self.columns)
 
@@ -44,7 +41,7 @@ class Renderer(Naming, fields=["formatting", "layout", "order"]):
         split = lambda contents: iter(str(contents).split(" ")) if isinstance(contents, str) else iter(contents)
         formatting = {key: value for keys, value in kwargs.get("formatting", {}).items() for key in split(keys)}
         layout = kwargs.get("layout", {"width": 250, "columns": 35, "rows": 35})
-        layout = Layout(*[layout[field] for field in getattr(Layout, "_fields")])
+        layout = Layout(*[layout[field] for field in Layout.fields])
         if bool(stacking):
             formatting = {column: function for key, function in formatting.items() for column in stacking(key)}
             order = [column for key in order for column in stacking(key)]
@@ -189,20 +186,20 @@ class Table(ABC):
     def index(self): return self.data.index
 
     @property
-    def data(self): return self.__data
-    @data.setter
-    def data(self, data): self.__data = data
+    def renderer(self): return self.__renderer
     @property
-    def dataframe(self): return self.data
-    @dataframe.setter
-    def dataframe(self, dataframe): self.data = dataframe
-
-    @property
-    def renderer(self): return self.__renderer__
-    @property
-    def header(self): return self.__header__
+    def header(self): return self.__header
     @property
     def mutex(self): return self.__mutex
+    @property
+    def data(self): return self.__data
+    @property
+    def dataframe(self): return self.data
+
+    @data.setter
+    def data(self, data): self.__data = data
+    @dataframe.setter
+    def dataframe(self, dataframe): self.data = dataframe
 
 
 class Process(Sizing, Emptying, Logging, ABC):

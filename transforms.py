@@ -7,6 +7,7 @@ Created on Tues Dec 10 2024
 """
 
 import pandas as pd
+from itertools import product
 from abc import ABC, abstractmethod
 
 from support.mixins import Sizing, Emptying, Partition, Logging
@@ -23,9 +24,9 @@ class Transform(Sizing, Emptying, Partition, Logging, ABC, title="Transformed"):
         super().__init_subclass__(*args, **kwargs)
         cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
 
-    def __init__(self, *args, stacking, **kwargs):
+    def __init__(self, *args, stack, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__stacking = stacking
+        self.__stack = stack
 
     def execute(self, dataframes, *args, **kwargs):
         assert isinstance(dataframes, pd.DataFrame)
@@ -46,14 +47,14 @@ class Transform(Sizing, Emptying, Partition, Logging, ABC, title="Transformed"):
     @property
     def query(self): return type(self).__query__
     @property
-    def stacking(self): return self.__stacking
+    def stack(self): return self.__stack
 
 
 class Pivoter(Transform, title="Pivoted"):
     def calculate(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
-        index = [column for column in dataframe.columns if column not in self.stacking]
-        dataframe = dataframe.pivot(index=list(index), columns=[str(self.stacking)])
+        index = set(dataframe.columns) - ({self.stack.axis} | set(self.stack.primary))
+        dataframe = dataframe.pivot(index=index, columns=[self.stack.axis])
         dataframe = dataframe.reset_index(drop=False, inplace=False)
         return dataframe
 
@@ -62,10 +63,10 @@ class Unpivoter(Transform, title="Unpivoted"):
     def calculate(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
         dataframe.index.name = "index"
-        level = list(dataframe.columns.names).index(str(self.stacking))
-        index = set(dataframe.columns) - set(self.stacking)
+        level = list(dataframe.columns.names).index(str(self.stack.axis))
+        index = set(dataframe.columns) - set(product(list(self.stack.primary), [self.stack.secondary]))
         columns = set([values for values in dataframe.columns.values if bool(values[level])])
-        index = dataframe[list(index)].stack().reset_index(drop=False, inplace=False).drop(columns=str(self.stacking))
+        index = dataframe[list(index)].stack().reset_index(drop=False, inplace=False).drop(columns=self.stack.axis)
         columns = dataframe[list(columns)].stack().reset_index(drop=False, inplace=False)
         dataframe = pd.merge(index, columns, how="outer", on="index").drop(columns="index")
         return dataframe
