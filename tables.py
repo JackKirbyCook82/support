@@ -102,6 +102,9 @@ class Table(ABC):
         if not isinstance(columns, list): return index, locate(self.reconcile(columns))
         else: return index, [locate(self.reconcile(column)) for column in columns]
 
+#    def place(self, locator):
+#        pass
+
     def retain(self, mask):
         if not bool(self): return
         assert isinstance(mask, pd.Series)

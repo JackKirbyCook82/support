@@ -9,6 +9,7 @@ Created on Weds Jul 12 2023
 import time
 import types
 import inspect
+from threading import RLock
 from functools import reduce
 from abc import ABC, abstractmethod
 
@@ -26,6 +27,10 @@ class Pipeline(ABC):
     def __repr__(self):
         string = ', '.join(list(map(repr, self.segments)))
         return f"{self.__class__.__name__}[{string}]"
+
+    def cease(self, *args, **kwargs):
+        for segment in self.segments:
+            segment.cease(*args, **kwargs)
 
 
 class OpenPipeline(Pipeline):
@@ -77,6 +82,25 @@ class ClosedPipeline(Pipeline):
 
 
 class Stage(Logging, ABC):
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
+
+
+class Routine(Stage, ABC):
+    def __call__(self, *args, **kwargs):
+        start = time.time()
+        if not inspect.isgeneratorfunction(self.execute): self.execute(*args, **kwargs)
+        else: list(self.execute(*args, **kwargs))
+        elapsed = time.time() - start
+        self.console(f"{elapsed:.02f} seconds", title="Routined")
+
+
+class Segment(Stage, ABC):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__running = True
+        self.__mutex = RLock()
+
     def producer(self, *args, **kwargs):
         for content in self.execute(*args, **kwargs):
             content = [content] if not isinstance(content, tuple) else list(content)
@@ -92,20 +116,19 @@ class Stage(Logging, ABC):
         assert isinstance(feed, tuple)
         self.execute(*feed, *args, **kwargs)
 
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
+    def cease(self, *args, **kwargs):
+        with self.mutex: self.running = False
+        self.console(title="Ceased")
+
+    @property
+    def mutex(self): return self.__mutex
+    @property
+    def running(self): return self.__running
+    @running.setter
+    def running(self, running): self.__running = running
 
 
-class Routine(Stage, ABC):
-    def __call__(self, *args, **kwargs):
-        start = time.time()
-        if not inspect.isgeneratorfunction(self.execute): self.execute(*args, **kwargs)
-        else: list(self.execute(*args, **kwargs))
-        elapsed = time.time() - start
-        self.console(f"{elapsed:.02f} seconds", title="Routined")
-
-
-class Producer(Generator, Stage, ABC):
+class Producer(Generator, Segment, ABC):
     def __add__(self, other):
         assert isinstance(other, (Processor, Consumer))
         if isinstance(other, Processor): return OpenPipeline(self, [other])
@@ -118,10 +141,11 @@ class Producer(Generator, Stage, ABC):
             elapsed = time.time() - start
             self.console(f"{elapsed:.02f} seconds", title="Produced")
             yield content
+            if not self.running: break
             start = time.time()
 
 
-class Processor(Generator, Stage, ABC):
+class Processor(Generator, Segment, ABC):
     def __call__(self, source, *args, **kwargs):
         assert isinstance(source, types.GeneratorType)
         assert inspect.isgeneratorfunction(self.execute)
@@ -131,10 +155,12 @@ class Processor(Generator, Stage, ABC):
                 elapsed = time.time() - start
                 self.console(f"{elapsed:.02f} seconds", title="Processed")
                 yield content
+                if not self.running: break
                 start = time.time()
+            if not self.running: break
 
 
-class Consumer(Function, Stage, ABC):
+class Consumer(Function, Segment, ABC):
     def __call__(self, source, *args, **kwargs):
         assert isinstance(source, types.GeneratorType)
         assert not inspect.isgeneratorfunction(self.execute)
@@ -143,6 +169,7 @@ class Consumer(Function, Stage, ABC):
             self.consumer(feed, *args, **kwargs)
             elapsed = time.time() - start
             self.console(f"{elapsed:.02f} seconds", title="Consumed")
+            if not self.running: break
 
 
 class Carryover(Stage, ABC):

@@ -85,7 +85,8 @@ class RepeatingThread(Thread, threading.Thread):
     def __init__(self, *args, wait=None, **kwargs):
         Thread.__init__(self, *args, **kwargs)
         threading.Thread.__init__(self, name=self.name, daemon=False)
-        self.__cycling = True
+        self.__mutex = threading.RLock()
+        self.__repeating = True
         self.__wait = wait
 
     def process(self, *args, **kwargs):
@@ -95,13 +96,17 @@ class RepeatingThread(Thread, threading.Thread):
                 time.sleep(self.wait)
 
     def cease(self, *args, **kwargs):
-        self.console(title="Ceased")
-        self.cycling = False
+        with self.mutex:
+            self.console(title="Ceased")
+            self.repeating = False
 
     @property
-    def cycling(self): return self.__cycling
-    @cycling.setter
-    def cycling(self, cycling): self.__cycling = cycling
+    def repeating(self): return self.__repeating
+    @repeating.setter
+    def repeating(self, repeating): self.__repeating = repeating
+
+    @property
+    def mutex(self): return self.__mutex
     @property
     def wait(self): return self.__wait
 
