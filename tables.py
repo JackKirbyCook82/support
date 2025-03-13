@@ -13,6 +13,7 @@ from itertools import product
 from abc import ABC, abstractmethod
 
 from support.mixins import Emptying, Sizing, Partition, Logging, Naming
+from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -72,8 +73,19 @@ class Table(ABC):
     def __len__(self): return int(self.size) if bool(self) else 0
     def __bool__(self): return not bool(self.empty)
 
-    def __setitem__(self, locator, value): self.set(locator, value)
-    def __getitem__(self, locator): return self.get(locator)
+    def __setitem__(self, column, value): self.set(column, value)
+    def __getitem__(self, column): return self.get(column)
+
+    def get(self, column):
+        with self.mutex:
+            column = self.reconcile(column)
+            return self.dataframe[column]
+
+    def set(self, column, value):
+        assert isinstance(value, pd.Series) and len(value) == len(self)
+        with self.mutex:
+            column = self.reconcile(column)
+            self.dataframe[column] = value
 
     def append(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
@@ -82,28 +94,6 @@ class Table(ABC):
             dataframe = dataframe[columns]
             if bool(self.dataframe.empty): self.dataframe = dataframe
             else: self.dataframe = pd.concat([self.dataframe, dataframe], axis=0, ignore_index=True)
-
-    def get(self, locator):
-        with self.mutex:
-            index, columns = self.locate(locator)
-            return self.dataframe.iloc[index, columns]
-
-    def set(self, locator, value):
-        with self.mutex:
-            index, columns = self.locate(locator)
-            self.dataframe.iloc[index, columns] = value
-
-    def locate(self, locator):
-        if not isinstance(locator, tuple): index, columns = slice(None, None, None), locator
-        elif locator in self.columns: index, columns = slice(None, None, None), locator
-        elif len(locator) == 2: index, columns = list(locator)
-        else: raise ValueError(locator)
-        locate = lambda column: list(self.columns).index(column)
-        if not isinstance(columns, list): return index, locate(self.reconcile(columns))
-        else: return index, [locate(self.reconcile(column)) for column in columns]
-
-#    def place(self, locator):
-#        pass
 
     def retain(self, mask):
         if not bool(self): return
@@ -119,7 +109,7 @@ class Table(ABC):
             self.dataframe.where(~mask, inplace=True)
             self.dataframe.dropna(how="all", inplace=True)
 
-    def image(self, mask):
+    def portray(self, mask):
         if not bool(self): return
         assert isinstance(mask, pd.Series)
         with self.mutex:
@@ -147,7 +137,7 @@ class Table(ABC):
     def unique(self, columns, reverse=True):
         if not bool(self): return
         with self.mutex:
-            columns = [self.reconcile(column) for column in columns]
+            columns = list(map(self.reconcile, columns))
             keep = ("last" if bool(reverse) else "first")
             parameters = dict(keep=keep, inplace=True)
             self.dataframe.drop_duplicates(columns, **parameters)
@@ -160,20 +150,20 @@ class Table(ABC):
         reverse = reverse * len(columns) if len(reverse) == 1 else reverse
         assert len(columns) == len(reverse)
         with self.mutex:
-            columns = [self.reconcile(column) for column in columns]
+            columns = list(map(self.reconcile, columns))
             ascending = [not bool(value) for value in reverse]
             parameters = dict(ascending=ascending, axis=0, ignore_index=False, inplace=True)
             self.dataframe.sort_values(columns, **parameters)
-
-    def reindex(self):
-        if not bool(self): return
-        with self.mutex:
-            self.dataframe.reset_index(drop=True, inplace=True)
 
     def reconcile(self, column):
         if not self.stacked: return column
         column = tuple([column]) if not isinstance(column, tuple) else tuple(column)
         return column + tuple([""]) * (int(self.levels) - len(column))
+
+    def reindex(self):
+        if not bool(self): return
+        with self.mutex:
+            self.dataframe.reset_index(drop=True, inplace=True)
 
     @property
     def levels(self): return int(self.columns.nlevels) if isinstance(self.columns, pd.MultiIndex) else 0
