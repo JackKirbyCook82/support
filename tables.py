@@ -13,7 +13,6 @@ from itertools import product
 from abc import ABC, abstractmethod
 
 from support.mixins import Emptying, Sizing, Partition, Logging, Naming
-from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -22,43 +21,42 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Stacking(Naming, fields=["axis", "columns", "layers"]):
-    def __iter__(self): return product(self.columns, self.layers)
-    def __contains__(self, column): return column in self.columns
-    def __getitem__(self, column):
-        if column not in self: return product([column], [""])
-        else: return product([column], list(self.layers))
-
-class Header(Naming, fields=["index", "columns", "stacking"]):
-    def __len__(self): return len(self.index) + len(self.columns)
-    def __iter__(self):
-        generator = iter(self.index + self.columns)
-        if not bool(self.stacking): yield from generator
-        else: yield from iter([value for column in generator for value in self.stacking[column]])
-
-
 class Layout(Naming, fields=["width", "space", "columns", "rows"]): pass
-class Renderer(Naming, fields=["formatting", "layout", "order"]):
-    def __new__(cls, *args, order=[], stacking=None, **kwargs):
+class Stacking(Naming, fields=["axis", "columns", "layers"]): pass
+
+class Renderer(Naming, fields=["formatters", "layout", "order"]):
+    def __new__(cls, *args, layout={}, order=[], stacking=None, **kwargs):
         split = lambda contents: iter(str(contents).split(" ")) if isinstance(contents, str) else iter(contents)
-        formatting = {key: value for keys, value in kwargs.get("formatting", {}).items() for key in split(keys)}
-        layout = kwargs.get("layout", Layout(width=250, space=10, columns=30, rows=30))
+        formatters = {key: value for keys, value in kwargs.get("formatters", {}).items() for key in split(keys)}
         if bool(stacking):
-            formatting = {column: function for key, function in formatting.items() for column in stacking[key]}
-            order = [column for key in order for column in stacking[key]]
-        return super().__new__(cls, formatting=formatting, layout=layout, order=order)
+            generator = lambda column: product([column], stacking.layers) if column in stacking.columns else product([column], [""])
+            formatters = {column: function for key, function in formatters.items() for column in generator(key)}
+            order = [column for key in order for column in generator(key)]
+        return super().__new__(cls, formatters=formatters, layout=layout, order=order)
 
     def __call__(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
         numbers = {"float_format": lambda value: f"{value:.02f}"}
         layout = {"line_width": self.layout.width, "col_space": self.layout.space, "max_cols": self.layout.columns, "max_rows": self.layout.rows}
         boundary = str("=") * int(self.layout.width)
-        formatting = {"formatters": self.formatting}
-        parameters = formatting | numbers | layout
+        formatters = {"formatters": self.formatters}
+        parameters = formatters | numbers | layout
         string = dataframe[self.order].to_string(**parameters, show_dimensions=True)
         strings = [boundary, string, boundary] if bool(string) else []
         string = ("\n".join(strings) + "\n") if bool(strings) else ""
         return string
+
+
+class Header(Naming, fields=["index", "columns"]):
+    def __new__(cls, *args, index=[], columns=[], stacking=None, **kwargs):
+        if bool(stacking):
+            generator = lambda value: product([value], stacking.layers) if value in stacking.columns else product([value], [""])
+            columns = [value for key in columns for value in generator(key)]
+            index = [value for key in index for value in generator(key)]
+        return super().__new__(cls, index=index, columns=columns)
+
+    def __len__(self): return len(self.index) + len(self.columns)
+    def __iter__(self): return iter(self.index + self.columns)
 
 
 class Table(ABC):
@@ -66,7 +64,6 @@ class Table(ABC):
         self.__data = pd.DataFrame(columns=list(header))
         self.__mutex = multiprocessing.RLock()
         self.__renderer = renderer
-        self.__header = header
 
     def __str__(self): return self.renderer(self.dataframe) if not self.empty else ""
     def __repr__(self): return f"{str(self.name)}[{len(self):.0f}]"
@@ -86,12 +83,12 @@ class Table(ABC):
         with self.mutex:
             column = self.reconcile(column)
             self.dataframe[column] = value
+            self.renderer.order.append(column)
 
     def append(self, dataframe):
         assert isinstance(dataframe, pd.DataFrame)
         with self.mutex:
-            columns = list(self.header)
-            dataframe = dataframe[columns]
+            dataframe = dataframe[self.dataframe.columns]
             if bool(self.dataframe.empty): self.dataframe = dataframe
             else: self.dataframe = pd.concat([self.dataframe, dataframe], axis=0, ignore_index=True)
 
@@ -181,18 +178,16 @@ class Table(ABC):
     @property
     def renderer(self): return self.__renderer
     @property
-    def header(self): return self.__header
-    @property
     def mutex(self): return self.__mutex
     @property
-    def data(self): return self.__data
+    def dataframe(self): return self.__data
     @property
-    def dataframe(self): return self.data
+    def data(self): return self.__data
 
+    @dataframe.setter
+    def dataframe(self, dataframe): self.__data = dataframe
     @data.setter
     def data(self, data): self.__data = data
-    @dataframe.setter
-    def dataframe(self, dataframe): self.data = dataframe
 
 
 class Process(Sizing, Emptying, Logging, ABC):

@@ -5,12 +5,15 @@ Created on Fri Aug 27 2021
 @author: Jack Kirby Cook
 
 """
-
+import types
 from abc import ABCMeta
+from numbers import Number
+
+from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SingletonMeta", "AttributeMeta", "RegistryMeta", "MappingMeta", "TreeMeta"]
+__all__ = ["SingletonMeta", "AttributeMeta", "RegistryMeta", "ParameterMeta", "TreeMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -101,24 +104,23 @@ class AttributeMeta(Meta):
     def root(cls): return cls.__root__
 
 
-class MappingMeta(Meta):
-    def __iter__(cls): return iter(cls.mapping.items())
-    def __contains__(cls, key): return bool(key in cls.mapping.keys())
-    def __getitem__(cls, key): return cls.mapping[key]
-    def __setitem__(cls, key, value): cls.mapping[key] = value
-
+class ParameterMeta(Meta):
+    def __iter__(cls): return iter(cls.parameters.items())
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(MappingMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        dunder = lambda key: str(key).startswith('__') and str(key).endswith('__')
-        function = lambda value: isinstance(value, (object, bool, str, int, float, tuple, set, list, dict))
-        mapping = {key: value for key, value in attrs.items() if not dunder(key) and function(value)}
-        cls.__mapping__ = mapping
+        super(ParameterMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        dunder = lambda attribute: str(attribute).startswith('__') and str(attribute).endswith('__')
+        function = lambda attribute: isinstance(attribute, types.FunctionType) and not attribute.__name__ == "<lambda>"
+        parameters = getattr(cls, "__parameters__", {})
+        for key, value in attrs.items():
+            if dunder(key) or function(value): continue
+            elif key not in parameters.keys(): parameters[key] = value
+            elif isinstance(value, list): parameters[key].append(value)
+            elif isinstance(value, (set, dict)): parameters[key].update(value)
+            else: parameters[key] = value
+        cls.__parameters__ = dict(parameters)
 
     @property
-    def mapping(cls): return cls.__mapping__
-
-
-
+    def parameters(cls): return cls.__parameters__
 
 
 
