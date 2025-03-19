@@ -90,7 +90,7 @@ class RepeatingThread(Thread, threading.Thread):
         self.__wait = wait
 
     def process(self, *args, **kwargs):
-        while bool(self.cycling):
+        while bool(self.repeating):
             super().process(*args, **kwargs)
             if self.wait is not None:
                 time.sleep(self.wait)
