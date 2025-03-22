@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from abc import ABC, abstractmethod
-from functools import update_wrapper
+from functools import update_wrapper, reduce
 from collections import OrderedDict as ODict
 
 from support.decorators import TypeDispatcher
@@ -88,6 +88,14 @@ class Logging(Mixin):
     def name(self): return self.__name
 
 
+class Alignment(Mixin):
+    @staticmethod
+    def alignment(dataframe, *args, by, **kwargs):
+        mask = [dataframe[key] == value for key, value in iter(by)]
+        mask = reduce(lambda lead, lag: lead & lag, list(mask))
+        return dataframe.where(mask)
+
+
 class Groups(Mixin):
     @TypeDispatcher(locator=0)
     def groups(self, contents, *args, **kwargs): raise TypeError(type(contents))
@@ -106,7 +114,7 @@ class Groups(Mixin):
             yield group
 
 
-class Partition(Groups):
+class Partition(Alignment, Groups):
     @TypeDispatcher(locator=0)
     def partition(self, contents, *args, **kwargs): raise TypeError(type(contents))
 
