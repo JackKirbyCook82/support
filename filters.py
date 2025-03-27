@@ -63,14 +63,14 @@ class Filter(Sizing, Emptying, Partition, Logging, title="Filtered"):
 
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
-        for query, content in self.partition(contents, by=self.query):
-            prior = self.size(content)
-            results = self.calculate(content, *args, **kwargs)
-            post = self.size(results)
-            string = f"{str(query)}[{prior:.0f}|{post:.0f}]"
-            self.console(string)
-            if self.empty(results): continue
-            yield results
+        prior = self.size(contents)
+        results = self.calculate(contents, *args, **kwargs)
+        post = self.size(results)
+        querys = self.groups(contents, by=self.query)
+        querys = ",".join(list(map(str, querys)))
+        self.console(f"{str(querys)}[{prior:.0f}|{post:.0f}]")
+        if self.empty(results): return
+        yield results
 
     def calculate(self, dataframe, *args, **kwargs):
         dataframe = self.criterion(dataframe, *args, **kwargs)

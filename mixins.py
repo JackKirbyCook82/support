@@ -88,17 +88,14 @@ class Logging(Mixin):
     def name(self): return self.__name
 
 
-class Alignment(Mixin):
-    @staticmethod
-    def alignment(dataframe, *args, by, **kwargs):
-        mask = [dataframe[key] == value for key, value in iter(by)]
-        mask = reduce(lambda lead, lag: lead & lag, list(mask))
-        return dataframe.where(mask)
-
-
 class Groups(Mixin):
     @TypeDispatcher(locator=0)
     def groups(self, contents, *args, **kwargs): raise TypeError(type(contents))
+
+    @groups.register(list)
+    def __collection(self, collection, *args, **kwargs):
+        for content in iter(collection):
+            yield from self.groups(content, *args, **kwargs)
 
     @groups.register(pd.DataFrame)
     def __dataframe(self, dataframe, *args, by, **kwargs):
@@ -114,7 +111,7 @@ class Groups(Mixin):
             yield group
 
 
-class Partition(Alignment, Groups):
+class Partition(Groups):
     @TypeDispatcher(locator=0)
     def partition(self, contents, *args, **kwargs): raise TypeError(type(contents))
 

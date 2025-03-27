@@ -190,11 +190,7 @@ class Table(ABC):
     def data(self, data): self.__data = data
 
 
-class Process(Sizing, Emptying, Logging, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
-
+class Process(Sizing, Emptying, Partition, Logging, ABC):
     def __init__(self, *args, table, **kwargs):
         super().__init__(*args, **kwargs)
         self.__table = table
@@ -202,8 +198,6 @@ class Process(Sizing, Emptying, Logging, ABC):
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
-    @property
-    def query(self): return type(self).__query__
     @property
     def table(self): return self.__table
 
@@ -218,35 +212,26 @@ class Routine(Process, ABC):
     def routine(self, *args, **kwargs): pass
 
 
-class Reader(Process, Partition, ABC, title="Read"):
+class Reader(Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
-        with self.table.mutex:
-            dataframes = self.read(*args, **kwargs)
-            assert isinstance(dataframes, (pd.DataFrame, types.NoneType))
-        if self.empty(dataframes): return
-        for query, dataframe in self.partition(dataframes, by=self.query):
-            size = self.size(dataframe)
-            self.console(f"{str(query)}[{size:.0f}]")
-            if self.empty(dataframe): continue
-            yield dataframe
+        with self.table.mutex: dataframe = self.read(*args, **kwargs)
+        assert isinstance(dataframe, (pd.DataFrame, types.NoneType))
+        if self.empty(dataframe): return
+        yield dataframe
 
     @abstractmethod
     def read(self, *args, **kwargs): pass
 
 
-class Writer(Process, Partition, ABC, title="Wrote"):
-    def execute(self, dataframes, *args, **kwargs):
-        assert isinstance(dataframes, (pd.DataFrame, types.NoneType))
-        if self.empty(dataframes): return
-        for query, dataframe in self.partition(dataframes, by=self.query):
-            with self.table.mutex:
-                self.write(dataframe, *args, **kwargs)
-            size = self.size(dataframe)
-            self.console(f"{str(query)}[{size:.0f}]")
+class Writer(Process, ABC):
+    def execute(self, dataframe, *args, **kwargs):
+        assert isinstance(dataframe, (pd.DataFrame, types.NoneType))
+        if self.empty(dataframe): return
+        with self.table.mutex: self.write(dataframe, *args, **kwargs)
 
     @abstractmethod
-    def write(self, content, *args, **kwargs): pass
+    def write(self, dataframe, *args, **kwargs): pass
 
 
 
