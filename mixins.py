@@ -60,6 +60,10 @@ class Naming(Mixin):
         setattr(instance, "fields", fields)
         return instance
 
+    def items(self): return [(field, getattr(self, field)) for field in self.fields]
+    def values(self): return [getattr(self, field) for field in self.fields]
+    def keys(self): return list(self.fields)
+
 
 class Logging(Mixin):
     def __init_subclass__(cls, *args, **kwargs):
