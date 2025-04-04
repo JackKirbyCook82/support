@@ -8,15 +8,15 @@ Created on Thurs Cot 17 2024
 
 import types
 import inspect
-import pandas as pd
+import numpy as np
 import xarray as xr
+import pandas as pd
 from copy import copy
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
-from support.decorators import TypeDispatcher
-from support.meta import RegistryMeta
+from support.meta import RegistryMeta, AttributeMeta
 from support.trees import Node
 
 __version__ = "1.0.0"
@@ -26,71 +26,20 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-AlgorithmType = ntuple("AlgorithmType", "vectorized datatype")
-VariableType = ntuple("VariableType", "calculated datatype")
-NonVectorizedTable = AlgorithmType(False, pd.Series)
-NonVectorizedArray = AlgorithmType(False, xr.DataArray)
-VectorizedTable = AlgorithmType(True, pd.Series)
-VectorizedArray = AlgorithmType(True, xr.DataArray)
-NonCalculatedConstant = VariableType(False, types.NoneType)
-NonCalculatedTable = VariableType(False, pd.Series)
-NonCalculatedArray = VariableType(False, xr.DataArray)
-CalculatedTable = VariableType(True, pd.Series)
-CalculatedArray = VariableType(True, xr.DataArray)
+AlgorithmType = ntuple("AlgorithmType", "datatype vectorize")
+ArrayVectorAlgorithm = AlgorithmType(xr.DataArray, True)
+TableVectorAlgorithm = AlgorithmType(pd.Series, True)
+ArrayNonVectorAlgorithm = AlgorithmType(xr.DataArray, False)
+TableNonVectorAlgorithm = AlgorithmType(pd.Series, False)
 
 
-class Algorithm(object, metaclass=RegistryMeta):
+class Variable(Node, ABC, metaclass=AttributeMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, execute, arguments, parameters):
-        self.__parameters = parameters
-        self.__arguments = arguments
-        self.__execute = execute
-
-    @property
-    def parameters(self): return self.__parameters
-    @property
-    def arguments(self): return self.__arguments
-    @property
-    def execute(self): return self.__execute
-
-
-class VectorizedAlgorithm(Algorithm): pass
-class UnVectorizedAlgorithm(Algorithm):
-    def __call__(self, *args, **kwargs):
-        return self.execute(list(self.arguments), dict(self.parameters))
-
-class TableUnVectorizedAlgorithm(UnVectorizedAlgorithm, register=NonVectorizedTable): pass
-class ArrayUnVectorizedAlgorithm(UnVectorizedAlgorithm, register=NonVectorizedArray): pass
-
-class TableVectorizedAlgorithm(VectorizedAlgorithm, register=VectorizedTable):
-    def __call__(self, *args, **kwargs):
-        wrapper = lambda arguments, **parameters: self.execute(list(arguments), dict(parameters))
-        return pd.concat(self.arguments, axis=1).apply(wrapper, axis=1, raw=True, **self.parameters)
-
-class ArrayVectorizedAlgorithm(VectorizedAlgorithm, register=VectorizedArray):
-    def __call__(self, *args, vartype, **kwargs):
-        wrapper = lambda *arguments, **parameters: self.execute(list(arguments), dict(parameters))
-        return xr.apply_ufunc(wrapper, *self.arguments, output_dtypes=[vartype], vectorize=True, kwargs=self.parameters)
-
-
-class Variable(Node, ABC, metaclass=RegistryMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
-    def __new__(cls, *args, **kwargs):
-        if issubclass(cls, Variable) and cls is not Variable:
-            return Node.__new__(cls)
-        function = kwargs.get("function", None)
-        datatype = args[-1]
-        vartype = VariableType(bool(function), datatype)
-        subclass = cls[vartype]
-        return subclass(*args, **kwargs)
-
-    def __init__(self, varkey, varname, vartype, datatype, *args, domain, **kwargs):
+    def __init__(self, varkey, varname, vartype, *args, **kwargs):
         super().__init__(*args, linear=False, multiple=False, **kwargs)
-        self.__datatype = datatype
         self.__vartype = vartype
         self.__varname = varname
         self.__varkey = varkey
-        self.__domain = domain
         self.__content = None
 
     def __bool__(self): return self.content is not None
@@ -98,94 +47,123 @@ class Variable(Node, ABC, metaclass=RegistryMeta):
     def __str__(self): return str(self.varname)
     def __len__(self): return int(self.size)
 
-    @property
-    def sources(self):
-        children = self.children.values()
-        generator = (variable for child in children for variable in child.sources)
-        if bool(self): yield self
-        else: yield from generator
-
     @abstractmethod
     def execute(self, order): pass
 
-    @property
-    def content(self): return self.__content
-    @content.setter
-    def content(self, content):
-        if self.datatype in [types.NoneType]: self.__content = content
-        else: self.__content = content.rename(self.varname)
-
-    @property
-    def datatype(self): return self.__datatype
     @property
     def vartype(self): return self.__vartype
     @property
     def varname(self): return self.__varname
     @property
     def varkey(self): return self.__varkey
-    @property
-    def domain(self): return self.__domain
-
-
-class Dependent(Variable, register=[CalculatedTable, CalculatedArray]):
-    def __init__(self, *args, function, **kwargs):
-        domain = list(inspect.signature(function).parameters.keys())
-        super().__init__(*args, domain=domain, **kwargs)
-        self.__vectorize = kwargs.get("vectorize", False)
-        self.__function = function
-
-    def __call__(self, *args, **kwargs):
-        if bool(self): return self.content
-        content = self.calculate(*args, **kwargs)
-        self.content = content
-        return self.content
-
-    def calculate(self, *args, **kwargs):
-        variables = list(set(self.sources))
-        independents = ODict([(variable, variable.content) for variable in variables if not isinstance(variable, Constant)])
-        constants = ODict([(variable, variable.content) for variable in variables if isinstance(variable, Constant)])
-        parameters = {str(variable): content for variable, content in constants.items()}
-        arguments = list(independents.values())
-        order = list(independents.keys())
-        execute = self.execute(order)
-        algorithm = (self.vectorize, self.datatype)
-        algorithm = Algorithm[algorithm](execute, arguments, parameters)
-        return algorithm(*args, vartype=self.vartype, **kwargs)
-
-    def execute(self, order):
-        execution = [child.execute(order) for child in self.values()]
-        source = lambda arguments, parameters: parameters[str(self)] if str(self) in parameters else arguments[order.index(self)]
-        calculate = lambda arguments, parameters: self.function(*[execute(arguments, parameters) for execute in execution])
-        wrapper = source if bool(self) else calculate
-        wrapper.__name__ = str(self)
-        return wrapper
 
     @property
-    def vectorize(self): return self.__vectorize
-    @property
-    def function(self): return self.__function
+    def content(self): return self.__content
+    @content.setter
+    def content(self, content): self.__content = content
 
 
-class Source(Variable):
+class SourceVariable(Variable, ABC):
     def __init__(self, *args, locator, **kwargs):
-        super().__init__(*args, domain=[], **kwargs)
+        super().__init__(*args, **kwargs)
         self.__locator = locator
-
-    def __call__(self, *args, **kwargs):
-        assert bool(self)
-        return self.content
-
-    def execute(self, order):
-        wrapper = lambda arguments, parameters: parameters[str(self)] if str(self) in parameters else arguments[order.index(self)]
-        wrapper.__name__ = str(self)
-        return wrapper
 
     @property
     def locator(self): return self.__locator
 
 
-class Independent(Source, register=[NonCalculatedTable, NonCalculatedArray]): pass
-class Constant(Source, register=NonCalculatedConstant): pass
+class ConstantVariable(SourceVariable, attribute="Constant"):
+    def execute(self, order):
+        wrapper = lambda arguments, parameters: parameters.get(self)
+        wrapper.__name__ = str(self)
+        return wrapper
+
+
+class IndependentVariable(SourceVariable, attribute="Independent"):
+    def execute(self, order):
+        wrapper = lambda arguments, parameters: arguments[order.index(self)]
+        wrapper.__name__ = str(self)
+        return wrapper
+
+
+class DependentVariable(Variable, attribute="Dependent"):
+    def __init__(self, *args, function, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__function = function
+
+    def execute(self, order):
+        domain = [variable.execute for variable in self.children.values()]
+        if bool(self): wrapper = lambda contents: contents[order.index(self)]
+        else: wrapper = lambda arguments, parameters: self.function(*[execute(arguments, parameters) for execute in domain])
+        wrapper.__name__ = str(self)
+        return wrapper
+
+    @property
+    def arguments(self): return [value for value in list(inspect.signature(self.function).parameters.keys()) if value.kind == value.POSITIONAL_ONLY]
+    @property
+    def parameters(self): return [value for value in list(inspect.signature(self.function).parameters.keys()) if value.kind == value.KEYWORD_ONLY]
+    @property
+    def domain(self): return [value for value in list(inspect.signature(self.function).parameters.keys()) if value.kind == value.POSITIONAL_OR_KEYWORD]
+
+    @property
+    def sources(self):
+        children = self.children.values()
+        if not bool(self): generator = (variable for child in children for variable in child.sources)
+        else: generator = iter([self])
+        yield from generator
+
+    @property
+    def function(self): return self.__function
+
+
+class Location(object):
+    def __init__(self, variable): self.variable = variable
+    def __call__(self, *args, **kwargs):
+        assert bool(self.variable)
+        return self.variable.content
+
+
+class Algorithm(ABC, metaclass=RegistryMeta):
+    def __init__(self, variable): self.variable = variable
+    def __call__(self, *args, **kwargs):
+        sources = list(set(self.variable.sources))
+        independents = ODict([(source, source.content) for source in sources if isinstance(source, IndependentVariable)])
+        constants = ODict([(source, source.content) for source in sources if isinstance(source, DependentVariable)])
+        assert None not in list(independents.values()) + list(constants.values())
+        parameters = dict(constants.items())
+        arguments = list(independents.values())
+        order = list(independents.keys())
+        calculation = self.variable.execute(order)
+        content = self.calculate(calculation, arguments, parameters)
+        content = content.astype(self.variable.vartype)
+        self.variable.content = content
+        return content
+
+    @abstractmethod
+    def calculate(self, *args, **kwargs): pass
+
+
+class ArrayAlgorithm(Algorithm, register=ArrayVectorAlgorithm):
+    def calculate(self, calculation, arguments, parameters):
+        assert all([isinstance(arguments, (xr.DataArray, np.number)) for arguments in arguments])
+        assert all([isinstance(parameter, np.number) for parameter in parameters.values()])
+        wrapper = lambda *contents, **numbers: calculation(list(contents), dict(numbers))
+        return xr.apply_ufunc(wrapper, *arguments, kwargs=parameters, output_dtypes=[self.variable.vartype], vectorize=True)
+
+
+class TableAlgorithm(Algorithm, register=TableVectorAlgorithm):
+    def calculate(self, calculation, arguments, parameters):
+        assert all([isinstance(argument, pd.Series) for argument in arguments])
+        assert all([isinstance(parameter, np.number) for parameter in parameters.values()])
+        wrapper = lambda series, **numbers: calculation(list(series), dict(numbers))
+        return pd.concat(arguments, axis=1).apply(wrapper, axis=1, raw=True, **parameters)
+
+
+class NonVectorAlgorithm(Algorithm, register=[ArrayNonVectorAlgorithm, TableNonVectorAlgorithm]):
+    def calculate(self, calculation, arguments, parameters):
+        assert all([isinstance(argument, (xr.DataArray, pd.Series)) for argument in arguments])
+        assert all([isinstance(parameter, np.number) for parameter in parameters.values()])
+        return calculation(list(arguments), dict(parameters))
 
 
 class EquationMeta(ABCMeta):
@@ -197,29 +175,45 @@ class EquationMeta(ABCMeta):
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(EquationMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        existing = {key: variable for key, variable in getattr(cls, "__variabletypes__", {}).items()}
+        existing = {key: variable for key, variable in getattr(cls, "__registry__", {}).items()}
         updated = {key: variable for key, variable in attrs.items() if isinstance(variable, Variable)}
-        cls.__variabletypes__ = existing | updated
+        cls.__vectorize__ = kwargs.get("vectorize", getattr(cls, "__vectorize__", None))
+        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
+        cls.__registry__ = dict(existing) | dict(updated)
 
     def __call__(cls, *args, **kwargs):
-        variables = {key: copy(variable) for key, variable in cls.variabletypes.items()}
+        variables = {key: copy(variable) for key, variable in cls.registry.items()}
         for variable in variables.values():
             for key in list(variable.domain):
                 variable[key] = variables[key]
-        instance = super(EquationMeta, cls).__call__(*args, variables=variables, **kwargs)
-        return instance
+        algorithm = AlgorithmType(cls.datatype, cls.vectorize)
+        parameters = dict(variables=variables, algorithm=Algorithm[algorithm], location=Location)
+        return super(EquationMeta, cls).__call__(*args, **parameters, **kwargs)
 
     @property
-    def variabletypes(cls): return cls.__variabletypes__
+    def registry(cls): return cls.__registry__
+    @property
+    def vectorize(cls): return cls.__vectorize__
+    @property
+    def datatype(cls): return cls.__datatype__
 
 
 class Equation(ABC, metaclass=EquationMeta):
-    def __init__(self, sources, *args, variables, **kwargs):
+    def __new__(cls, sources, *args, variables, **kwargs):
         for variable in variables.values():
-            if isinstance(variable, Dependent): continue
-            content = sources.get(variable.locator, kwargs.get(variable.locator, None))
+            if isinstance(variable, DependentVariable): continue
+            elif isinstance(variable, IndependentVariable): content = sources.get(variable.locator, None)
+            elif isinstance(variable, ConstantVariable): content = kwargs.get(variable.locator, None)
+            else: raise TypeError(type(variable))
+            if not isinstance(content, (cls.datatype, np.number)): raise ValueError(content)
             variable.content = content
+        instance = super().__new__(cls)
+        return instance
+
+    def __init__(self, *args, variables, algorithm, location, **kwargs):
         self.__variables = variables
+        self.__algorithm = algorithm
+        self.__location = location
 
     def __enter__(self): return self
     def __exit__(self, error_type, error_value, error_traceback):
@@ -229,45 +223,70 @@ class Equation(ABC, metaclass=EquationMeta):
         variables = {key: variable for key, variable in self.variables.items()}
         if attribute not in variables.keys():
             raise AttributeError(attribute)
-        return variables[attribute]
-
-    def __getitem__(self, attribute):
-        variables = {str(variable): variable for variable in self.variables.values()}
-        if attribute not in variables.keys():
-            raise AttributeError(attribute)
         variable = variables[attribute]
-        if not bool(variable):
-            raise ValueError(attribute)
-        return variable.content
+        if variable.terminal: content = self.location(variable)
+        else: content = self.algorithm(variable)
+        return str(variable), content
 
     @property
     def variables(self): return self.__variables
+    @property
+    def algorithm(self): return self.__algorithm
+    @property
+    def location(self): return self.__location
 
 
-class Calculation(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
+class CalculationMeta(ABCMeta, metaclass=RegistryMeta):
+    def __init__(cls, *args, **kwargs):
+        super(CalculationMeta, cls).__init__(*args, **kwargs)
         cls.__equation__ = kwargs.get("equation", getattr(cls, "__equation__", None))
+        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
 
-    def __init__(self, *args, **kwargs): pass
+    def __call__(cls, *args, **kwargs):
+        cls = type(cls.__name__, (cls, cls[cls.equation.datatype]), {})
+        instance = super(CalculationMeta, cls).__call__(*args, **kwargs)
+        return instance
+
+    @property
+    def equation(cls): return cls.__equation__
+    @property
+    def datatype(cls): return cls.__datatype__
+
+
+class Calculation(ABC, metaclass=RegistryMeta):
+    def __init__(self, *args, **kwargs):
+        assert inspect.isgeneratorfunction(self.execute)
+
     def __call__(self, *args, **kwargs):
-        generator = self.execute(*args, **kwargs)
-        contents = list(generator)
-        assert all([isinstance(content, type(contents[0])) for content in contents[1:]])
-        content = self.combine(contents[0], *contents[1:])
-        return content
-
-    @TypeDispatcher(locator=0)
-    def combine(self, content, *contents): raise TypeError(type(content))
-    @combine.register(xr.DataArray)
-    def dataarray(self, content, *contents): return xr.merge([content] + list(contents))
-    @combine.register(pd.Series)
-    def series(self, content, *contents): return pd.concat([content] + list(contents), axis=1)
+        generator = self.generator(*args, **kwargs)
+        contents = dict(generator)
+        return self.execute(contents, *args, **kwargs)
 
     @abstractmethod
-    def execute(self, *args, **kwargs): pass
-    @property
-    def equation(self): return type(self).__equation__
+    def execute(self, contents, *args, **kwargs): pass
+    @abstractmethod
+    def generator(self, *args, **kwargs): pass
 
+
+class ArrayCalculation(Calculation, ABC, register=xr.DataArray):
+    def execute(self, contents, *args, **kwargs):
+        assert all([isinstance(content, (xr.DataArray, np.number)) for content in contents.values()])
+        dataarrays = {name: content for name, content in contents.items() if isinstance(content, xr.DataArray)}
+        numerics = {name: content for name, content in contents.items() if isinstance(content, np.number)}
+        datasets = [dataarray.to_dataset(name=name) for name, dataarray in dataarrays.items()]
+        dataset = xr.merge(datasets)
+        for name, content in numerics.items(): dataset[name] = content
+        return dataset
+
+
+class TableCalculation(Calculation, ABC, register=pd.Series):
+    def execute(self, contents, *args, **kwargs):
+        assert all([isinstance(content, (pd.Series, np.number)) for content in contents.values()])
+        series = {name: content for name, content in contents.items() if isinstance(content, pd.Series)}
+        numerics = {name: content for name, content in contents.items() if isinstance(content, np.number)}
+        dataframe = pd.concat(list(series.values()), axis=1)
+        for name, content in numerics.items(): dataframe[name] = content
+        return dataframe
 
 
 

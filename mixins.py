@@ -104,6 +104,7 @@ class Groups(Mixin):
     @groups.register(pd.DataFrame)
     def __dataframe(self, dataframe, *args, by, **kwargs):
         for group in dataframe.groupby(list(by)).groups.keys():
+            if not isinstance(group, tuple): group = [group]
             if callable(by): group = by(list(group))
             yield group
 
@@ -111,6 +112,7 @@ class Groups(Mixin):
     def __dataset(self, dataset, *args, by, **kwargs):
         dataset = dataset.stack(stack=list(by))
         for group in dataset.groupby("stack").groups.keys():
+            if not isinstance(group, tuple): group = [group]
             if callable(by): group = by(list(group))
             yield group
 
@@ -129,6 +131,7 @@ class Partition(Groups):
         keys = list(by)
         generator = dataframe.groupby(keys)
         for values, dataframe in iter(generator):
+            if not isinstance(values, tuple): values = [values]
             partition = ODict(zip(keys, values))
             if callable(by): partition = by(partition)
             yield partition, dataframe
@@ -139,6 +142,7 @@ class Partition(Groups):
         dataset = dataset.stack(stack=keys)
         generator = dataset.groupby("stack")
         for values, dataset in iter(generator):
+            if not isinstance(values, tuple): values = [values]
             dataset = dataset.unstack().drop_vars("stack")
             partition = ODict(zip(keys, values))
             if callable(by): partition = by(partition)
