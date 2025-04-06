@@ -6,17 +6,18 @@ Created on Thurs Cot 17 2024
 
 """
 
-import types
 import inspect
 import numpy as np
 import xarray as xr
 import pandas as pd
 from copy import copy
+from itertools import chain
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 from support.meta import RegistryMeta, AttributeMeta
+from support.decorators import ValueDispatcher
 from support.trees import Node
 
 __version__ = "1.0.0"
@@ -31,6 +32,10 @@ ArrayVectorAlgorithm = AlgorithmType(xr.DataArray, True)
 TableVectorAlgorithm = AlgorithmType(pd.Series, True)
 ArrayNonVectorAlgorithm = AlgorithmType(xr.DataArray, False)
 TableNonVectorAlgorithm = AlgorithmType(pd.Series, False)
+
+
+class Domain(ntuple("Domain", "arguments parameters")):
+    def __iter__(self): return chain(self.arguments, self.parameters)
 
 
 class Variable(Node, ABC, metaclass=AttributeMeta):
@@ -49,6 +54,13 @@ class Variable(Node, ABC, metaclass=AttributeMeta):
 
     @abstractmethod
     def execute(self, order): pass
+
+    @property
+    def sources(self):
+        children = self.children.values()
+        if not bool(self): generator = (variable for child in children for variable in child.sources)
+        else: generator = iter([self])
+        yield from generator
 
     @property
     def vartype(self): return self.__vartype
@@ -71,73 +83,54 @@ class SourceVariable(Variable, ABC):
     @property
     def locator(self): return self.__locator
 
-
 class ConstantVariable(SourceVariable, attribute="Constant"):
-    def execute(self, order):
-        wrapper = lambda arguments, parameters: parameters.get(self)
-        wrapper.__name__ = str(self)
-        return wrapper
-
+    def execute(self, order): return lambda arguments, parameters: parameters.get(str(self))
 
 class IndependentVariable(SourceVariable, attribute="Independent"):
-    def execute(self, order):
-        wrapper = lambda arguments, parameters: arguments[order.index(self)]
-        wrapper.__name__ = str(self)
-        return wrapper
+    def execute(self, order): return lambda arguments, parameters: arguments[order.index(self)]
 
 
 class DependentVariable(Variable, attribute="Dependent"):
     def __init__(self, *args, function, **kwargs):
         super().__init__(*args, **kwargs)
+        signature = inspect.signature(function).parameters.items()
+        arguments = [key for key, value in signature if value.kind != value.KEYWORD_ONLY]
+        parameters = [key for key, value in signature if value.kind == value.KEYWORD_ONLY]
+        domain = Domain(arguments, parameters)
         self.__function = function
+        self.__domain = domain
 
     def execute(self, order):
-        domain = [variable.execute for variable in self.children.values()]
-        if bool(self): wrapper = lambda contents: contents[order.index(self)]
-        else: wrapper = lambda arguments, parameters: self.function(*[execute(arguments, parameters) for execute in domain])
-        wrapper.__name__ = str(self)
-        return wrapper
-
-    @property
-    def arguments(self): return [value for value in list(inspect.signature(self.function).parameters.keys()) if value.kind == value.POSITIONAL_ONLY]
-    @property
-    def parameters(self): return [value for value in list(inspect.signature(self.function).parameters.keys()) if value.kind == value.KEYWORD_ONLY]
-    @property
-    def domain(self): return [value for value in list(inspect.signature(self.function).parameters.keys()) if value.kind == value.POSITIONAL_OR_KEYWORD]
-
-    @property
-    def sources(self):
-        children = self.children.values()
-        if not bool(self): generator = (variable for child in children for variable in child.sources)
-        else: generator = iter([self])
-        yield from generator
+        children = list(self.children.items())
+        if bool(self): return lambda arguments, parameters: arguments[order.index(self)]
+        primary = [variable.execute(order) for key, variable in children if key in self.domain.arguments]
+        secondary = {key: variable.execute(order) for key, variable in children if key in self.domain.parameters}
+        executes = Domain(primary, secondary)
+        primary = lambda arguments, parameters: [execute(arguments, parameters) for execute in executes.arguments]
+        secondary = lambda arguments, parameters: {key: execute(arguments, parameters) for key, execute in executes.parameters.items()}
+        return lambda arguments, parameters: self.function(*primary(arguments, parameters), **secondary(arguments, parameters))
 
     @property
     def function(self): return self.__function
-
-
-class Location(object):
-    def __init__(self, variable): self.variable = variable
-    def __call__(self, *args, **kwargs):
-        assert bool(self.variable)
-        return self.variable.content
+    @property
+    def domain(self): return self.__domain
 
 
 class Algorithm(ABC, metaclass=RegistryMeta):
     def __init__(self, variable): self.variable = variable
     def __call__(self, *args, **kwargs):
         sources = list(set(self.variable.sources))
-        independents = ODict([(source, source.content) for source in sources if isinstance(source, IndependentVariable)])
-        constants = ODict([(source, source.content) for source in sources if isinstance(source, DependentVariable)])
-        assert None not in list(independents.values()) + list(constants.values())
-        parameters = dict(constants.items())
-        arguments = list(independents.values())
-        order = list(independents.keys())
+        arguments = ODict([(source, source.content) for source in sources if isinstance(source, IndependentVariable)])
+        parameters = ODict([(source, source.content) for source in sources if isinstance(source, ConstantVariable)])
+        parameters = {str(variable): content for variable, content in parameters.items()}
+        order = list(arguments.keys())
+        arguments = list(arguments.values())
         calculation = self.variable.execute(order)
+        name = str(self.variable)
         content = self.calculate(calculation, arguments, parameters)
         content = content.astype(self.variable.vartype)
         self.variable.content = content
-        return content
+        return name, content
 
     @abstractmethod
     def calculate(self, *args, **kwargs): pass
@@ -145,25 +138,23 @@ class Algorithm(ABC, metaclass=RegistryMeta):
 
 class ArrayAlgorithm(Algorithm, register=ArrayVectorAlgorithm):
     def calculate(self, calculation, arguments, parameters):
-        assert all([isinstance(arguments, (xr.DataArray, np.number)) for arguments in arguments])
-        assert all([isinstance(parameter, np.number) for parameter in parameters.values()])
-        wrapper = lambda *contents, **numbers: calculation(list(contents), dict(numbers))
-        return xr.apply_ufunc(wrapper, *arguments, kwargs=parameters, output_dtypes=[self.variable.vartype], vectorize=True)
-
+        assert all([isinstance(argument, (xr.DataArray, np.number)) for argument in arguments])
+        assert not any([isinstance(parameter, xr.DataArray) for parameter in parameters])
+        function = lambda *dataarrays, **constants: calculation(dataarrays, constants)
+        return xr.apply_ufunc(function, *arguments, kwargs=parameters, output_dtypes=[self.variable.vartype], vectorize=True)
 
 class TableAlgorithm(Algorithm, register=TableVectorAlgorithm):
     def calculate(self, calculation, arguments, parameters):
         assert all([isinstance(argument, pd.Series) for argument in arguments])
-        assert all([isinstance(parameter, np.number) for parameter in parameters.values()])
-        wrapper = lambda series, **numbers: calculation(list(series), dict(numbers))
-        return pd.concat(arguments, axis=1).apply(wrapper, axis=1, raw=True, **parameters)
-
+        assert not any([isinstance(parameter, pd.Series) for parameter in parameters])
+        function = lambda dataframe, **constants: calculation(dataframe, constants)
+        return pd.concat(arguments, axis=1).apply(function, axis=1, raw=True, **parameters)
 
 class NonVectorAlgorithm(Algorithm, register=[ArrayNonVectorAlgorithm, TableNonVectorAlgorithm]):
     def calculate(self, calculation, arguments, parameters):
         assert all([isinstance(argument, (xr.DataArray, pd.Series)) for argument in arguments])
-        assert all([isinstance(parameter, np.number) for parameter in parameters.values()])
-        return calculation(list(arguments), dict(parameters))
+        assert not any([isinstance(parameter, (xr.DataArray, pd.Series)) for parameter in parameters])
+        return calculation(arguments, parameters)
 
 
 class EquationMeta(ABCMeta):
@@ -184,10 +175,11 @@ class EquationMeta(ABCMeta):
     def __call__(cls, *args, **kwargs):
         variables = {key: copy(variable) for key, variable in cls.registry.items()}
         for variable in variables.values():
+            if isinstance(variable, SourceVariable): continue
             for key in list(variable.domain):
                 variable[key] = variables[key]
         algorithm = AlgorithmType(cls.datatype, cls.vectorize)
-        parameters = dict(variables=variables, algorithm=Algorithm[algorithm], location=Location)
+        parameters = dict(variables=variables, algorithm=Algorithm[algorithm])
         return super(EquationMeta, cls).__call__(*args, **parameters, **kwargs)
 
     @property
@@ -199,21 +191,20 @@ class EquationMeta(ABCMeta):
 
 
 class Equation(ABC, metaclass=EquationMeta):
+    def __init_subclass__(cls, *args, **kwargs): pass
     def __new__(cls, sources, *args, variables, **kwargs):
         for variable in variables.values():
             if isinstance(variable, DependentVariable): continue
             elif isinstance(variable, IndependentVariable): content = sources.get(variable.locator, None)
             elif isinstance(variable, ConstantVariable): content = kwargs.get(variable.locator, None)
             else: raise TypeError(type(variable))
-            if not isinstance(content, (cls.datatype, np.number)): raise ValueError(content)
             variable.content = content
         instance = super().__new__(cls)
         return instance
 
-    def __init__(self, *args, variables, algorithm, location, **kwargs):
+    def __init__(self, *args, variables, algorithm, **kwargs):
         self.__variables = variables
         self.__algorithm = algorithm
-        self.__location = location
 
     def __enter__(self): return self
     def __exit__(self, error_type, error_value, error_traceback):
@@ -224,52 +215,32 @@ class Equation(ABC, metaclass=EquationMeta):
         if attribute not in variables.keys():
             raise AttributeError(attribute)
         variable = variables[attribute]
-        if variable.terminal: content = self.location(variable)
-        else: content = self.algorithm(variable)
-        return str(variable), content
+        if variable.terminal: return lambda: (str(variable), variable.content)
+        else: return self.algorithm(variable)
 
     @property
     def variables(self): return self.__variables
     @property
     def algorithm(self): return self.__algorithm
-    @property
-    def location(self): return self.__location
 
 
-class CalculationMeta(ABCMeta, metaclass=RegistryMeta):
-    def __init__(cls, *args, **kwargs):
-        super(CalculationMeta, cls).__init__(*args, **kwargs)
+class Calculation(ABC):
+    def __init_subclass__(cls, *args, **kwargs):
         cls.__equation__ = kwargs.get("equation", getattr(cls, "__equation__", None))
-        cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
 
-    def __call__(cls, *args, **kwargs):
-        cls = type(cls.__name__, (cls, cls[cls.equation.datatype]), {})
-        instance = super(CalculationMeta, cls).__call__(*args, **kwargs)
-        return instance
-
-    @property
-    def equation(cls): return cls.__equation__
-    @property
-    def datatype(cls): return cls.__datatype__
-
-
-class Calculation(ABC, metaclass=RegistryMeta):
-    def __init__(self, *args, **kwargs):
-        assert inspect.isgeneratorfunction(self.execute)
-
+    def __init__(self, *args, **kwargs): assert inspect.isgeneratorfunction(self.execute)
     def __call__(self, *args, **kwargs):
-        generator = self.generator(*args, **kwargs)
+        generator = self.execute(*args, **kwargs)
+        method = self.equation.datatype
         contents = dict(generator)
-        return self.execute(contents, *args, **kwargs)
+        content = self.combine(contents, *args, method=method, **kwargs)
+        return content
 
-    @abstractmethod
-    def execute(self, contents, *args, **kwargs): pass
-    @abstractmethod
-    def generator(self, *args, **kwargs): pass
+    @ValueDispatcher(locator="method")
+    def combine(self, contents, *args, method, **kwargs): pass
 
-
-class ArrayCalculation(Calculation, ABC, register=xr.DataArray):
-    def execute(self, contents, *args, **kwargs):
+    @combine.register(xr.DataArray)
+    def dataarray(self, contents, *args, **kwargs):
         assert all([isinstance(content, (xr.DataArray, np.number)) for content in contents.values()])
         dataarrays = {name: content for name, content in contents.items() if isinstance(content, xr.DataArray)}
         numerics = {name: content for name, content in contents.items() if isinstance(content, np.number)}
@@ -278,15 +249,18 @@ class ArrayCalculation(Calculation, ABC, register=xr.DataArray):
         for name, content in numerics.items(): dataset[name] = content
         return dataset
 
-
-class TableCalculation(Calculation, ABC, register=pd.Series):
-    def execute(self, contents, *args, **kwargs):
+    @combine.register(pd.Series)
+    def series(self, contents, *args, **kwargs):
         assert all([isinstance(content, (pd.Series, np.number)) for content in contents.values()])
-        series = {name: content for name, content in contents.items() if isinstance(content, pd.Series)}
+        series = [content.rename(name) for name, content in contents.items() if isinstance(content, pd.Series)]
         numerics = {name: content for name, content in contents.items() if isinstance(content, np.number)}
-        dataframe = pd.concat(list(series.values()), axis=1)
+        dataframe = pd.concat(list(series), axis=1)
         for name, content in numerics.items(): dataframe[name] = content
         return dataframe
 
+    @abstractmethod
+    def execute(self, *args, **kwargs): pass
+    @property
+    def equation(self): return type(self).__equation__
 
 
