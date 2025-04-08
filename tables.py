@@ -10,7 +10,7 @@ import types
 import multiprocessing
 import pandas as pd
 from itertools import product
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 
 from support.mixins import Emptying, Sizing, Partition, Logging, Naming
 
@@ -59,7 +59,16 @@ class Header(Naming, fields=["index", "columns"]):
     def __iter__(self): return iter(self.index + self.columns)
 
 
-class Table(ABC):
+class TableMeta(ABCMeta):
+    def __call__(cls, *args, **kwargs):
+        renderer = Renderer(*args, **kwargs)
+        header = Header(*args, **kwargs)
+        parameters = dict(renderer=renderer, header=header)
+        instance = super(TableMeta, cls).__call__(*args, **parameters, **kwargs)
+        return instance
+
+
+class Table(ABC, metaclass=TableMeta):
     def __init__(self, *args, renderer, header, **kwargs):
         self.__data = pd.DataFrame(columns=list(header))
         self.__mutex = multiprocessing.RLock()

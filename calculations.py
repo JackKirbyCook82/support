@@ -102,7 +102,7 @@ class DependentVariable(Variable, attribute="Dependent"):
 
     def execute(self, order):
         children = list(self.children.items())
-        if bool(self): return lambda arguments, parameters: arguments[order.index(self)]
+        if bool(self): return lambda arguments, parameters: self.content
         primary = [variable.execute(order) for key, variable in children if key in self.domain.arguments]
         secondary = {key: variable.execute(order) for key, variable in children if key in self.domain.parameters}
         executes = Domain(primary, secondary)
