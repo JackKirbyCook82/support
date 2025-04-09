@@ -21,9 +21,20 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
+class Header(Naming, fields=["index", "columns"]):
+    def __new__(cls, *args, index=[], columns=[], stacking=None, **kwargs):
+        if bool(stacking):
+            generator = lambda value: product([value], stacking.layers) if value in stacking.columns else product([value], [""])
+            columns = [value for key in columns for value in generator(key)]
+            index = [value for key in index for value in generator(key)]
+        return super().__new__(cls, index=index, columns=columns)
+
+    def __len__(self): return len(self.index) + len(self.columns)
+    def __iter__(self): return iter(self.index + self.columns)
+
+
 class Layout(Naming, fields=["width", "space", "columns", "rows"]): pass
 class Stacking(Naming, fields=["axis", "columns", "layers"]): pass
-
 class Renderer(Naming, fields=["formatters", "layout", "order"]):
     def __new__(cls, *args, layout={}, order=[], stacking=None, **kwargs):
         split = lambda contents: iter(str(contents).split(" ")) if isinstance(contents, str) else iter(contents)
@@ -45,18 +56,6 @@ class Renderer(Naming, fields=["formatters", "layout", "order"]):
         strings = [boundary, string, boundary] if bool(string) else []
         string = ("\n".join(strings) + "\n") if bool(strings) else ""
         return string
-
-
-class Header(Naming, fields=["index", "columns"]):
-    def __new__(cls, *args, index=[], columns=[], stacking=None, **kwargs):
-        if bool(stacking):
-            generator = lambda value: product([value], stacking.layers) if value in stacking.columns else product([value], [""])
-            columns = [value for key in columns for value in generator(key)]
-            index = [value for key in index for value in generator(key)]
-        return super().__new__(cls, index=index, columns=columns)
-
-    def __len__(self): return len(self.index) + len(self.columns)
-    def __iter__(self): return iter(self.index + self.columns)
 
 
 class TableMeta(ABCMeta):
@@ -222,9 +221,12 @@ class Routine(Process, ABC):
 
 
 class Reader(Process, ABC):
+    @staticmethod
+    def parser(dataframe, *args, **kwargs): return dataframe
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
         with self.table.mutex: dataframe = self.read(*args, **kwargs)
+        dataframe = self.parser(dataframe, *args, **kwargs)
         assert isinstance(dataframe, (pd.DataFrame, types.NoneType))
         if self.empty(dataframe): return
         yield dataframe
@@ -234,9 +236,12 @@ class Reader(Process, ABC):
 
 
 class Writer(Process, ABC):
+    @staticmethod
+    def parser(dataframe, *args, **kwargs): return dataframe
     def execute(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, (pd.DataFrame, types.NoneType))
         if self.empty(dataframe): return
+        dataframe = self.parser(dataframe, *args, **kwargs)
         with self.table.mutex: self.write(dataframe, *args, **kwargs)
 
     @abstractmethod

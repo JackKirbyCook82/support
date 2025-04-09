@@ -9,7 +9,6 @@ Created on Sun 14 2023
 import os
 import types
 import multiprocessing
-import regex as re
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
@@ -30,44 +29,16 @@ class FileLock(dict, metaclass=SingletonMeta):
 
 
 class FileMeta(ABCMeta):
-    def __repr__(cls): return str(cls.__name__)
-    def __init__(cls, *args, **kwargs):
-        super(FileMeta, cls).__init__(*args, **kwargs)
-        formatters = kwargs.get("formatters", {})
-        generator = lambda keys: iter(str(keys).split(" ")) if isinstance(keys, str) else iter(keys)
-        formatters = {key: value for keys, value in formatters.items() for key in generator(keys)}
-        assert all([callable(value) for value in formatters.values()])
-        attributes = dict(getattr(cls, "__attributes__", {}))
-        attributes["formatters"] = attributes.get("formatters", {}) | formatters
-        attributes["parsers"] = attributes.get("parsers", {}) | kwargs.get("parsers", {})
-        attributes["types"] = attributes.get("types", {}) | kwargs.get("types", {})
-        attributes["dates"] = attributes.get("dates", {}) | kwargs.get("dates", {})
-        cls.__order__ = kwargs.get("order", getattr(cls, "__order__", []))
-        cls.__attributes__ = attributes
-
-    def __getitem__(cls, attribute): return cls.attributes[attribute]
-    def __setitem__(cls, attribute, value): cls.attributes[attribute] = value
-
-    def __add__(cls, other):
-        primary = list(re.findall("[A-Z][^A-Z]*", repr(cls).replace("File", "")))
-        secondary = list(re.findall("[A-Z][^A-Z]*", repr(cls).replace("File", "")))
-        titles = list(primary) + [title for title in secondary if title not in primary]
-        title = f"{''.join(titles)}File"
-        attributes = list(cls.attributes)
-        attributes = {attribute: cls[attribute] | other[attribute] for attribute in attributes}
-        order = cls.order + [value for value in list(other.order) if value not in cls.order]
-        return type(title, (File,), {}, order=order, **attributes)
-
-    def __call__(cls, *args, **kwargs):
-        attributes = {attribute: {column: value for column, value in mapping.items() if column in cls.order} for attribute, mapping in cls.attributes.items()}
-        parameters = dict(mutex=FileLock(), header=cls.order) | dict(attributes)
-        instance = super(FileMeta, cls).__call__(*args, **parameters, **kwargs)
+    def __call__(cls, *args, order=[], **kwargs):
+        assert isinstance(order, list) and bool(order)
+        split = lambda contents: iter(str(contents).split(" ")) if isinstance(contents, str) else iter(contents)
+        formatters = {key: value for keys, value in kwargs.pop("formatters", {}).items() for key in split(keys) if key in order}
+        parsers = {key: value for keys, value in kwargs.pop("parsers", {}).items() for key in split(keys) if key in order}
+        parameters = dict(formatters=formatters, parsers=parsers, mutex=FileLock())
+        parameters["types"] = {key: value for keys, value in kwargs.pop("types", {}).items() for key in split(keys) if key in order}
+        parameters["dates"] = {key: value for keys, value in kwargs.pop("dates", {}).items() for key in split(keys) if key in order}
+        instance = super(FileMeta, cls).__call__(*args, order=order, **parameters, **kwargs)
         return instance
-
-    @property
-    def attributes(cls): return cls.__attributes__
-    @property
-    def order(cls): return cls.__order__
 
 
 class File(ABC, metaclass=FileMeta):
@@ -81,14 +52,14 @@ class File(ABC, metaclass=FileMeta):
             os.mkdir(directory)
         return instance
 
-    def __init__(self, *args, repository, folder, header, mutex, **kwargs):
+    def __init__(self, *args, repository, folder, order, mutex, **kwargs):
         self.__formatters = kwargs.get("formatters", {})
         self.__parsers = kwargs.get("parsers", {})
         self.__types = kwargs.get("types", {})
         self.__dates = kwargs.get("dates", {})
         self.__repository = repository
         self.__folder = folder
-        self.__header = header
+        self.__order = order
         self.__mutex = mutex
 
     def __bool__(self): return bool(os.listdir(os.path.join(self.repository, self.folder)))
@@ -122,7 +93,7 @@ class File(ABC, metaclass=FileMeta):
         assert mode == "r" and str(file).split(".")[-1] == "csv"
         parameters = dict(infer_datetime_format=False, parse_dates=list(self.dates.keys()), date_format=self.dates, dtype=self.types, converters=self.parsers)
         dataframe = pd.read_csv(file, iterator=False, index_col=None, header=0, **parameters)
-        columns = [column for column in list(self.header if bool(self.header) else dataframe.columns) if column in dataframe.columns]
+        columns = [column for column in list(self.order if bool(self.order) else dataframe.columns) if column in dataframe.columns]
         return dataframe[columns]
 
     def save(self, dataframe, *args, file, mode, **kwargs):
@@ -132,7 +103,7 @@ class File(ABC, metaclass=FileMeta):
             dataframe[column] = dataframe[column].apply(formatter)
         for column, dateformat in self.dates.items():
             dataframe[column] = dataframe[column].dt.strftime(dateformat)
-        columns = [column for column in list(self.header if bool(self.header) else dataframe.columns) if column in dataframe.columns]
+        columns = [column for column in list(self.order if bool(self.order) else dataframe.columns) if column in dataframe.columns]
         dataframe[columns].to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
     @property
@@ -140,7 +111,7 @@ class File(ABC, metaclass=FileMeta):
     @property
     def folder(self): return self.__folder
     @property
-    def header(self): return self.__header
+    def order(self): return self.__order
     @property
     def formatters(self): return self.__formatters
     @property
@@ -189,6 +160,8 @@ class Directory(Process, ABC):
 
 
 class Loader(Process, Partition, ABC, title="Loaded"):
+    @staticmethod
+    def parser(dataframe, *args, **kwargs): return dataframe
     def execute(self, contents, *args, **kwargs):
         contents = list(contents) if isinstance(contents, list) else [contents]
         if not bool(contents): return
@@ -198,6 +171,7 @@ class Loader(Process, Partition, ABC, title="Loaded"):
             file = self.filename(query)
             dataframes = self.file.read(*args, file=file, mode=self.mode, **kwargs)
             for query, dataframe in self.partition(dataframes, by=self.query):
+                dataframe = self.parser(dataframe, *args, **kwargs)
                 size = self.size(dataframe)
                 self.console(f"{str(query)}[{size:.0f}]")
                 if self.empty(dataframe): continue
@@ -205,10 +179,13 @@ class Loader(Process, Partition, ABC, title="Loaded"):
 
 
 class Saver(Process, Partition, ABC, title="Saved"):
+    @staticmethod
+    def parser(dataframe, *args, **kwargs): return dataframe
     def execute(self, dataframes, *args, **kwargs):
         assert isinstance(dataframes, (pd.DataFrame, types.NoneType))
         if self.empty(dataframes): return
         for query, dataframe in self.partition(dataframes, by=self.query):
+            dataframe = self.parser(dataframe, *args, **kwargs)
             file = self.filename(query)
             file = self.file.write(dataframe, *args, file=file, mode=self.mode, **kwargs)
             size = self.size(dataframe)
