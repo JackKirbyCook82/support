@@ -12,12 +12,12 @@ import multiprocessing
 import pandas as pd
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.mixins import Emptying, Sizing, Partition, Logging
+from support.mixins import Emptying, Partition, Logging
 from support.meta import SingletonMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Loader", "Saver", "Directory", "File"]
+__all__ = ["Loader", "Saver", "File"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -62,32 +62,23 @@ class File(ABC, metaclass=FileMeta):
         self.__order = order
         self.__mutex = mutex
 
+    def __repr__(self): return f"{self.name}[{len(self):.0f}]"
     def __bool__(self): return bool(os.listdir(os.path.join(self.repository, self.folder)))
     def __len__(self): return len(os.listdir(os.path.join(self.repository, self.folder)))
-    def __repr__(self): return f"{self.name}[{len(self):.0f}]"
-
-    def __iter__(self):
-        directory = os.path.join(self.repository, self.folder)
-        for file in os.listdir(directory):
-            file = str(file).split(".")[0]
-            yield file
+    def __iter__(self): return iter(self.directory)
 
     def read(self, *args, file, mode="r", **kwargs):
         directory = os.path.join(self.repository, self.folder)
-        file = os.path.join(directory, ".".join([file, "csv"]))
+        file = os.path.join(directory, file)
         if not os.path.exists(file): return
-        with self.mutex[file]:
-            parameters = dict(file=str(file), mode=mode)
-            content = self.load(*args, **parameters, **kwargs)
+        with self.mutex[file]: content = self.load(*args, file=file, mode=mode, **kwargs)
         return content
 
     def write(self, content, *args, file, mode, **kwargs):
         directory = os.path.join(self.repository, self.folder)
-        file = os.path.join(directory, ".".join([file, "csv"]))
-        with self.mutex[file]:
-            parameters = dict(file=str(file), mode=mode)
-            self.save(content, *args, **parameters, **kwargs)
-        return str(file)
+        file = os.path.join(directory, file)
+        with self.mutex[file]: self.save(content, *args, file=file, mode=mode, **kwargs)
+        return file
 
     def load(self, *args, file, mode, **kwargs):
         assert mode == "r" and str(file).split(".")[-1] == "csv"
@@ -102,9 +93,15 @@ class File(ABC, metaclass=FileMeta):
         for column, formatter in self.formatters.items():
             dataframe[column] = dataframe[column].apply(formatter)
         for column, dateformat in self.dates.items():
-            dataframe[column] = dataframe[column].dt.strftime(dateformat)
+            try: dataframe[column] = dataframe[column].dt.strftime(dateformat)
+            except AttributeError: dataframe[column] = dataframe[column].apply(lambda value: value.strftime(dateformat))
         columns = [column for column in list(self.order if bool(self.order) else dataframe.columns) if column in dataframe.columns]
         dataframe[columns].to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
+
+    @property
+    def directory(self):
+        directory = os.path.join(self.repository, self.folder)
+        return list(os.listdir(directory))
 
     @property
     def repository(self): return self.__repository
@@ -124,72 +121,45 @@ class File(ABC, metaclass=FileMeta):
     def mutex(self): return self.__mutex
 
 
-class Process(Sizing, Emptying, Logging, ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        super().__init_subclass__(*args, **kwargs)
-        cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
-
+class Process(Emptying, Logging, ABC):
     def __init__(self, *args, file, mode, **kwargs):
         super().__init__(*args, **kwargs)
         self.__file = file
         self.__mode = mode
 
-    @staticmethod
-    def filename(query): return "_".join(str(query).split("|"))
-    @staticmethod
-    def queryname(file): return "|".join(str(file).split("_"))
-
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
-    @property
-    def query(self): return type(self).__query__
     @property
     def file(self): return self.__file
     @property
     def mode(self): return self.__mode
 
 
-class Directory(Process, ABC):
+class Loader(Process, Partition, ABC, title="Loaded"):
     def execute(self, *args, **kwargs):
         if not bool(self.file): return
-        for file in iter(self.file):
-            queryname = self.queryname(file)
-            query = self.query(queryname)
-            yield query
+        for file in self.directory(*args, **kwargs):
+            dataframe = self.file.read(*args, file=file, mode=self.mode, **kwargs)
+            assert isinstance(dataframe, (pd.DataFrame, types.NoneType))
+            if self.empty(dataframe): continue
+            yield dataframe
 
-
-class Loader(Process, Partition, ABC, title="Loaded"):
-    @staticmethod
-    def parser(dataframe, *args, **kwargs): return dataframe
-    def execute(self, contents, *args, **kwargs):
-        contents = list(contents) if isinstance(contents, list) else [contents]
-        if not bool(contents): return
-        if not bool(self.file): return
-        for content in list(contents):
-            query = self.query(content)
-            file = self.filename(query)
-            dataframes = self.file.read(*args, file=file, mode=self.mode, **kwargs)
-            for query, dataframe in self.partition(dataframes, by=self.query):
-                dataframe = self.parser(dataframe, *args, **kwargs)
-                size = self.size(dataframe)
-                self.console(f"{str(query)}[{size:.0f}]")
-                if self.empty(dataframe): continue
-                yield dataframe
+    @abstractmethod
+    def directory(self, *args, **kwargs): pass
 
 
 class Saver(Process, Partition, ABC, title="Saved"):
-    @staticmethod
-    def parser(dataframe, *args, **kwargs): return dataframe
-    def execute(self, dataframes, *args, **kwargs):
-        assert isinstance(dataframes, (pd.DataFrame, types.NoneType))
-        if self.empty(dataframes): return
-        for query, dataframe in self.partition(dataframes, by=self.query):
-            dataframe = self.parser(dataframe, *args, **kwargs)
-            file = self.filename(query)
-            file = self.file.write(dataframe, *args, file=file, mode=self.mode, **kwargs)
-            size = self.size(dataframe)
-            self.console(f"{str(query)}[{size:.0f}]")
+    def execute(self, dataframe, *args, **kwargs):
+        assert isinstance(dataframe, (pd.DataFrame, types.NoneType))
+        if self.empty(dataframe): return
+        for file, content in self.categorize(dataframe, *args, **kwargs):
+            if self.empty(content): continue
+            file = self.file.write(content, *args, file=file, mode=self.mode, **kwargs)
             self.console(file)
+
+    @abstractmethod
+    def categorize(self, dataframe, *args, **kwargs): pass
+
 
 

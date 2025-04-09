@@ -213,20 +213,16 @@ class Process(Sizing, Emptying, Partition, Logging, ABC):
 class Routine(Process, ABC):
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
-        with self.table.mutex:
-            self.routine(*args, **kwargs)
+        self.routine(*args, **kwargs)
 
     @abstractmethod
     def routine(self, *args, **kwargs): pass
 
 
 class Reader(Process, ABC):
-    @staticmethod
-    def parser(dataframe, *args, **kwargs): return dataframe
     def execute(self, *args, **kwargs):
         if not bool(self.table): return
-        with self.table.mutex: dataframe = self.read(*args, **kwargs)
-        dataframe = self.parser(dataframe, *args, **kwargs)
+        dataframe = self.read(*args, **kwargs)
         assert isinstance(dataframe, (pd.DataFrame, types.NoneType))
         if self.empty(dataframe): return
         yield dataframe
@@ -236,16 +232,14 @@ class Reader(Process, ABC):
 
 
 class Writer(Process, ABC):
-    @staticmethod
-    def parser(dataframe, *args, **kwargs): return dataframe
     def execute(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, (pd.DataFrame, types.NoneType))
         if self.empty(dataframe): return
-        dataframe = self.parser(dataframe, *args, **kwargs)
-        with self.table.mutex: self.write(dataframe, *args, **kwargs)
+        self.write(dataframe, *args, **kwargs)
 
     @abstractmethod
     def write(self, dataframe, *args, **kwargs): pass
+
 
 
 
