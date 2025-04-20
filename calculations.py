@@ -126,11 +126,10 @@ class Algorithm(ABC, metaclass=RegistryMeta):
         order = list(arguments.keys())
         arguments = list(arguments.values())
         calculation = self.variable.execute(order)
-        name = str(self.variable)
         content = self.calculate(calculation, arguments, parameters)
         content = content.astype(self.variable.vartype)
         self.variable.content = content
-        return name, content
+        return self.variable.varname, content
 
     @abstractmethod
     def calculate(self, *args, **kwargs): pass
@@ -215,7 +214,7 @@ class Equation(ABC, metaclass=EquationMeta):
         if attribute not in variables.keys():
             raise AttributeError(attribute)
         variable = variables[attribute]
-        if variable.terminal: return lambda: (str(variable), variable.content)
+        if variable.terminal: return lambda: (variable.varname, variable.content)
         else: return self.algorithm(variable)
 
     @property
