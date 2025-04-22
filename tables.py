@@ -74,7 +74,6 @@ class Table(ABC, metaclass=TableMeta):
         self.__renderer = renderer
 
     def __str__(self): return self.renderer(self.dataframe) if not self.empty else ""
-    def __repr__(self): return f"{str(self.name)}[{len(self):.0f}]"
     def __len__(self): return int(self.size) if bool(self) else 0
     def __bool__(self): return not bool(self.empty)
 

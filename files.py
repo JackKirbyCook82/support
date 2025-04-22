@@ -62,7 +62,6 @@ class File(ABC, metaclass=FileMeta):
         self.__order = order
         self.__mutex = mutex
 
-    def __repr__(self): return f"{self.name}[{len(self):.0f}]"
     def __bool__(self): return bool(os.listdir(os.path.join(self.repository, self.folder)))
     def __len__(self): return len(os.listdir(os.path.join(self.repository, self.folder)))
     def __iter__(self): return iter(self.directory)
