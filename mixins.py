@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import xarray as xr
 from abc import ABC, abstractmethod
-from functools import update_wrapper, reduce
+from functools import update_wrapper
 from collections import OrderedDict as ODict
 
 from support.decorators import TypeDispatcher
