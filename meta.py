@@ -5,11 +5,9 @@ Created on Fri Aug 27 2021
 @author: Jack Kirby Cook
 
 """
+
 import types
 from abc import ABCMeta
-from numbers import Number
-
-from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -93,7 +91,7 @@ class AttributeMeta(Meta):
         super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         function = lambda base: type(base) is AttributeMeta or issubclass(type(base), AttributeMeta)
         if not any([function(base) for base in bases]) or bool(kwargs.get("root", False)):
-            assert "attribute" not in kwargs.keys() and "attributes" not in kwargs.keys()
+            assert kwargs.get("attribute", None) is None and not kwargs.get("attributes", [])
             cls.__root__ = cls
         attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
         attributes = list(filter(lambda attribute: attribute is not None, attributes))

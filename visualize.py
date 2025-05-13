@@ -8,9 +8,14 @@ Created on Thurs May 8 2025
 
 import numpy as np
 import matplotlib.pyplot as plt
-from abc import ABC, ABCMeta, abstractmethod
+from operator import is_not
+from functools import partial
+from itertools import product
+from abc import ABC, abstractmethod
 from collections import OrderedDict as ODict
-from collections import namedtuple as ntuple
+
+from support.meta import AttributeMeta
+from support.mixins import Naming
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -21,7 +26,8 @@ __license__ = "MIT License"
 
 class Figure(object):
     def __init__(self, *args, size=(8, 8), layout=(1, 1), name=None, **kwargs):
-        self.__axes = ODict([(index, None) for index in range(1, np.prod(list(layout))+1)])
+        generator = product(*[range(1, value+1) for value in layout])
+        self.__axes = ODict.fromkeys(list(generator))
         self.__layout = layout
         self.__size = size
         self.__name = name
@@ -32,16 +38,15 @@ class Figure(object):
         assert isinstance(axes, Axes)
         self.axes[position] = axes
 
-    def setup(self, *args, **kwargs):
+    def __call__(self, *args, **kwargs):
         figure = plt.figure(figsize=self.size)
         figure.suptitle(self.name if self.name is not None else None)
-        for position, axes in self.axes.items():
-            ax = figure.add_subplot(*self.layout, position, projection=axes.projection)
-            axes.setup(ax, *args, **kwargs)
-        plt.tight_layout()
 
-    @staticmethod
-    def start(*args, **kwargs):
+ #       for position, axes in self.axes.items():
+ #           ax = figure.add_subplot(*self.layout, position, projection=axes.projection)
+ #           axes(ax, *args, **kwargs)
+
+        plt.tight_layout()
         plt.show()
 
     @property
@@ -54,60 +59,72 @@ class Figure(object):
     def name(self): return self.__name
 
 
-class AxesMeta(type):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        cls = super(AxesMeta, mcs).__new__(mcs, name, bases, attrs)
-        return cls
+class Coordinate(Naming, fields=["variable", "name", "values", "formatting", "rotation", "padding"], metaclass=AttributeMeta):
+    def __new__(cls, variable, name, values, *args, formatting="{}", rotation=45, padding=0, **kwargs):
+        parameters = dict(variable=variable, name=name, values=values, formatting=formatting, rotation=rotation, padding=padding)
+        return super().__new__(cls, **parameters)
 
-    def __init__(cls, *args, projection=None, coordinates=[], **kwargs):
-        assert isinstance(projection, (str, type(None))) and isinstance(coordinates, list)
-        if not any([type(base) is AxesMeta for base in cls.__bases__]):
-            return
-        setattr(Axes, cls.__name__, cls)
-        cls.__projection__ = projection
-        cls.__coordinates__ = coordinates
+    def __iter__(self): return iter(self.values)
+    def __len__(self): return len(self.values)
 
-    def __call__(cls, *args, projection=None, **kwargs):
-        if not any([type(base) is AxesMeta for base in cls.__bases__]):
-            subclasses = {subcls.__projection__: subcls for subcls in cls.__subclasses__()}
-            subclass = subclasses[projection]
-            return subclass(*args, **kwargs)
-        parameters = dict(projection=cls.__projection__, coordinates=cls.__coordinates__)
-        instance = super(AxesMeta, cls).__call__(*args, **parameters, **kwargs)
-        return instance
-
-
-class Axes(object, metaclass=AxesMeta):
-    def __init__(self, *args, projection, coordinates, name=None, **kwargs):
-        self.__coords = ODict([(key, kwargs.get(key, None)) for key in coordinates])
-        self.__plots = ODict.fromkeys([])
-        self.__projection = projection
-        self.__name = name
-
-    def __getitem__(self, name): return self.plots[name]
-    def __setitem__(self, name, plot):
-        assert isinstance(plot, Plot)
-        assert plot.projection == self.projection
-        self.plots[name] = plot
-
-    def __getattr__(self, variable):
-        if variable in self.coords.keys():
-            return self.coords[variable]
-        return super().__getattr__(variable)
-
-    def setup(self, ax, *args, **kwargs):
-        ax.set_title(self.name if self.name is not None else None)
-        for variable, coordinate in self.coords.items():
-            if coordinate is None:
-                continue
-            assert coordinate.variable == variable
-            coordinate.setup(ax, *args, **kwargs)
-        for name, plot in self.plots.items():
-            assert plot.name == name
-            plot.setup(ax, *args, **kwargs)
+    def __call__(self, ax, *args, **kwargs):
+        getattr(ax, f"set_{self.variable}label")(self.name, labelpad=self.padding)
+        getattr(ax, f"set_{self.variable}ticks")(self.ticks)
+        getattr(ax, f"set_{self.variable}ticklabels")(self.labels)
+        for label in getattr(ax, f"get_{self.variable}ticklabels")():
+            label.set_rotation(self.rotation)
 
     @property
-    def projection(self): return self.__projection
+    @abstractmethod
+    def labels(self): pass
+    @property
+    @abstractmethod
+    def ticks(self): pass
+
+class Independent(Coordinate, attribute="Independent"):
+    @property
+    def labels(self): return list(map(self.formatting.format, self.values))
+    @property
+    def ticks(self): return np.arange(0, len(self.values))
+
+class Dependent(Coordinate, attribute="Dependent"):
+    @property
+    def labels(self): return list(map(self.formatting.format, self.values))
+    @property
+    def ticks(self): return list(self.values)
+
+
+class VariablesMeta(AttributeMeta):
+    def __init__(cls, *args, **kwargs):
+        virtual = not any([type(base) is VariablesMeta for base in cls.__bases__])
+        attribute = str(cls.__name__) if not virtual else None
+        super(VariablesMeta, cls).__init__(*args, attribute=attribute, **kwargs)
+        cls.__projection__ = kwargs.get("projection", getattr(cls, "__projection__", None))
+        cls.__variables__ = kwargs.get("variables", getattr(cls, "__variables__", []))
+
+
+class Axes(object, metaclass=VariablesMeta):
+    def __init__(self, *args, coords, name=None, **kwargs):
+        assert isinstance(coords, dict)
+        coords = ODict([(key, coords.get(key, None)) for key in self.variables])
+        plots = kwargs.get("plots", []) + [kwargs.get("plot", None)]
+        plots = list(filter(partial(is_not, None), plots))
+        self.__coords = ODict(coords)
+        self.__plots = list(plots)
+        self.__name = name
+
+    def __call__(self, ax, *args, **kwargs):
+        ax.set_title(self.name if self.name is not None else None)
+        for variable, coordinate in self.coords.items():
+            if coordinate is None: continue
+            coordinate(ax, *args, **kwargs)
+        for plot in self.plots:
+            plot(ax, *args, **kwargs)
+
+    @property
+    def projection(self): return type(self).__projection__
+    @property
+    def variables(self): return type(self).__variables__
     @property
     def coords(self): return self.__coords
     @property
@@ -116,91 +133,57 @@ class Axes(object, metaclass=AxesMeta):
     def name(self): return self.__name
 
 
-class Coordinate(ntuple("Coordinate", "variable name ticks labels rotation")):
-    def setup(self, ax, *args, **kwargs):
-        getattr(ax, f"set_{self.variable}label")(self.name)
-        getattr(ax, f"set_{self.variable}ticks")(self.ticks)
-        getattr(ax, f"set_{self.variable}ticklabels")(self.labels)
-        for label in getattr(ax, f"get_{self.variable}ticklabels")():
-            label.set_rotation(self.rotation)
+class Axes2D(Axes, projection=None, variables=["x", "y"]): pass
+class Axes3D(Axes, projection="3d", variables=["x", "y", "z"]): pass
+class AxesPolar(Axes, projection="polar", variables=["r", "θ"]): pass
 
 
-class PlotMeta(ABCMeta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        cls = super(PlotMeta, mcs).__new__(mcs, name, bases, attrs)
-        return cls
-
-    def __init__(cls, *args, projection=None, data=[], **kwargs):
-        assert isinstance(projection, (str, type(None)))
-        if not any([type(base) is PlotMeta for base in cls.__bases__]):
-            return
-        setattr(Plot, cls.__name__, cls)
-        cls.__projection__ = projection
-        cls.__data__ = data
-
-    def __call__(cls, *args, projection=None, **kwargs):
-        if not any([type(base) is PlotMeta for base in cls.__bases__]):
-            subclasses = {subcls.__projection__: subcls for subcls in cls.__subclasses__()}
-            subclass = subclasses[projection]
-            return subclass(*args, **kwargs)
-        parameters = dict(projection=cls.__projection__, data=cls.__data__)
-        instance = super(PlotMeta, cls).__call__(*args, **parameters, **kwargs)
-        return instance
-
-
-class Plot(ABC, metaclass=PlotMeta):
-    def __init__(self, *args, data, projection, name=None, **kwargs):
-        self.__data = ODict([(key, kwargs[key]) for key in data])
-        self.__projection = projection
+class Plot(ABC, metaclass=VariablesMeta):
+    def __init__(self, *args, datasets, name=None, **kwargs):
+        datasets = {variable: datasets[variable] for variable in list(self.variables)}
+        self.__datasets = datasets
         self.__name = name
 
-    def __getattr__(self, variable):
-        if variable in self.data.keys():
-            return self.data[variable]
-        return super().__getattr__(variable)
+    def __call__(self, ax, *args, **kwargs):
+        parameters = {key: value for key, value in self.datasets.items()}
+        self.execute(ax, *args, **parameters, **kwargs)
 
     @abstractmethod
-    def setup(self, ax, *args, **kwargs): pass
+    def execute(self, ax, *args, **kwargs): pass
 
     @property
-    def projection(self): return self.__projection
+    def projection(self): return type(self).__projection__
     @property
-    def data(self): return self.__data
+    def variables(self): return type(self).__variables__
+    @property
+    def datasets(self): return self.__datasets
     @property
     def name(self): return self.__name
 
 
-class Axes2D(Axes, projection=None, coordinates=["x", "y"]): pass
-class Axes3D(Axes, projection="3d", coordinates=["x", "y", "z"]): pass
-class AxesPolar(Axes, projection="polar", coordinates=["r", "θ"]): pass
+class Hist2D(Plot, projection=None, variables=["x", "y"]):
+    def execute(self, ax, *args, x, y, **kwargs):
+        ax.hist(y, bins=x)
 
+class Line2D(Plot, projection=None, variables=["x", "y"]):
+    def execute(self, ax, *args, x, y, **kwargs):
+        ax.plot(x, y)
 
-class Hist2D(Plot, projection=None, data=["x", "y"]):
-    def setup(self, ax, *args, **kwargs):
-        ax.hist(self.y, bins=self.x, label=self.name)
+class Scatter2D(Plot, projection=None, variables=["x", "y", "s"]):
+    def execute(self, ax, *args, x, y, s, **kwargs):
+        ax.scatter(x, y, s=s)
 
-class Line2D(Plot, projection=None, data=["x", "y"]):
-    def setup(self, ax, *args, **kwargs):
-        ax.plot(self.x, self.y, label=self.name)
+class Line3D(Plot, projection="3d", variables=["x", "y", "z"]):
+    def execute(self, ax, *args, x, y, z, **kwargs):
+        ax.plot(x, y, z)
 
-class Scatter2D(Plot, projection=None, data=["x", "y", "s"]):
-    def setup(self, ax, *args, **kwargs):
-        ax.scatter(self.x, self.y, s=self.s, label=self.name)
+class Scatter3D(Plot, projection="3d", variables=["x", "y", "z", "s"]):
+    def execute(self, ax, *args, x, y, z, s, **kwargs):
+        ax.scatter(x, y, z, s=s)
 
-class Line3D(Plot, projection="3d", data=["x", "y", "z"]):
-    def setup(self, ax, *args, **kwargs):
-        ax.plot(self.x, self.y, self.z, label=self.name)
-
-class Scatter3D(Plot, projection="3d", data=["x", "y", "z", "s"]):
-    def setup(self, ax, *args, **kwargs):
-        ax.scatter(self.x, self.y, self.z, s=self.s, label=self.name)
-
-class Surface3D(Plot, projection="3d", data=["xx", "yy", "zz"]):
-    def setup(self, ax, *args, **kwargs):
-        ax.plot_surface(self.xx, self.yy, self.zz, label=self.name)
-
-
-
+class Surface3D(Plot, projection="3d", variables=["xx", "yy", "zz"]):
+    def execute(self, ax, *args, xx, yy, zz, **kwargs):
+        ax.plot_surface(xx, yy, zz)
 
 
 
