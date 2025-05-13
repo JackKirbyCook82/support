@@ -27,8 +27,10 @@ __license__ = "MIT License"
 class Figure(object):
     def __init__(self, *args, size=(8, 8), layout=(1, 1), name=None, **kwargs):
         generator = product(*[range(1, value+1) for value in layout])
+        rows, columns = list(layout)
         self.__axes = ODict.fromkeys(list(generator))
-        self.__layout = layout
+        self.__columns = columns
+        self.__rows = rows
         self.__size = size
         self.__name = name
 
@@ -39,20 +41,21 @@ class Figure(object):
         self.axes[position] = axes
 
     def __call__(self, *args, **kwargs):
-        figure = plt.figure(figsize=self.size)
+        figure = plt.figure(figsize=self.size[::-1])
         figure.suptitle(self.name if self.name is not None else None)
-
- #       for position, axes in self.axes.items():
- #           ax = figure.add_subplot(*self.layout, position, projection=axes.projection)
- #           axes(ax, *args, **kwargs)
-
+        for (row, column), axes in self.axes.items():
+            index = self.columns * (row - 1) + column
+            ax = figure.add_subplot(self.rows, self.columns, index, projection=axes.projection)
+            axes(ax, *args, **kwargs)
         plt.tight_layout()
         plt.show()
 
     @property
     def axes(self): return self.__axes
     @property
-    def layout(self): return self.__layout
+    def columns(self): return self.__columns
+    @property
+    def rows(self): return self.__rows
     @property
     def size(self): return self.__size
     @property
