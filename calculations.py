@@ -7,6 +7,8 @@ Created on Thurs Cot 17 2024
 """
 
 import inspect
+import types
+
 import numpy as np
 import xarray as xr
 import pandas as pd
@@ -17,7 +19,6 @@ from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 from support.meta import RegistryMeta, AttributeMeta
-from support.decorators import ValueDispatcher
 from support.trees import Node
 
 __version__ = "1.0.0"
@@ -163,16 +164,23 @@ class EquationMeta(ABCMeta):
         cls = super(EquationMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
         return cls
 
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
+    def __init__(cls, name, bases, attrs, *args, register, **kwargs):
         super(EquationMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        existing = {key: variable for key, variable in getattr(cls, "__registry__", {}).items()}
+        if not any([type(base) is EquationMeta for base in bases]): return
+        existing = {key: variable for key, variable in getattr(cls, "__contents__", {}).items()}
         updated = {key: variable for key, variable in attrs.items() if isinstance(variable, Variable)}
+        if not hasattr(cls, "__registry__"): cls.__registry__ = dict()
         cls.__vectorize__ = kwargs.get("vectorize", getattr(cls, "__vectorize__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
-        cls.__registry__ = dict(existing) | dict(updated)
+        cls.__contents__ = dict(existing) | dict(updated)
+        if register is not None: cls[register] = cls
+
+    def __setitem__(cls, key, value): cls.registry[key] = value
+    def __getitem__(cls, key): return cls.registry[key]
+    def __iter__(cls): return iter(cls.registry.items())
 
     def __call__(cls, *args, **kwargs):
-        variables = {key: copy(variable) for key, variable in cls.registry.items()}
+        variables = {key: copy(variable) for key, variable in cls.contents.items()}
         for variable in variables.values():
             if isinstance(variable, SourceVariable): continue
             for key in list(variable.domain):
@@ -182,11 +190,13 @@ class EquationMeta(ABCMeta):
         return super(EquationMeta, cls).__call__(*args, **parameters, **kwargs)
 
     @property
-    def registry(cls): return cls.__registry__
-    @property
     def vectorize(cls): return cls.__vectorize__
     @property
     def datatype(cls): return cls.__datatype__
+    @property
+    def contents(cls): return cls.__contents__
+    @property
+    def registry(cls): return cls.__registry__
 
 
 class Equation(ABC, metaclass=EquationMeta):
@@ -217,29 +227,42 @@ class Equation(ABC, metaclass=EquationMeta):
         if variable.terminal: return lambda: (variable.varname, variable.content)
         else: return self.algorithm(variable)
 
+    @abstractmethod
+    def execute(self, contents, *args, **kwargs): pass
+
     @property
     def variables(self): return self.__variables
     @property
     def algorithm(self): return self.__algorithm
 
 
-class Calculation(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        cls.__equation__ = kwargs.get("equation", getattr(cls, "__equation__", None))
+class Calculation(ABC, metaclass=RegistryMeta):
+    def __init__(self, *args, equation=None, equations=[], **kwargs):
+        assert isinstance(equation, (Equation, types.NoneType))
+        assert isinstance(equations, list) and all([isinstance(equation, Equation) for equation in equations])
+        self.__equations = list(equations) + ([] if equation is None else [equation])
 
-    def __init__(self, *args, **kwargs): assert inspect.isgeneratorfunction(self.execute)
     def __call__(self, *args, **kwargs):
-        generator = self.execute(*args, **kwargs)
-        method = self.equation.datatype
+        generator = self.generator(*args, **kwargs)
         contents = dict(generator)
-        content = self.combine(contents, *args, method=method, **kwargs)
+        content = self.execute(contents, *args, **kwargs)
         return content
 
-    @ValueDispatcher(locator="method")
-    def combine(self, contents, *args, method, **kwargs): pass
+    def generator(self, *args, **kwargs):
+        for equation in self.equations:
+            with equation(*args, **kwargs) as execute:
+                yield from execute(*args, **kwargs)
 
-    @combine.register(xr.DataArray)
-    def dataarray(self, contents, *args, **kwargs):
+    @staticmethod
+    @abstractmethod
+    def execute(self, contents, *args, **kwargs): pass
+    @property
+    def equations(self): return self.__equations
+
+
+class ArrayCalculation(Calculation, register=xr.DataArray):
+    @staticmethod
+    def execute(contents, *args, **kwargs):
         assert all([isinstance(content, (xr.DataArray, np.number)) for content in contents.values()])
         dataarrays = {name: content for name, content in contents.items() if isinstance(content, xr.DataArray)}
         numerics = {name: content for name, content in contents.items() if isinstance(content, np.number)}
@@ -248,8 +271,10 @@ class Calculation(ABC):
         for name, content in numerics.items(): dataset[name] = content
         return dataset
 
-    @combine.register(pd.Series)
-    def series(self, contents, *args, **kwargs):
+
+class TableCalculation(Calculation, register=pd.Series):
+    @staticmethod
+    def execute(contents, *args, **kwargs):
         assert all([isinstance(content, (pd.Series, np.number)) for content in contents.values()])
         series = [content.rename(name) for name, content in contents.items() if isinstance(content, pd.Series)]
         numerics = {name: content for name, content in contents.items() if isinstance(content, np.number)}
@@ -257,9 +282,5 @@ class Calculation(ABC):
         for name, content in numerics.items(): dataframe[name] = content
         return dataframe
 
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
-    @property
-    def equation(self): return type(self).__equation__
 
 
