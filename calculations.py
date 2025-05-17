@@ -7,13 +7,12 @@ Created on Thurs Cot 17 2024
 """
 
 import inspect
-import types
-
 import numpy as np
 import xarray as xr
 import pandas as pd
 from copy import copy
 from itertools import chain
+from functools import reduce
 from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
@@ -164,20 +163,26 @@ class EquationMeta(ABCMeta):
         cls = super(EquationMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
         return cls
 
-    def __init__(cls, name, bases, attrs, *args, register, **kwargs):
+    def __init__(cls, name, bases, attrs, *args, register=None, **kwargs):
         super(EquationMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        if not any([type(base) is EquationMeta for base in bases]): return
-        existing = {key: variable for key, variable in getattr(cls, "__contents__", {}).items()}
+        primary = any([type(base) is EquationMeta for base in bases])
+        secondary = any([type(subbase) is EquationMeta for base in bases for subbase in base.__bases__])
+        if not primary: return
+        if not secondary:
+            assert not any([hasattr(cls, str(attribute).join("__")) for attribute in ["registry", "contents"]])
+            cls.__registry__ = dict()
+            cls.__contents__ = dict()
+        existing = [dict(base) for base in bases if type(base) is EquationMeta and secondary]
+        existing = reduce(lambda lead, lag: lead | lag, existing, dict())
         updated = {key: variable for key, variable in attrs.items() if isinstance(variable, Variable)}
-        if not hasattr(cls, "__registry__"): cls.__registry__ = dict()
+        cls.__contents__ = dict(existing) | dict(updated)
         cls.__vectorize__ = kwargs.get("vectorize", getattr(cls, "__vectorize__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
-        cls.__contents__ = dict(existing) | dict(updated)
         if register is not None: cls[register] = cls
 
     def __setitem__(cls, key, value): cls.registry[key] = value
     def __getitem__(cls, key): return cls.registry[key]
-    def __iter__(cls): return iter(cls.registry.items())
+    def __iter__(cls): return iter(cls.contents.items())
 
     def __call__(cls, *args, **kwargs):
         variables = {key: copy(variable) for key, variable in cls.contents.items()}
@@ -219,6 +224,10 @@ class Equation(ABC, metaclass=EquationMeta):
     def __exit__(self, error_type, error_value, error_traceback):
         for key in list(self.variables.keys()): del self.variables[key]
 
+    def __call__(self, *args, **kwargs):
+        generator = self.execute(*args, **kwargs)
+        yield from generator
+
     def __getattr__(self, attribute):
         variables = {key: variable for key, variable in self.variables.items()}
         if attribute not in variables.keys():
@@ -237,10 +246,11 @@ class Equation(ABC, metaclass=EquationMeta):
 
 
 class Calculation(ABC, metaclass=RegistryMeta):
-    def __init__(self, *args, equation=None, equations=[], **kwargs):
-        assert isinstance(equation, (Equation, types.NoneType))
-        assert isinstance(equations, list) and all([isinstance(equation, Equation) for equation in equations])
-        self.__equations = list(equations) + ([] if equation is None else [equation])
+    def __init__(self, *args, **kwargs):
+        equations = kwargs.get("equations", []) + [kwargs.get("equation", None)]
+        equations = list(filter(lambda value: value is not None, equations))
+        assert all([issubclass(equation, Equation) for equation in equations])
+        self.__equations = equations
 
     def __call__(self, *args, **kwargs):
         generator = self.generator(*args, **kwargs)
