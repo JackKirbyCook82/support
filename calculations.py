@@ -178,6 +178,7 @@ class EquationMeta(ABCMeta):
         cls.__contents__ = dict(existing) | dict(updated)
         cls.__vectorize__ = kwargs.get("vectorize", getattr(cls, "__vectorize__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
+        cls.__axes__ = getattr(cls, "__axes__", set()) | set(kwargs.get("axes", []))
         if register is not None: cls[register] = cls
 
     def __setitem__(cls, key, value): cls.registry[key] = value
@@ -202,6 +203,8 @@ class EquationMeta(ABCMeta):
     def contents(cls): return cls.__contents__
     @property
     def registry(cls): return cls.__registry__
+    @property
+    def axes(cls): return cls.__axes__
 
 
 class Equation(ABC, metaclass=EquationMeta):
