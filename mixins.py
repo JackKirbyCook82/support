@@ -92,23 +92,23 @@ class Logging(Mixin):
     def name(self): return self.__name
 
 
-class Groups(Mixin):
+class Keys(Mixin):
     @TypeDispatcher(locator=0)
-    def groups(self, contents, *args, **kwargs): raise TypeError(type(contents))
+    def keys(self, contents, *args, **kwargs): raise TypeError(type(contents))
 
-    @groups.register(list)
+    @keys.register(list)
     def __collection(self, collection, *args, **kwargs):
         for content in iter(collection):
             yield from self.groups(content, *args, **kwargs)
 
-    @groups.register(pd.DataFrame)
+    @keys.register(pd.DataFrame)
     def __dataframe(self, dataframe, *args, by, **kwargs):
         for group in dataframe.groupby(list(by)).groups.keys():
             if not isinstance(group, tuple): group = [group]
             if callable(by): group = by(list(group))
             yield group
 
-    @groups.register(xr.Dataset)
+    @keys.register(xr.Dataset)
     def __dataset(self, dataset, *args, by, **kwargs):
         dataset = dataset.stack(stack=list(by))
         for group in dataset.groupby("stack").groups.keys():
@@ -117,7 +117,31 @@ class Groups(Mixin):
             yield group
 
 
-class Partition(Groups):
+class Values(Mixin):
+    @TypeDispatcher(locator=0)
+    def values(self, contents, *args, **kwargs): raise TypeError(type(contents))
+
+    @values.register(list)
+    def __collection(self, collection, *args, **kwargs):
+        for content in iter(collection):
+            yield from self.partition(content, *args, **kwargs)
+
+    @values.register(pd.DataFrame)
+    def __dataframe(self, dataframe, *args, by, **kwargs):
+        generator = dataframe.groupby(list(by))
+        for values, dataframe in iter(generator):
+            yield dataframe
+
+    @values.register(xr.Dataset)
+    def __dataset(self, dataset, *args, by, **kwargs):
+        dataset = dataset.stack(stack=list(by))
+        generator = dataset.groupby("stack")
+        for values, dataset in iter(generator):
+            dataset = dataset.unstack().drop_vars("stack")
+            yield dataset
+
+
+class Partition(Keys, Values):
     @TypeDispatcher(locator=0)
     def partition(self, contents, *args, **kwargs): raise TypeError(type(contents))
 
@@ -128,23 +152,21 @@ class Partition(Groups):
 
     @partition.register(pd.DataFrame)
     def __dataframe(self, dataframe, *args, by, **kwargs):
-        keys = list(by)
-        generator = dataframe.groupby(keys)
+        generator = dataframe.groupby(list(by))
         for values, dataframe in iter(generator):
             if not isinstance(values, tuple): values = [values]
-            partition = ODict(zip(keys, values))
+            partition = ODict(zip(list(by), values))
             if callable(by): partition = by(partition)
             yield partition, dataframe
 
     @partition.register(xr.Dataset)
     def __dataset(self, dataset, *args, by, **kwargs):
-        keys = list(by)
-        dataset = dataset.stack(stack=keys)
+        dataset = dataset.stack(stack=list(by))
         generator = dataset.groupby("stack")
         for values, dataset in iter(generator):
             if not isinstance(values, tuple): values = [values]
             dataset = dataset.unstack().drop_vars("stack")
-            partition = ODict(zip(keys, values))
+            partition = ODict(zip(list(by), values))
             if callable(by): partition = by(partition)
             yield partition, dataset
 
