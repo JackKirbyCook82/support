@@ -66,7 +66,7 @@ class Filter(Sizing, Emptying, Partition, Logging, title="Filtered"):
         prior = self.size(contents)
         results = self.calculate(contents, *args, **kwargs)
         post = self.size(results)
-        querys = self.groups(contents, by=self.query)
+        querys = self.keys(contents, by=self.query)
         querys = ",".join(list(map(str, querys)))
         self.console(f"{str(querys)}[{prior:.0f}|{post:.0f}]")
         if self.empty(results): return

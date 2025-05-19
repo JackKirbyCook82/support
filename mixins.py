@@ -99,7 +99,7 @@ class Keys(Mixin):
     @keys.register(list)
     def __collection(self, collection, *args, **kwargs):
         for content in iter(collection):
-            yield from self.groups(content, *args, **kwargs)
+            yield from self.keys(content, *args, **kwargs)
 
     @keys.register(pd.DataFrame)
     def __dataframe(self, dataframe, *args, by, **kwargs):
@@ -124,7 +124,7 @@ class Values(Mixin):
     @values.register(list)
     def __collection(self, collection, *args, **kwargs):
         for content in iter(collection):
-            yield from self.partition(content, *args, **kwargs)
+            yield from self.values(content, *args, **kwargs)
 
     @values.register(pd.DataFrame)
     def __dataframe(self, dataframe, *args, by, **kwargs):
