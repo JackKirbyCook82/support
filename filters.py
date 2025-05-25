@@ -6,49 +6,13 @@ Created on Tues Dec 10 2024
 
 """
 
-from abc import ABC, ABCMeta, abstractmethod
-
 from support.mixins import Sizing, Emptying, Partition, Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Filter", "Criterion"]
+__all__ = ["Filter"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-
-
-class CriterionMeta(ABCMeta):
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(CriterionMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        fields = getattr(cls, "__fields__", []) + kwargs.get("fields", [])
-        cls.__fields__ = fields
-
-    def __call__(cls, *args, **kwargs):
-        criteria = {field: kwargs[field] for field in cls.fields}
-        instance = super(CriterionMeta, cls).__call__(criteria, *args, **kwargs)
-        return instance
-
-    @property
-    def fields(cls): return cls.__fields__
-
-
-class Criterion(ABC, metaclass=CriterionMeta):
-    def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, criteria, *args, **kwargs):
-        assert isinstance(criteria, dict)
-        self.__criteria = criteria
-
-    def __getitem__(self, key): return self.criteria[key]
-    def __call__(self, content, *args, **kwargs):
-        mask = self.execute(content)
-        content = content.where(mask, axis=0)
-        content = content.dropna(how="all", inplace=False)
-        return content
-
-    @abstractmethod
-    def execute(self, content): pass
-    @property
-    def criteria(self): return self.__criteria
 
 
 class Filter(Sizing, Emptying, Partition, Logging, title="Filtered"):
@@ -56,10 +20,10 @@ class Filter(Sizing, Emptying, Partition, Logging, title="Filtered"):
         super().__init_subclass__(*args, **kwargs)
         cls.__query__ = kwargs.get("query", getattr(cls, "__query__", None))
 
-    def __init__(self, *args, criterion, **kwargs):
-        assert isinstance(criterion, Criterion)
+    def __init__(self, *args, criteria, **kwargs):
+        assert callable(criteria)
         super().__init__(*args, **kwargs)
-        self.__criterion = criterion
+        self.__criteria = criteria
 
     def execute(self, contents, *args, **kwargs):
         if self.empty(contents): return
@@ -73,12 +37,14 @@ class Filter(Sizing, Emptying, Partition, Logging, title="Filtered"):
         yield results
 
     def calculate(self, dataframe, *args, **kwargs):
-        dataframe = self.criterion(dataframe, *args, **kwargs)
+        mask = self.criteria(dataframe)
+        dataframe = dataframe.where(mask, axis=0)
+        dataframe = dataframe.dropna(how="all", inplace=False)
         dataframe = dataframe.reset_index(drop=True, inplace=False)
         return dataframe
 
     @property
-    def criterion(self): return self.__criterion
+    def criteria(self): return self.__criteria
     @property
     def query(self): return type(self).__query__
 
