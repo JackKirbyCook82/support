@@ -18,6 +18,7 @@ from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 from support.meta import RegistryMeta, AttributeMeta
+from support.decorators import TypeDispatcher
 from support.trees import Node
 
 __version__ = "1.0.0"
@@ -36,6 +37,12 @@ TableNonVectorAlgorithm = AlgorithmType(pd.Series, False)
 
 class Domain(ntuple("Domain", "arguments parameters")):
     def __iter__(self): return chain(self.arguments, self.parameters)
+
+
+class VariableError(Exception):
+    def __init__(self, variable):
+        string = "|".join([repr(variable), str(variable)])
+        super().__init__(string)
 
 
 class Variable(Node, ABC, metaclass=AttributeMeta):
@@ -83,11 +90,28 @@ class SourceVariable(Variable, ABC):
     @property
     def locator(self): return self.__locator
 
+
 class ConstantVariable(SourceVariable, attribute="Constant"):
-    def execute(self, order): return lambda arguments, parameters: parameters.get(str(self))
+    def __init__(self, *args, locator, **kwargs):
+        assert isinstance(locator, str)
+        super().__init__(*args, locator=locator, **kwargs)
+
+    def execute(self, order):
+        wrapper = lambda arguments, parameters: parameters.get(str(self))
+        wrapper.__name__ = repr(self)
+        return wrapper
+
 
 class IndependentVariable(SourceVariable, attribute="Independent"):
-    def execute(self, order): return lambda arguments, parameters: arguments[order.index(self)]
+    def __init__(self, *args, locator, **kwargs):
+        assert isinstance(locator, (str, tuple))
+        locator = list(locator) if isinstance(locator, tuple) else [locator]
+        super().__init__(*args, locator=locator, **kwargs)
+
+    def execute(self, order):
+        wrapper = lambda arguments, parameters: arguments[order.index(self)]
+        wrapper.__name__ = repr(self)
+        return wrapper
 
 
 class DependentVariable(Variable, attribute="Dependent"):
@@ -108,7 +132,9 @@ class DependentVariable(Variable, attribute="Dependent"):
         executes = Domain(primary, secondary)
         primary = lambda arguments, parameters: [execute(arguments, parameters) for execute in executes.arguments]
         secondary = lambda arguments, parameters: {key: execute(arguments, parameters) for key, execute in executes.parameters.items()}
-        return lambda arguments, parameters: self.function(*primary(arguments, parameters), **secondary(arguments, parameters))
+        wrapper = lambda arguments, parameters: self.function(*primary(arguments, parameters), **secondary(arguments, parameters))
+        wrapper.__name__ = repr(self)
+        return wrapper
 
     @property
     def function(self): return self.__function
@@ -178,22 +204,36 @@ class EquationMeta(ABCMeta):
         cls.__contents__ = dict(existing) | dict(updated)
         cls.__vectorize__ = kwargs.get("vectorize", getattr(cls, "__vectorize__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
-        cls.__axes__ = getattr(cls, "__axes__", set()) | set(kwargs.get("axes", []))
         if register is not None: cls[register] = cls
 
     def __setitem__(cls, key, value): cls.registry[key] = value
     def __getitem__(cls, key): return cls.registry[key]
     def __iter__(cls): return iter(cls.contents.items())
 
-    def __call__(cls, *args, **kwargs):
+    def __call__(cls, sources, *args, **kwargs):
         variables = {key: copy(variable) for key, variable in cls.contents.items()}
         for variable in variables.values():
             if isinstance(variable, SourceVariable): continue
             for key in list(variable.domain):
                 variable[key] = variables[key]
+        for variable in variables.values():
+            try:
+                if isinstance(variable, DependentVariable): continue
+                elif isinstance(variable, IndependentVariable): content = cls.locate(sources, *variable.locator)
+                elif isinstance(variable, ConstantVariable): content = kwargs.get(variable.locator, None)
+                else: raise TypeError(type(variable))
+            except (KeyError, IndexError): content = None
+            variable.content = content
         algorithm = AlgorithmType(cls.datatype, cls.vectorize)
         parameters = dict(variables=variables, algorithm=Algorithm[algorithm])
         return super(EquationMeta, cls).__call__(*args, **parameters, **kwargs)
+
+    @TypeDispatcher(locator=0)
+    def locate(cls, sources, locator, *locators): raise TypeError(type(sources))
+    @locate.register(dict, list)
+    def mapping(cls, sources, locator, *locators): return cls.locate(sources[locator], *locators)
+    @locate.register(xr.Dataset, pd.DataFrame)
+    def table(cls, sources, locator, *locators): return sources.get(locator, None)
 
     @property
     def vectorize(cls): return cls.__vectorize__
@@ -203,22 +243,10 @@ class EquationMeta(ABCMeta):
     def contents(cls): return cls.__contents__
     @property
     def registry(cls): return cls.__registry__
-    @property
-    def axes(cls): return cls.__axes__
 
 
 class Equation(ABC, metaclass=EquationMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __new__(cls, sources, *args, variables, **kwargs):
-        for variable in variables.values():
-            if isinstance(variable, DependentVariable): continue
-            elif isinstance(variable, IndependentVariable): content = sources.get(variable.locator, None)
-            elif isinstance(variable, ConstantVariable): content = kwargs.get(variable.locator, None)
-            else: raise TypeError(type(variable))
-            variable.content = content
-        instance = super().__new__(cls)
-        return instance
-
     def __init__(self, *args, variables, algorithm, **kwargs):
         self.__variables = variables
         self.__algorithm = algorithm
@@ -239,8 +267,9 @@ class Equation(ABC, metaclass=EquationMeta):
         if variable.terminal: return lambda: (variable.varname, variable.content)
         else: return self.algorithm(variable)
 
-    @abstractmethod
-    def execute(self, contents, *args, **kwargs): pass
+    def execute(self, *args, **kwargs):
+        return
+        yield
 
     @property
     def variables(self): return self.__variables
