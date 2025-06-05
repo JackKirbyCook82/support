@@ -189,28 +189,19 @@ class EquationMeta(ABCMeta):
         cls = super(EquationMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
         return cls
 
-    def __init__(cls, name, bases, attrs, *args, register=None, **kwargs):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(EquationMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        primary = any([type(base) is EquationMeta for base in bases])
-        secondary = any([type(subbase) is EquationMeta for base in bases for subbase in base.__bases__])
-        if not primary: return
-        if not secondary:
-            assert not any([hasattr(cls, str(attribute).join("__")) for attribute in ["registry", "contents"]])
-            cls.__registry__ = dict()
-            cls.__contents__ = dict()
-        existing = [dict(base) for base in bases if type(base) is EquationMeta and secondary]
+        existing = [dict(base.contents) for base in bases if issubclass(type(base), EquationMeta)]
         existing = reduce(lambda lead, lag: lead | lag, existing, dict())
         updated = {key: variable for key, variable in attrs.items() if isinstance(variable, Variable)}
-        cls.__contents__ = dict(existing) | dict(updated)
         cls.__vectorize__ = kwargs.get("vectorize", getattr(cls, "__vectorize__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
-        if register is not None: cls[register] = cls
-
-    def __setitem__(cls, key, value): cls.registry[key] = value
-    def __getitem__(cls, key): return cls.registry[key]
-    def __iter__(cls): return iter(cls.contents.items())
+        cls.__contents__ = dict(existing) | dict(updated)
 
     def __call__(cls, sources, *args, **kwargs):
+        assert isinstance(sources, (list, dict, xr.Dataset, pd.DataFrame))
+        assert all([isinstance(value, (xr.Dataset, pd.DataFrame)) for value in sources]) if isinstance(sources, list) else True
+        assert all([isinstance(value, (xr.Dataset, pd.DataFrame)) for value in sources.values()]) if isinstance(sources, dict) else True
         variables = {key: copy(variable) for key, variable in cls.contents.items()}
         for variable in variables.values():
             if isinstance(variable, SourceVariable): continue
@@ -236,13 +227,25 @@ class EquationMeta(ABCMeta):
     def table(cls, sources, locator, *locators): return sources.get(locator, None)
 
     @property
+    def independents(cls): return [content for content in cls.contents.values() if isinstance(content, IndependentVariable)]
+    @property
+    def dependents(cls): return [content for content in cls.contents.values() if isinstance(content, DependentVariable)]
+    @property
+    def constants(cls): return [content for content in cls.contents.values() if isinstance(content, ConstantVariable)]
+
+    @property
+    def domain(cls): return {str(content): content.locator for content in cls.independents}
+    @property
+    def parameters(cls): return [str(content) for content in cls.constants]
+    @property
+    def range(cls): return [str(content) for content in cls.dependents]
+
+    @property
     def vectorize(cls): return cls.__vectorize__
     @property
     def datatype(cls): return cls.__datatype__
     @property
     def contents(cls): return cls.__contents__
-    @property
-    def registry(cls): return cls.__registry__
 
 
 class Equation(ABC, metaclass=EquationMeta):
@@ -278,28 +281,49 @@ class Equation(ABC, metaclass=EquationMeta):
 
 
 class Calculation(ABC, metaclass=RegistryMeta):
-    def __init__(self, *args, **kwargs):
-        equations = kwargs.get("equations", []) + [kwargs.get("equation", None)]
-        equations = list(filter(lambda value: value is not None, equations))
-        assert all([issubclass(equation, Equation) for equation in equations])
-        self.__equations = equations
+    def __init__(self, *args, required=[], optional=[], **kwargs):
+        assert isinstance(required, list) or issubclass(required, Equation)
+        assert isinstance(optional, list) or issubclass(optional, Equation)
+        assert all([issubclass(equation, Equation) for equation in required]) if isinstance(required, list) else True
+        assert all([issubclass(equation, Equation) for equation in optional]) if isinstance(optional, list) else True
+        self.__required = list(required) if isinstance(required, list) else [required]
+        self.__optional = list(optional) if isinstance(optional, list) else [optional]
 
-    def __call__(self, *args, **kwargs):
-        generator = self.generator(*args, **kwargs)
+    def __call__(self, sources, *args, **kwargs):
+        assert isinstance(sources, (list, dict, xr.Dataset, pd.DataFrame))
+        assert all([isinstance(value, (xr.Dataset, pd.DataFrame)) for value in sources]) if isinstance(sources, list) else True
+        assert all([isinstance(value, (xr.Dataset, pd.DataFrame)) for value in sources.values()]) if isinstance(sources, dict) else True
+        generator = self.generator(sources, *args, **kwargs)
         contents = dict(generator)
         content = self.execute(contents, *args, **kwargs)
         return content
 
-    def generator(self, *args, **kwargs):
-        for equation in self.equations:
-            with equation(*args, **kwargs) as execute:
-                yield from execute(*args, **kwargs)
+    def generator(self, sources, *args, **kwargs):
+        required = [equation for equation in self.required if all([self.locatable(sources, *locator) for locator in equation.domain.values()])]
+        optional = [equation for equation in self.optional if all([self.locatable(sources, *locator) for locator in equation.domain.values()])]
+        assert len(required) == len(self.required)
+        equations = required + optional
+        equation = type("Equation", tuple(equations), dict())
+        with equation(sources, *args, **kwargs) as execute:
+            yield from execute(*args, **kwargs)
+
+    @TypeDispatcher(locator=0)
+    def locatable(self, sources, locator, *locators): raise TypeError(type(sources))
+    @locatable.register(dict, list)
+    def mapping(self, sources, locator, *locators): return self.locatable(sources[locator], *locators)
+    @locatable.register(xr.Dataset)
+    def dataset(self, sources, locator, *locators): return locator in sources.keys()
+    @locatable.register(pd.DataFrame)
+    def dataframe(self, sources, locator, *locators): return locator in sources.columns
 
     @staticmethod
     @abstractmethod
-    def execute(self, contents, *args, **kwargs): pass
+    def execute(contents, *args, **kwargs): pass
+
     @property
-    def equations(self): return self.__equations
+    def required(self): return self.__required
+    @property
+    def optional(self): return self.__optional
 
 
 class ArrayCalculation(Calculation, register=xr.DataArray):
