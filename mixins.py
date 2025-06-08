@@ -6,6 +6,7 @@ Created on Mon Oct 14 2024
 
 """
 
+import time
 import types
 import inspect
 import logging
@@ -20,7 +21,7 @@ from support.decorators import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Mixin", "Naming", "Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Partition", "Publisher", "Subscriber"]
+__all__ = ["Mixin", "Naming", "Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Partition", "Publisher", "Subscriber", "Delayer"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -317,6 +318,45 @@ class Memory(Mixin):
     def __content(self, content, *args, **kwargs): return content.nbytes
     @memory.register(types.NoneType)
     def __nothing(self, *args, **kwargs): return 0
+
+
+class Delayer(Logging, title="Waiting"):
+    def __init__(self, delay, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        assert isinstance(delay, int)
+        self.__timer = time.monotonic()
+        self.__delay = int(delay)
+
+    def __enter__(self):
+        elapsed = time.monotonic() - self.timer
+        delay = max(self.delay - elapsed, 0)
+        self.console(f"{delay:.2f} seconds")
+        time.sleep(delay)
+        return self
+
+    def __exit__(self, error_type, error_value, error_traceback):
+        self.timer = time.monotonic()
+
+    @property
+    def delay(self): return self.__delay
+    @property
+    def timer(self): return self.__timer
+    @timer.setter
+    def timer(self, timer): self.__timer = timer
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

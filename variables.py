@@ -88,9 +88,7 @@ class Collection(ABC):
     def __str__(self): return str("|".join([str(content) for content in iter(self.contents.values()) if bool(content)]))
     def __bool__(self): return any([bool(content) for content in iter(self.contents.values())])
     def __hash__(self): return hash(tuple(self.contents.items()))
-
-    def __reversed__(self): return reversed(self.contents.values())
-    def __iter__(self): return iter(self.contents.values())
+    def __iter__(self): return iter(list(self.contents.items()))
 
     def items(self): return self.contents.items()
     def values(self): return self.contents.values()
