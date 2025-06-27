@@ -302,8 +302,8 @@ class Calculation(ABC, metaclass=RegistryMeta):
         required = [equation for equation in self.required if all([self.locatable(sources, *locator) for locator in equation.domain.values()])]
         optional = [equation for equation in self.optional if all([self.locatable(sources, *locator) for locator in equation.domain.values()])]
         assert len(required) == len(self.required)
-        equations = required + optional
-        equation = type("Equation", tuple(equations), dict())
+        equations = reversed(required + optional)
+        equation = EquationMeta("Equation", tuple(equations), dict())
         with equation(sources, *args, **kwargs) as execute:
             yield from execute(*args, **kwargs)
 
