@@ -28,22 +28,8 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-AlgorithmType = ntuple("AlgorithmType", "datatype vectorize")
-ArrayVectorAlgorithm = AlgorithmType(xr.DataArray, True)
-TableVectorAlgorithm = AlgorithmType(pd.Series, True)
-ArrayNonVectorAlgorithm = AlgorithmType(xr.DataArray, False)
-TableNonVectorAlgorithm = AlgorithmType(pd.Series, False)
-
-
 class Domain(ntuple("Domain", "arguments parameters")):
     def __iter__(self): return chain(self.arguments, self.parameters)
-
-
-class VariableError(Exception):
-    def __init__(self, variable):
-        string = "|".join([repr(variable), str(variable)])
-        super().__init__(string)
-
 
 class Variable(Node, ABC, metaclass=AttributeMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
@@ -152,31 +138,13 @@ class Algorithm(ABC, metaclass=RegistryMeta):
         order = list(arguments.keys())
         arguments = list(arguments.values())
         calculation = self.variable.execute(order)
-        content = self.calculate(calculation, arguments, parameters)
+        content = self.execute(calculation, arguments, parameters)
         content = content.astype(self.variable.vartype)
         self.variable.content = content
         return self.variable.varname, content
 
-    @abstractmethod
-    def calculate(self, *args, **kwargs): pass
-
-
-class ArrayAlgorithm(Algorithm, register=ArrayVectorAlgorithm):
-    def calculate(self, calculation, arguments, parameters):
-        assert all([isinstance(argument, (xr.DataArray, np.number)) for argument in arguments])
-        assert not any([isinstance(parameter, xr.DataArray) for parameter in parameters])
-        function = lambda *dataarrays, **constants: calculation(dataarrays, constants)
-        return xr.apply_ufunc(function, *arguments, kwargs=parameters, output_dtypes=[self.variable.vartype], vectorize=True)
-
-class TableAlgorithm(Algorithm, register=TableVectorAlgorithm):
-    def calculate(self, calculation, arguments, parameters):
-        assert all([isinstance(argument, pd.Series) for argument in arguments])
-        assert not any([isinstance(parameter, pd.Series) for parameter in parameters])
-        function = lambda dataframe, **constants: calculation(dataframe, constants)
-        return pd.concat(arguments, axis=1).apply(function, axis=1, raw=True, **parameters)
-
-class NonVectorAlgorithm(Algorithm, register=[ArrayNonVectorAlgorithm, TableNonVectorAlgorithm]):
-    def calculate(self, calculation, arguments, parameters):
+    @staticmethod
+    def execute(calculation, arguments, parameters):
         assert all([isinstance(argument, (xr.DataArray, pd.Series)) for argument in arguments])
         assert not any([isinstance(parameter, (xr.DataArray, pd.Series)) for parameter in parameters])
         return calculation(arguments, parameters)
@@ -194,7 +162,6 @@ class EquationMeta(ABCMeta):
         existing = [dict(base.contents) for base in bases if issubclass(type(base), EquationMeta)]
         existing = reduce(lambda lead, lag: lead | lag, existing, dict())
         updated = {key: variable for key, variable in attrs.items() if isinstance(variable, Variable)}
-        cls.__vectorize__ = kwargs.get("vectorize", getattr(cls, "__vectorize__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
         cls.__contents__ = dict(existing) | dict(updated)
 
@@ -215,9 +182,7 @@ class EquationMeta(ABCMeta):
                 else: raise TypeError(type(variable))
             except (KeyError, IndexError): content = None
             variable.content = content
-        algorithm = AlgorithmType(cls.datatype, cls.vectorize)
-        parameters = dict(variables=variables, algorithm=Algorithm[algorithm])
-        return super(EquationMeta, cls).__call__(*args, **parameters, **kwargs)
+        return super(EquationMeta, cls).__call__(*args, variables=variables, **kwargs)
 
     @TypeDispatcher(locator=0)
     def locate(cls, sources, locator, *locators): raise TypeError(type(sources))
@@ -241,8 +206,6 @@ class EquationMeta(ABCMeta):
     def range(cls): return [str(content) for content in cls.dependents]
 
     @property
-    def vectorize(cls): return cls.__vectorize__
-    @property
     def datatype(cls): return cls.__datatype__
     @property
     def contents(cls): return cls.__contents__
@@ -250,9 +213,8 @@ class EquationMeta(ABCMeta):
 
 class Equation(ABC, metaclass=EquationMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, variables, algorithm, **kwargs):
+    def __init__(self, *args, variables, **kwargs):
         self.__variables = variables
-        self.__algorithm = algorithm
 
     def __enter__(self): return self
     def __exit__(self, error_type, error_value, error_traceback):
@@ -268,7 +230,7 @@ class Equation(ABC, metaclass=EquationMeta):
             raise AttributeError(attribute)
         variable = variables[attribute]
         if variable.terminal: return lambda: (variable.varname, variable.content)
-        else: return self.algorithm(variable)
+        else: return Algorithm(variable)
 
     def execute(self, *args, **kwargs):
         return
@@ -276,8 +238,6 @@ class Equation(ABC, metaclass=EquationMeta):
 
     @property
     def variables(self): return self.__variables
-    @property
-    def algorithm(self): return self.__algorithm
 
 
 class Calculation(ABC, metaclass=RegistryMeta):
