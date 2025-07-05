@@ -17,8 +17,8 @@ from abc import ABC, ABCMeta, abstractmethod
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
-from support.meta import RegistryMeta, AttributeMeta
 from support.decorators import TypeDispatcher
+from support.meta import RegistryMeta, AttributeMeta
 from support.trees import Node
 
 __version__ = "1.0.0"
@@ -76,7 +76,6 @@ class SourceVariable(Variable, ABC):
     @property
     def locator(self): return self.__locator
 
-
 class ConstantVariable(SourceVariable, attribute="Constant"):
     def __init__(self, *args, locator, **kwargs):
         assert isinstance(locator, str)
@@ -86,7 +85,6 @@ class ConstantVariable(SourceVariable, attribute="Constant"):
         wrapper = lambda arguments, parameters: parameters.get(str(self))
         wrapper.__name__ = repr(self)
         return wrapper
-
 
 class IndependentVariable(SourceVariable, attribute="Independent"):
     def __init__(self, *args, locator, **kwargs):
@@ -128,8 +126,8 @@ class DependentVariable(Variable, attribute="Dependent"):
     def domain(self): return self.__domain
 
 
-class Algorithm(ABC, metaclass=RegistryMeta):
-    def __init__(self, variable): self.variable = variable
+class AlgorithmType(ntuple("AlgorithmType", "datatype vectorize")): pass
+class Algorithm(ntuple("Algorithm", "variable"), ABC, metaclass=RegistryMeta):
     def __call__(self, *args, **kwargs):
         sources = list(set(self.variable.sources))
         arguments = ODict([(source, source.content) for source in sources if isinstance(source, IndependentVariable)])
@@ -138,16 +136,34 @@ class Algorithm(ABC, metaclass=RegistryMeta):
         order = list(arguments.keys())
         arguments = list(arguments.values())
         calculation = self.variable.execute(order)
-        content = self.execute(calculation, arguments, parameters)
+        content = self.execute(calculation, arguments, parameters, *args, **kwargs)
         content = content.astype(self.variable.vartype)
         self.variable.content = content
         return self.variable.varname, content
 
-    @staticmethod
-    def execute(calculation, arguments, parameters):
+    @abstractmethod
+    def execute(self, calculation, arguments, parameters): pass
+
+
+class DirectAlgorithm(Algorithm, register=[AlgorithmType(xr.DataArray, False), AlgorithmType(pd.Series, False)]):
+    def execute(self, calculation, arguments, parameters, *args, **kwargs):
         assert all([isinstance(argument, (xr.DataArray, pd.Series)) for argument in arguments])
         assert not any([isinstance(parameter, (xr.DataArray, pd.Series)) for parameter in parameters])
         return calculation(arguments, parameters)
+
+class ArrayAlgorithm(Algorithm, register=AlgorithmType(xr.DataArray, True)):
+    def execute(self, calculation, arguments, parameters, *args, **kwargs):
+        assert all([isinstance(argument, (xr.DataArray, np.number)) for argument in arguments])
+        assert not any([isinstance(parameter, xr.DataArray) for parameter in parameters])
+        function = lambda *dataarrays, **constants: calculation(dataarrays, constants)
+        return xr.apply_ufunc(function, *arguments, kwargs=parameters, output_dtypes=[self.variable.vartype], vectorize=True)
+
+class TableAlgorithm(Algorithm, register=AlgorithmType(pd.Series, True)):
+    def execute(self, calculation, arguments, parameters, *args, **kwargs):
+        assert all([isinstance(argument, pd.Series) for argument in arguments])
+        assert not any([isinstance(parameter, pd.Series) for parameter in parameters])
+        function = lambda dataframe, **constants: calculation(dataframe, constants)
+        return pd.concat(arguments, axis=1).apply(function, axis=1, raw=True, **parameters)
 
 
 class EquationMeta(ABCMeta):
@@ -162,6 +178,7 @@ class EquationMeta(ABCMeta):
         existing = [dict(base.contents) for base in bases if issubclass(type(base), EquationMeta)]
         existing = reduce(lambda lead, lag: lead | lag, existing, dict())
         updated = {key: variable for key, variable in attrs.items() if isinstance(variable, Variable)}
+        cls.__vectorize__ = kwargs.get("vectorize", getattr(cls, "__vectorize__", None))
         cls.__datatype__ = kwargs.get("datatype", getattr(cls, "__datatype__", None))
         cls.__contents__ = dict(existing) | dict(updated)
 
@@ -182,7 +199,8 @@ class EquationMeta(ABCMeta):
                 else: raise TypeError(type(variable))
             except (KeyError, IndexError): content = None
             variable.content = content
-        return super(EquationMeta, cls).__call__(*args, variables=variables, **kwargs)
+        parameters = dict(variables=variables, datatype=cls.datatype, vectorize=cls.vectorize)
+        return super(EquationMeta, cls).__call__(*args, **parameters, **kwargs)
 
     @TypeDispatcher(locator=0)
     def locate(cls, sources, locator, *locators): raise TypeError(type(sources))
@@ -206,6 +224,8 @@ class EquationMeta(ABCMeta):
     def range(cls): return [str(content) for content in cls.dependents]
 
     @property
+    def vectorize(cls): return cls.__vectorize__
+    @property
     def datatype(cls): return cls.__datatype__
     @property
     def contents(cls): return cls.__contents__
@@ -213,8 +233,10 @@ class EquationMeta(ABCMeta):
 
 class Equation(ABC, metaclass=EquationMeta):
     def __init_subclass__(cls, *args, **kwargs): pass
-    def __init__(self, *args, variables, **kwargs):
+    def __init__(self, *args, variables, datatype, vectorize, **kwargs):
         self.__variables = variables
+        self.__datatype = datatype
+        self.__vectorize = vectorize
 
     def __enter__(self): return self
     def __exit__(self, error_type, error_value, error_traceback):
@@ -230,7 +252,8 @@ class Equation(ABC, metaclass=EquationMeta):
             raise AttributeError(attribute)
         variable = variables[attribute]
         if variable.terminal: return lambda: (variable.varname, variable.content)
-        else: return Algorithm(variable)
+        algorithmtype = AlgorithmType(self.datatype, self.vectorize)
+        return Algorithm[algorithmtype](variable)
 
     def execute(self, *args, **kwargs):
         return
@@ -238,6 +261,10 @@ class Equation(ABC, metaclass=EquationMeta):
 
     @property
     def variables(self): return self.__variables
+    @property
+    def datatype(self): return self.__datatype
+    @property
+    def vectorize(self): return self.__vectorize
 
 
 class Calculation(ABC, metaclass=RegistryMeta):
