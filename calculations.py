@@ -268,14 +268,7 @@ class Equation(ABC, metaclass=EquationMeta):
 
 
 class Calculation(ABC, metaclass=RegistryMeta):
-    def __init__(self, *args, required=[], optional=[], **kwargs):
-        assert isinstance(required, list) or issubclass(required, Equation)
-        assert isinstance(optional, list) or issubclass(optional, Equation)
-        assert all([issubclass(equation, Equation) for equation in required]) if isinstance(required, list) else True
-        assert all([issubclass(equation, Equation) for equation in optional]) if isinstance(optional, list) else True
-        self.__required = list(required) if isinstance(required, list) else [required]
-        self.__optional = list(optional) if isinstance(optional, list) else [optional]
-
+    def __init__(self, *args, equation, **kwargs): self.__equation = equation
     def __call__(self, sources, *args, **kwargs):
         assert isinstance(sources, (list, dict, xr.Dataset, pd.DataFrame))
         assert all([isinstance(value, (xr.Dataset, pd.DataFrame)) for value in sources]) if isinstance(sources, list) else True
@@ -286,31 +279,14 @@ class Calculation(ABC, metaclass=RegistryMeta):
         return content
 
     def generator(self, sources, *args, **kwargs):
-        required = [equation for equation in self.required if all([self.locatable(sources, *locator) for locator in equation.domain.values()])]
-        optional = [equation for equation in self.optional if all([self.locatable(sources, *locator) for locator in equation.domain.values()])]
-        assert len(required) == len(self.required)
-        equations = reversed(required + optional)
-        equation = EquationMeta("Equation", tuple(equations), dict())
-        with equation(sources, *args, **kwargs) as execute:
+        with self.equation(sources, *args, **kwargs) as execute:
             yield from execute(*args, **kwargs)
-
-    @TypeDispatcher(locator=0)
-    def locatable(self, sources, locator, *locators): raise TypeError(type(sources))
-    @locatable.register(dict, list)
-    def mapping(self, sources, locator, *locators): return self.locatable(sources[locator], *locators)
-    @locatable.register(xr.Dataset)
-    def dataset(self, sources, locator, *locators): return locator in sources.keys()
-    @locatable.register(pd.DataFrame)
-    def dataframe(self, sources, locator, *locators): return locator in sources.columns
 
     @staticmethod
     @abstractmethod
     def execute(contents, *args, **kwargs): pass
-
     @property
-    def required(self): return self.__required
-    @property
-    def optional(self): return self.__optional
+    def equation(self): return self.__equation
 
 
 class ArrayCalculation(Calculation, register=xr.DataArray):
