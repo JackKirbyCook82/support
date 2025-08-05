@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Created on Thurs Cot 17 2024
-@name:   Calculation Objects
+Created on Thurs Oct 17 2024
+@name:   Equation Objects
 @author: Jack Kirby Cook
 
 """
