@@ -35,31 +35,24 @@ class ProxyMeta(Meta):
         super(ProxyMeta, cls).__init__(*args, **kwargs)
         cls.__parameters__ = dict()
         cls.__arguments__ = list()
-        cls.__state__ = False
 
-    def __bool__(cls): return bool(cls.state)
-    def __call__(cls, *args, **kwargs):
-        if bool(cls):
+    def __call__(cls, *args, initialize=False, **kwargs):
+        if bool(initialize):
             arguments, parameters = list(cls.arguments), dict(cls.parameters)
             return super(ProxyMeta, cls).__call__(*arguments, **parameters)
         cls.parameters = dict(kwargs)
         cls.arguments = list(args)
-        cls.state = True
         return cls
 
     @property
     def parameters(cls): return cls.__parameters__
     @property
     def arguments(cls): return cls.__arguments__
-    @property
-    def state(cls): return cls.__state__
 
     @parameters.setter
     def parameters(cls, parameters): cls.__parameters__ = parameters
     @arguments.setter
     def arguments(cls, arguments): cls.__arguments__ = arguments
-    @state.setter
-    def state(cls, state): cls.__state__ = state
 
 
 class SingletonMeta(Meta):
