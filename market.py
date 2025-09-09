@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 from functools import reduce
 
-from finance.variables import Variables, Querys, Securities
+from finance.variables import Concepts, Querys, Securities
 from support.mixins import Emptying, Sizing, Partition, Logging
 
 __version__ = "1.0.0"
@@ -62,7 +62,7 @@ class MarketCalculator(Sizing, Emptying, Partition, Logging, title="Calculated")
 
     def supply(self, securities, *args, **kwargs):
         security = lambda cols: str(Securities([cols["instrument"], cols["option"], cols["position"]]))
-        header = list(Querys.Settlement) + list(Variables.Securities.Security) + ["strike", "size"]
+        header = list(Querys.Settlement) + list(Concepts.Securities.Security) + ["strike", "size"]
         supply = securities[header]
         supply["supply"] = supply.apply(self.liquidity, axis=1).astype(np.int32)
         supply["security"] = supply.apply(security, axis=1)
