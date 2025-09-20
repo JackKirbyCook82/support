@@ -47,6 +47,30 @@ class NumRange(ntuple("NumRange", "minimum maximum")):
     def __len__(self): return self.maximum - self.minimum
 
 
+class Collection(ABC):
+    def __init__(self, name, contents, parameters):
+        self.__parameters = parameters
+        self.__contents = contents
+        self.__name = name
+
+    def __int__(self): return int(sum([pow(10, index) * int(content) for index, content in enumerate(reversed(self.contents.values()))]))
+    def __str__(self): return str("|".join([str(content) for content in iter(self.contents.values()) if bool(content)]))
+    def __bool__(self): return any([bool(content) for content in iter(self.contents.values())])
+    def __hash__(self): return hash(tuple(self.contents.items()))
+    def __iter__(self): return iter(list(self.contents.items()))
+
+    def items(self): return self.contents.items()
+    def values(self): return self.contents.values()
+    def keys(self): return self.contents.keys()
+
+    @property
+    def parameters(self): return self.__parameters
+    @property
+    def contents(self): return self.__contents
+    @property
+    def name(self): return self.__name
+
+
 class ConceptMeta(EnumMeta):
     def __iter__(cls): return iter([state for state in super().__iter__() if bool(state)])
     def __getitem__(cls, string):
@@ -76,30 +100,6 @@ class Concept(Enum, metaclass=ConceptMeta):
     def __str__(self): return str(self.name).lower()
     def __bool__(self): return bool(self.value)
     def __int__(self): return int(self.value)
-
-
-class Collection(ABC):
-    def __init__(self, name, contents, parameters):
-        self.__parameters = parameters
-        self.__contents = contents
-        self.__name = name
-
-    def __int__(self): return int(sum([pow(10, index) * int(content) for index, content in enumerate(reversed(self.contents.values()))]))
-    def __str__(self): return str("|".join([str(content) for content in iter(self.contents.values()) if bool(content)]))
-    def __bool__(self): return any([bool(content) for content in iter(self.contents.values())])
-    def __hash__(self): return hash(tuple(self.contents.items()))
-    def __iter__(self): return iter(list(self.contents.items()))
-
-    def items(self): return self.contents.items()
-    def values(self): return self.contents.values()
-    def keys(self): return self.contents.keys()
-
-    @property
-    def parameters(self): return self.__parameters
-    @property
-    def contents(self): return self.__contents
-    @property
-    def name(self): return self.__name
 
 
 class Concepts(ABCMeta):
