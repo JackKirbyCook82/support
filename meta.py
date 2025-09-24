@@ -11,7 +11,7 @@ from abc import ABCMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SingletonMeta", "ProxyMeta", "AttributeMeta", "RegistryMeta", "ParameterMeta", "TreeMeta"]
+__all__ = ["SingletonMeta", "AttributeMeta", "RegistryMeta", "ParameterMeta", "TreeMeta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -28,31 +28,6 @@ class Meta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         try: super(Meta, cls).__init__(*args, **kwargs)
         except TypeError: super(Meta, cls).__init__()
-
-
-class ProxyMeta(Meta):
-    def __init__(cls, *args, **kwargs):
-        super(ProxyMeta, cls).__init__(*args, **kwargs)
-        cls.__parameters__ = dict()
-        cls.__arguments__ = list()
-
-    def __call__(cls, *args, initialize=False, **kwargs):
-        if bool(initialize):
-            arguments, parameters = list(cls.arguments), dict(cls.parameters)
-            return super(ProxyMeta, cls).__call__(*arguments, **parameters)
-        cls.parameters = dict(kwargs)
-        cls.arguments = list(args)
-        return cls
-
-    @property
-    def parameters(cls): return cls.__parameters__
-    @property
-    def arguments(cls): return cls.__arguments__
-
-    @parameters.setter
-    def parameters(cls, parameters): cls.__parameters__ = parameters
-    @arguments.setter
-    def arguments(cls, arguments): cls.__arguments__ = arguments
 
 
 class SingletonMeta(Meta):
