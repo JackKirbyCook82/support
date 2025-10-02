@@ -125,15 +125,15 @@ class Segment(Stage, ABC):
 
     @property
     def arguments(self):
-        signature = list(inspect.signature(self.execute).parameters)
-        arguments = [value for value in signature if value.kind == value.POSITIONAL_ONLY and value.kind != value.VAR_POSITIONAL]
+        signature = list(inspect.signature(self.execute).parameters.values())
+        arguments = [str(value) for value in signature if value.kind == value.POSITIONAL_OR_KEYWORD]
         arguments = arguments[1:] if arguments and arguments[0] == "self" else arguments
         return arguments
 
     @property
     def parameters(self):
-        signature = list(inspect.signature(self.execute).parameters)
-        parameters = [value for value in signature if value.kind == value.KEYWORD_ONLY and value.kind != value.VAR_KEYWORD]
+        signature = list(inspect.signature(self.execute).parameters.values())
+        parameters = [str(value) for value in signature if value.kind == value.KEYWORD_ONLY]
         return parameters
 
     @property
