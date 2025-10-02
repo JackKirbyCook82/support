@@ -12,6 +12,7 @@ import inspect
 from threading import RLock
 from functools import reduce
 from abc import ABC, abstractmethod
+from collections import OrderedDict as ODict
 
 from support.mixins import Function, Generator, Logging
 
@@ -102,23 +103,38 @@ class Segment(Stage, ABC):
         self.__mutex = RLock()
 
     def producer(self, *args, **kwargs):
-        for content in self.execute(*args, **kwargs):
-            content = [content] if not isinstance(content, tuple) else list(content)
-            yield content
+        for outlet in self.execute(*args, **kwargs):
+            if not isinstance(outlet, tuple): outlet = tuple([outlet])
+            yield outlet
 
     def processor(self, feed, *args, **kwargs):
         assert isinstance(feed, tuple)
-        for content in self.execute(*feed, *args, **kwargs):
-            content = [content] if not isinstance(content, tuple) else list(content)
-            yield content
+        inlet = list(feed) + [None] * max(0, len(self.arguments) - len(feed))
+        for outlet in self.execute(*inlet, *args, **kwargs):
+            if not isinstance(outlet, tuple): outlet = tuple([outlet])
+            yield outlet
 
     def consumer(self, feed, *args, **kwargs):
         assert isinstance(feed, tuple)
-        self.execute(*feed, *args, **kwargs)
+        inlet = list(feed) + [None] * max(0, len(self.arguments) - len(feed))
+        self.execute(*inlet, *args, **kwargs)
 
     def cease(self, *args, **kwargs):
         with self.mutex: self.running = False
         self.console(title="Ceased")
+
+    @property
+    def arguments(self):
+        signature = list(inspect.signature(self.execute).parameters)
+        arguments = [value for value in signature if value.kind == value.POSITIONAL_ONLY and value.kind != value.VAR_POSITIONAL]
+        arguments = arguments[1:] if arguments and arguments[0] == "self" else arguments
+        return arguments
+
+    @property
+    def parameters(self):
+        signature = list(inspect.signature(self.execute).parameters)
+        parameters = [value for value in signature if value.kind == value.KEYWORD_ONLY and value.kind != value.VAR_KEYWORD]
+        return parameters
 
     @property
     def mutex(self): return self.__mutex
@@ -183,27 +199,31 @@ class Carryover(Stage, ABC):
         cls.__range__ = list(filter(bool, str(outlet).split(",")))
 
     def producer(self, *args, **kwargs):
-        for content in self.execute(*args, **kwargs):
-            content = [content] if not isinstance(content, tuple) else list(content)
-            assert len(self.range) == len(content)
-            content = dict(zip(self.range, content))
-            yield content
+        for outlet in self.execute(*args, **kwargs):
+            if not isinstance(outlet, tuple): outlet = tuple([outlet])
+            assert len(outlet) <= len(self.range)
+            outlet = list(outlet) + [None] * max(0, len(self.arguments) - len(outlet))
+            outlet = dict(zip(self.range, outlet))
+            yield outlet
 
     def processor(self, feed, *args, **kwargs):
         assert isinstance(feed, dict)
-        assert not set(self.domain) - set(feed.keys())
-        domain = [feed[key] for key in self.domain]
-        for content in self.execute(*domain, *args, **kwargs):
-            content = [content] if not isinstance(content, tuple) else list(content)
-            assert len(self.range) == len(content)
-            content = dict(zip(self.range, content))
-            yield feed | content
+        inlet = ODict([(key, feed.get(key, None)) for key in self.domain])
+        assert list(inlet.keys()) == list(self.domain)
+        inlet = list(inlet.values())
+        for outlet in self.execute(*inlet, *args, **kwargs):
+            if not isinstance(outlet, tuple): outlet = tuple([outlet])
+            assert len(outlet) <= len(self.range)
+            outlet = list(outlet) + [None] * max(0, len(self.arguments) - len(outlet))
+            outlet = dict(zip(self.range, outlet))
+            yield feed | outlet
 
     def consumer(self, feed, *args, **kwargs):
         assert isinstance(feed, dict)
-        assert not set(self.domain) - set(feed.keys())
-        feed = [feed[key] for key in self.domain]
-        self.execute(*feed, *args, **kwargs)
+        inlet = ODict([(key, feed.get(key, None)) for key in self.domain])
+        assert list(inlet.keys()) == list(self.domain)
+        inlet = list(inlet.values())
+        self.execute(*inlet, *args, **kwargs)
 
     @property
     def domain(self): return type(self).__domain__
