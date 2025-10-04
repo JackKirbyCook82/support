@@ -26,31 +26,35 @@ class Styles:
     Curved = Style("├──", "╰──", "│  ", "   ")
 
 
-def render(node, *args, style, layers=[], **kwargs):
-    last = lambda indx, length: indx == length
-    prefix = lambda indx, length: style.terminate if last(indx, length) else style.blank
-    padding = lambda: "".join([style.blank if layer else style.run for layer in layers])
-    function = lambda indx, length: "".join([padding(), prefix(indx, length)])
+def render(node, *args, style, layers=None, **kwargs):
+    check = lambda indx, last: indx == last
+    prefix = lambda indx, last: style.terminate if check(indx, last) else style.branch
+    padding = lambda: "".join(style.blank if layer else style.run for layer in layers)
+    create = lambda indx, last: padding() + prefix(indx, last)
+    if layers is None: layers = []
     if not layers: yield "", node
-    children = iter(node.items())
-    size = len(list(children))
-    for index, (key, values) in enumerate(children):
-        for value in [values] if not isinstance(values, (list, tuple)) else list(values):
-            yield function(index, size - 1), value
-            yield from render(value, *args, layers=[*layers, last(index, size - 1)], style=style, **kwargs)
+
+    children = list(node.values())
+    position = len(children) - 1
+    for index, values in enumerate(children):
+        sequence = values if isinstance(values, (list, tuple)) else [values]
+        for value in sequence:
+            yield create(index, position), value
+            yield from render(value, *args, style=style, layers=[*layers, check(index, position)], **kwargs)
 
 
 class Node(Mixin):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, identity, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.__children = ODict()
+        self.__identity = identity
 
     def __contains__(self, key): return bool(key in self.children.keys())
     def __setitem__(self, key, value): self.set(key, value)
     def __getitem__(self, key): return self.get(key)
     def __reversed__(self): return reversed(self.items())
     def __iter__(self): return iter(self.items())
-    def __str__(self): return self.render()
+    def __str__(self): return self.render(style=Styles.Single)
 
     def keys(self): return self.children.keys()
     def values(self): return self.children.values()
@@ -66,9 +70,14 @@ class Node(Mixin):
             yield from transverse
 
     def render(self, *args, style=Styles.Single, **kwargs):
+        generator = self.renderer(*args, style=style, **kwargs)
+        return "\n".join(list(generator))
+
+    def renderer(self, *args, style=Styles.Single, **kwargs):
         generator = render(self, *args, style=style, **kwargs)
-        rows = [prefix + str() for prefix, value in iter(generator)]
-        return "\n".format(rows)
+        for prefix, value in generator:
+            label = str(value.identity) if isinstance(value, Node) else str(value)
+            yield str(prefix) + str(label)
 
     def get(self, key): return self.children[key]
     def set(self, key, content): self.children[key] = content
@@ -105,6 +114,8 @@ class Node(Mixin):
     def terminal(self): return not bool(self.children)
     @property
     def children(self): return self.__children
+    @property
+    def identity(self): return self.__identity
 
 
 class ParentalNode(Node):
@@ -138,9 +149,5 @@ class ParentalNode(Node):
     def parent(self): return self.__parent
     @parent.setter
     def parent(self, parent): self.__parent = parent
-
-
-
-
 
 
