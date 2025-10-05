@@ -98,6 +98,28 @@ class Decorator(object):
     def instance(self, instance): self.__self__ = instance
 
 
+class Signature(Decorator):
+    def __init__(self, signature, *args, **kwargs):
+        assert isinstance(signature, str)
+        assert "->" in str(signature)
+        super().__init__(*args, **kwargs)
+        inlet, outlet = str(signature).split("->")
+        inlet = list(filter(bool, str(inlet).split(",")))
+        inlet = [string for string in inlet if "*" not in string]
+        optional = [str(string).strip("*") for string in inlet if "*" not in string]
+        outlet = list(filter(bool, str(outlet).split(",")))
+        self.__domain = list(inlet)
+        self.__optional = list(optional)
+        self.__range = list(outlet)
+
+    @property
+    def domain(self): return self.__domain
+    @property
+    def optional(self): return self.__optional
+    @property
+    def range(self): return self.__range
+
+
 class Dispatcher(Decorator, ABC):
     def __init__(self, *args, locator, **kwargs):
         assert isinstance(locator, (int, str))

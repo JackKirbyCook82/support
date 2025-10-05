@@ -107,16 +107,16 @@ class Segment(Stage, ABC):
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
             yield outlet
 
-    def processor(self, feed, *args, **kwargs):
-        assert isinstance(feed, tuple)
-        inlet = list(feed) + [None] * max(0, len(self.arguments) - len(feed))
+    def processor(self, inlet, *args, **kwargs):
+        assert isinstance(inlet, tuple)
+#        inlet = list(feed) + [None] * max(0, len(self.arguments) - len(feed))
         for outlet in self.execute(*inlet, *args, **kwargs):
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
             yield outlet
 
-    def consumer(self, feed, *args, **kwargs):
-        assert isinstance(feed, tuple)
-        inlet = list(feed) + [None] * max(0, len(self.arguments) - len(feed))
+    def consumer(self, inlet, *args, **kwargs):
+        assert isinstance(inlet, tuple)
+#        inlet = list(feed) + [None] * max(0, len(self.arguments) - len(feed))
         self.execute(*inlet, *args, **kwargs)
 
     def cease(self, *args, **kwargs):
@@ -201,28 +201,27 @@ class Carryover(Stage, ABC):
     def producer(self, *args, **kwargs):
         for outlet in self.execute(*args, **kwargs):
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
-            assert len(outlet) <= len(self.range)
-            outlet = list(outlet) + [None] * max(0, len(self.arguments) - len(outlet))
-            outlet = dict(zip(self.range, outlet))
+#            assert len(outlet) == len(self.range)
+#            outlet = list(outlet) + [None] * max(0, len(self.arguments) - len(outlet))
+#            outlet = dict(zip(self.range, outlet))
             yield outlet
 
-    def processor(self, feed, *args, **kwargs):
-        assert isinstance(feed, dict)
-        inlet = ODict([(key, feed.get(key, None)) for key in self.domain])
-        assert list(inlet.keys()) == list(self.domain)
-        inlet = list(inlet.values())
+    def processor(self, inlet, *args, **kwargs):
+#        assert isinstance(feed, dict)
+#        inlet = ODict([(key, feed.get(key, None)) for key in self.domain])
+#        assert list(inlet.keys()) == list(self.domain#        inlet = list(inlet.values())
         for outlet in self.execute(*inlet, *args, **kwargs):
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
-            assert len(outlet) <= len(self.range)
-            outlet = list(outlet) + [None] * max(0, len(self.arguments) - len(outlet))
-            outlet = dict(zip(self.range, outlet))
-            yield feed | outlet
+#            assert len(outlet) <= len(self.range)
+#            outlet = list(outlet) + [None] * max(0, len(self.arguments) - len(outlet))
+#            outlet = dict(zip(self.range, outlet))
+            yield outlet
 
-    def consumer(self, feed, *args, **kwargs):
-        assert isinstance(feed, dict)
-        inlet = ODict([(key, feed.get(key, None)) for key in self.domain])
-        assert list(inlet.keys()) == list(self.domain)
-        inlet = list(inlet.values())
+    def consumer(self, inlet, *args, **kwargs):
+#        assert isinstance(inlet, dict)
+#        inlet = ODict([(key, feed.get(key, None)) for key in self.domain])
+#        assert list(inlet.keys()) == list(self.domain)
+#        inlet = list(inlet.values())
         self.execute(*inlet, *args, **kwargs)
 
     @property
