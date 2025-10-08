@@ -216,7 +216,7 @@ class Carryover(Stage, ABC):
     def feed(self, inlet, *args, **kwargs):
         assert isinstance(inlet, dict)
         feed = ODict([(key, inlet.get(key, None)) for key in self.inlet])
-        if not self.domain(feed, *args, **kwargs): raise PipelineDomainError()
+        if not self.domain(feed, *args, **kwargs): raise PipelineError.Domain()
         return list(feed.values())
 
     def domain(self, feed, *args, **kwargs):
