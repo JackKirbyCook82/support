@@ -9,7 +9,7 @@ Created on Mon Nov 4 2024
 from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
-from support.decorators import TypeDispatcher
+from support.decorators import Dispatchers
 from support.mixins import Mixin
 
 __version__ = "1.0.0"
@@ -123,7 +123,7 @@ class ParentalNode(Node):
         super().__init__(*args, **kwargs)
         self.__parent = parent
 
-    @TypeDispatcher(locator=0)
+    @Dispatchers.Type(locator=0)
     def assign(self, value):
         assert isinstance(value, Node)
         assert value.parent is None

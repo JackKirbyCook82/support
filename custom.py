@@ -8,7 +8,7 @@ Created on Tues Mar 18 2025
 
 from collections import OrderedDict
 
-from support.decorators import TypeDispatcher
+from support.decorators import Dispatchers
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -20,7 +20,7 @@ __license__ = "MIT License"
 class SliceOrderedDict(OrderedDict):
     def __getitem__(self, key): return self.locate(key)
 
-    @TypeDispatcher(locator=0)
+    @Dispatchers.Type(locator=0)
     def pop(self, key, default=None): return super().pop(key, default)
     @pop.register(str)
     def popString(self, key, default=None): return super().pop(key, default)
@@ -29,7 +29,7 @@ class SliceOrderedDict(OrderedDict):
         key = list(self.keys())[index]
         return super().pop(key, default)
 
-    @TypeDispatcher(locator=0)
+    @Dispatchers.Type(locator=0)
     def get(self, key, default=None): return super().get(key, default)
     @pop.register(str)
     def getString(self, key, default=None): return super().get(key, default)
@@ -38,7 +38,7 @@ class SliceOrderedDict(OrderedDict):
         key = list(self.keys())[index]
         return super().get(key, default)
 
-    @TypeDispatcher(locator=0)
+    @Dispatchers.Type(locator=0)
     def locate(self, key): return super().__getitem__(key)
     @locate.register(str)
     def locateString(self, key): return super().__getitem__(key)

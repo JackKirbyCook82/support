@@ -12,7 +12,7 @@ from functools import update_wrapper
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Wrapper", "Decorator", "TypeDispatcher", "ValueDispatcher"]
+__all__ = ["Wrapper", "Decorator", "Dispatchers"]
 __copyright__ = "Copyright 2018, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -35,6 +35,12 @@ class Wrapper(object):
         attribute = self.function.__name__
         setattr(instance, attribute, bounded)
         return bounded
+
+#    def __getattr__(self, attribute):
+#        if self.function is None: raise AttributeError(attribute)
+#        if self.instance is not None and hasattr(self.function, "__get__"):
+#            return getattr(self.function.__get__(self.instance, type(self.instance)))
+#        else: return getattr(self.function, attribute)
 
     def wrapper(self, *args, **kwargs):
         return self.function(*args, **kwargs)
@@ -78,6 +84,12 @@ class Decorator(object):
         setattr(instance, attribute, bounded)
         return bounded
 
+#    def __getattr__(self, attribute):
+#        if self.function is None: raise AttributeError(attribute)
+#        if self.instance is not None and hasattr(self.function, "__get__"):
+#            return getattr(self.function.__get__(self.instance, type(self.instance)))
+#        else: return getattr(self.function, attribute)
+
     def wrapper(self, function):
         assert callable(function)
         update_wrapper(self, function)
@@ -96,28 +108,6 @@ class Decorator(object):
     def instance(self): return self.__self__
     @instance.setter
     def instance(self, instance): self.__self__ = instance
-
-
-class Signature(Decorator):
-    def __init__(self, signature, *args, **kwargs):
-        assert isinstance(signature, str)
-        assert "->" in str(signature)
-        super().__init__(*args, **kwargs)
-        inlet, outlet = str(signature).split("->")
-        inlet = list(filter(bool, str(inlet).split(",")))
-        inlet = [string for string in inlet if "*" not in string]
-        optional = [str(string).strip("*") for string in inlet if "*" not in string]
-        outlet = list(filter(bool, str(outlet).split(",")))
-        self.__domain = list(inlet)
-        self.__optional = list(optional)
-        self.__range = list(outlet)
-
-    @property
-    def domain(self): return self.__domain
-    @property
-    def optional(self): return self.__optional
-    @property
-    def range(self): return self.__range
 
 
 class Dispatcher(Decorator, ABC):
@@ -158,10 +148,11 @@ class TypeDispatcher(Dispatcher):
     @staticmethod
     def locate(locator): return type(locator)
 
-
 class ValueDispatcher(Dispatcher):
     @staticmethod
     def locate(locator): return locator
 
+class Dispatchers:
+    Type, Value = TypeDispatcher, ValueDispatcher
 
 

@@ -14,13 +14,18 @@ from functools import reduce
 from abc import ABC, abstractmethod
 from collections import OrderedDict as ODict
 
-from support.mixins import Function, Generator, Logging
+from support.meta import AttributeMeta
+from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Routine", "Producer", "Processor", "Consumer", "Carryover"]
+__all__ = ["Routine", "Producer", "Processor", "Consumer", "Carryover", "PipelineError"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
+
+
+class PipelineError(Exception, metaclass=AttributeMeta): pass
+class PipelineDomainError(PipelineError, attribute="Domain"): pass
 
 
 class Pipeline(ABC):
@@ -86,6 +91,16 @@ class Stage(Logging, ABC):
     @abstractmethod
     def execute(self, *args, **kwargs): pass
 
+class Generator(Stage, ABC):
+    def __new__(cls, *args, **kwargs):
+        assert inspect.isgeneratorfunction(cls.execute)
+        return super().__new__(cls)
+
+class Function(Stage, ABC):
+    def __new__(cls, *args, **kwargs):
+        assert not inspect.isgeneratorfunction(cls.execute)
+        return super().__new__(cls)
+
 
 class Routine(Stage, ABC):
     def __call__(self, *args, **kwargs):
@@ -109,32 +124,17 @@ class Segment(Stage, ABC):
 
     def processor(self, inlet, *args, **kwargs):
         assert isinstance(inlet, tuple)
-#        inlet = list(feed) + [None] * max(0, len(self.arguments) - len(feed))
         for outlet in self.execute(*inlet, *args, **kwargs):
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
             yield outlet
 
     def consumer(self, inlet, *args, **kwargs):
         assert isinstance(inlet, tuple)
-#        inlet = list(feed) + [None] * max(0, len(self.arguments) - len(feed))
         self.execute(*inlet, *args, **kwargs)
 
     def cease(self, *args, **kwargs):
         with self.mutex: self.running = False
         self.console(title="Ceased")
-
-    @property
-    def arguments(self):
-        signature = list(inspect.signature(self.execute).parameters.values())
-        arguments = [str(value) for value in signature if value.kind == value.POSITIONAL_OR_KEYWORD]
-        arguments = arguments[1:] if arguments and arguments[0] == "self" else arguments
-        return arguments
-
-    @property
-    def parameters(self):
-        signature = list(inspect.signature(self.execute).parameters.values())
-        parameters = [str(value) for value in signature if value.kind == value.KEYWORD_ONLY]
-        return parameters
 
     @property
     def mutex(self): return self.__mutex
@@ -144,7 +144,7 @@ class Segment(Stage, ABC):
     def running(self, running): self.__running = running
 
 
-class Producer(Generator, Segment, ABC):
+class Producer(Segment, Generator, ABC):
     def __add__(self, other):
         assert isinstance(other, (Processor, Consumer))
         if isinstance(other, Processor): return OpenPipeline(self, [other])
@@ -161,7 +161,7 @@ class Producer(Generator, Segment, ABC):
             start = time.time()
 
 
-class Processor(Generator, Segment, ABC):
+class Processor(Segment, Generator, ABC):
     def __call__(self, source, *args, **kwargs):
         assert isinstance(source, types.GeneratorType)
         assert inspect.isgeneratorfunction(self.execute)
@@ -176,7 +176,7 @@ class Processor(Generator, Segment, ABC):
             if not self.running: break
 
 
-class Consumer(Function, Segment, ABC):
+class Consumer(Segment, Function, ABC):
     def __call__(self, source, *args, **kwargs):
         assert isinstance(source, types.GeneratorType)
         assert not inspect.isgeneratorfunction(self.execute)
@@ -189,45 +189,55 @@ class Consumer(Function, Segment, ABC):
 
 
 class Carryover(Stage, ABC):
-    def __init_subclass__(cls, *args, signature="", **kwargs):
+    def __init_subclass__(cls, *args, signature, **kwargs):
         assert isinstance(signature, str)
         super().__init_subclass__(*args, **kwargs)
-        if not bool(signature): return
-        assert "->" in str(signature)
         inlet, outlet = str(signature).split("->")
-        cls.__domain__ = list(filter(bool, str(inlet).split(",")))
-        cls.__range__ = list(filter(bool, str(outlet).split(",")))
+        cls.__inlet__ = list(filter(bool, str(inlet).split(",")))
+        cls.__outlet__ = list(filter(bool, str(outlet).split(",")))
 
     def producer(self, *args, **kwargs):
-        for outlet in self.execute(*args, **kwargs):
-            if not isinstance(outlet, tuple): outlet = tuple([outlet])
-#            assert len(outlet) == len(self.range)
-#            outlet = list(outlet) + [None] * max(0, len(self.arguments) - len(outlet))
-#            outlet = dict(zip(self.range, outlet))
+        generator = self.execute(*args, **kwargs)
+        for outlet in generator:
+            outlet = self.parse(outlet, *args, **kwargs)
             yield outlet
 
     def processor(self, inlet, *args, **kwargs):
-#        assert isinstance(feed, dict)
-#        inlet = ODict([(key, feed.get(key, None)) for key in self.domain])
-#        assert list(inlet.keys()) == list(self.domain#        inlet = list(inlet.values())
-        for outlet in self.execute(*inlet, *args, **kwargs):
-            if not isinstance(outlet, tuple): outlet = tuple([outlet])
-#            assert len(outlet) <= len(self.range)
-#            outlet = list(outlet) + [None] * max(0, len(self.arguments) - len(outlet))
-#            outlet = dict(zip(self.range, outlet))
-            yield outlet
+        feed = self.feed(inlet, *args, **kwargs)
+        generator = self.execute(*feed, *args, **kwargs)
+        for outlet in generator:
+            outlet = self.parse(outlet, *args, **kwargs)
+            yield inlet | outlet
 
     def consumer(self, inlet, *args, **kwargs):
-#        assert isinstance(inlet, dict)
-#        inlet = ODict([(key, feed.get(key, None)) for key in self.domain])
-#        assert list(inlet.keys()) == list(self.domain)
-#        inlet = list(inlet.values())
-        self.execute(*inlet, *args, **kwargs)
+        feed = self.feed(inlet, *args, **kwargs)
+        self.execute(*feed, *args, **kwargs)
+
+    def feed(self, inlet, *args, **kwargs):
+        assert isinstance(inlet, dict)
+        feed = ODict([(key, inlet.get(key, None)) for key in self.inlet])
+        if not self.domain(feed, *args, **kwargs): raise PipelineDomainError()
+        return list(feed.values())
+
+    def domain(self, feed, *args, **kwargs):
+        criteria = lambda value: value.kind == inspect.Parameter.POSITIONAL_ONLY and value.default == inspect.Parameter.empty
+        signature = list(inspect.signature(self.execute).parameters.items())
+        required = [key for key, value in signature if criteria(value)]
+        overlap = {key: feed.get(key, None) for key in required}
+        keys = all([key in feed.keys() for key in overlap.keys()])
+        values = all([value is not None for value in overlap.values()])
+        return bool(keys and values)
+
+    def parse(self, outlet, *args, **kwargs):
+        if isinstance(outlet, tuple): outlet = list(outlet)
+        else: outlet = [outlet]
+        assert len(outlet) == len(self.outlet)
+        return dict(zip(self.outlet, outlet))
 
     @property
-    def domain(self): return type(self).__domain__
+    def inlet(self): return type(self).__inlet__
     @property
-    def range(self): return type(self).__range__
+    def outlet(self): return type(self).__outlet__
 
 
 

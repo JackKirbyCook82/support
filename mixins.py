@@ -8,20 +8,18 @@ Created on Mon Oct 14 2024
 
 import time
 import types
-import inspect
 import logging
 import numpy as np
 import pandas as pd
 import xarray as xr
 from abc import ABC, abstractmethod
-from functools import update_wrapper
 from collections import OrderedDict as ODict
 
-from support.decorators import TypeDispatcher
+from support.decorators import Dispatchers
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Mixin", "Naming", "Logging", "Emptying", "Memory", "Sizing", "Function", "Generator", "Partition", "Publisher", "Subscriber", "Delayer"]
+__all__ = ["Mixin", "Naming", "Logging", "Emptying", "Memory", "Sizing", "Partition", "Publisher", "Subscriber", "Delayer"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -94,7 +92,7 @@ class Logging(Mixin):
 
 
 class Keys(Mixin):
-    @TypeDispatcher(locator=0)
+    @Dispatchers.Type(locator=0)
     def keys(self, contents, *args, **kwargs): raise TypeError(type(contents))
 
     @keys.register(list)
@@ -119,7 +117,7 @@ class Keys(Mixin):
 
 
 class Values(Mixin):
-    @TypeDispatcher(locator=0)
+    @Dispatchers.Type(locator=0)
     def values(self, contents, *args, **kwargs): raise TypeError(type(contents))
 
     @values.register(list)
@@ -143,7 +141,7 @@ class Values(Mixin):
 
 
 class Partition(Keys, Values):
-    @TypeDispatcher(locator=0)
+    @Dispatchers.Type(locator=0)
     def partition(self, contents, *args, **kwargs): raise TypeError(type(contents))
 
     @partition.register(list)
@@ -170,63 +168,6 @@ class Partition(Keys, Values):
             partition = ODict(zip(list(by), values))
             if callable(by): partition = by(partition)
             yield partition, dataset
-
-
-class Function(Mixin):
-    def __init_subclass__(cls, *args, assemble=True, **kwargs):
-        assert isinstance(assemble, bool)
-        super().__init_subclass__(*args, **kwargs)
-        cls.assemble = assemble
-
-    def __new__(cls, *args, **kwargs):
-        if not inspect.isgeneratorfunction(cls.execute):
-            return super().__new__(cls, *args, **kwargs)
-        execute = cls.execute
-
-        def wrapper(self, *arguments, **parameters):
-            assert isinstance(self, cls)
-            generator = execute(self, *arguments, **parameters)
-            collection = list(generator)
-            if not bool(collection): return
-            elif bool(cls.assemble): return self.consolidate(*collection)
-            else: return collection
-
-        update_wrapper(wrapper, execute)
-        setattr(cls, "execute", wrapper)
-        mro = list(cls.__mro__)
-        assert Generator not in mro
-        return super().__new__(cls, *args, **kwargs)
-
-    @TypeDispatcher(locator=0)
-    def consolidate(self, content, *contents): raise TypeError(type(content))
-    @consolidate.register(xr.Dataset)
-    def __dataset(self, content, *contents): return xr.merge([content] + list(contents))
-    @consolidate.register(pd.DataFrame)
-    def __dataframe(self, content, *contents): return pd.concat([content] + list(contents), axis=0)
-
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
-
-
-class Generator(Mixin):
-    def __new__(cls, *args, **kwargs):
-        if inspect.isgeneratorfunction(cls.execute):
-            return super().__new__(cls, *args, **kwargs)
-        execute = cls.execute
-
-        def wrapper(self, *arguments, **parameters):
-            assert isinstance(self, cls)
-            results = execute(self, *arguments, **parameters)
-            if results is not None: yield results
-
-        update_wrapper(wrapper, execute)
-        setattr(cls, "execute", wrapper)
-        mro = list(cls.__mro__)
-        assert Function not in mro
-        return super().__new__(cls, *args, **kwargs)
-
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
 
 
 class Publisher(Mixin):
@@ -270,7 +211,7 @@ class Subscriber(Mixin):
 
 
 class Emptying(Mixin):
-    @TypeDispatcher(locator=0)
+    @Dispatchers.Type(locator=0)
     def empty(self, content, *args, **kwargs): raise TypeError(type(content))
     @empty.register(dict)
     def __mapping(self, mapping, *args, **kwargs): return all([self.empty(value, *args, **kwargs) for value in mapping.values()]) if bool(mapping) else True
@@ -289,7 +230,7 @@ class Emptying(Mixin):
 
 
 class Sizing(Mixin):
-    @TypeDispatcher(locator=0)
+    @Dispatchers.Type(locator=0)
     def size(self, content, *args, **kwargs): raise TypeError(type(content))
     @size.register(dict)
     def __mapping(self, mapping, *args, **kwargs): return sum([self.size(value, *args, **kwargs) for value in mapping.values()])
@@ -308,7 +249,7 @@ class Sizing(Mixin):
 
 
 class Memory(Mixin):
-    @TypeDispatcher(locator=0)
+    @Dispatchers.Type(locator=0)
     def memory(self, content, *args, **kwargs): raise TypeError(type(content))
     @memory.register(dict)
     def __mapping(self, mapping, *args, **kwargsg): return sum([self.memory(value) for value in mapping.values()])
@@ -343,17 +284,6 @@ class Delayer(Logging, title="Waiting"):
     def timer(self): return self.__timer
     @timer.setter
     def timer(self, timer): self.__timer = timer
-
-
-
-
-
-
-
-
-
-
-
 
 
 
