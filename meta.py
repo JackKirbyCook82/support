@@ -66,10 +66,10 @@ class TreeMeta(Meta):
 
 
 class RegistryMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
+    def __init__(cls, name, bases, attrs, *args, reset=False, **kwargs):
         super(RegistryMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         function = lambda base: type(base) is RegistryMeta or issubclass(type(base), RegistryMeta)
-        if not any([function(base) for base in bases]):
+        if not any([function(base) for base in bases]) or bool(reset):
             assert "register" not in kwargs.keys()
             cls.__registry__ = dict()
             return
@@ -87,10 +87,10 @@ class RegistryMeta(Meta):
 
 
 class AttributeMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
+    def __init__(cls, name, bases, attrs, *args, reset=False, **kwargs):
         super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         function = lambda base: type(base) is AttributeMeta or issubclass(type(base), AttributeMeta)
-        if not any([function(base) for base in bases]) or bool(kwargs.get("root", False)):
+        if not any([function(base) for base in bases]) or bool(reset):
             assert kwargs.get("attribute", None) is None and not kwargs.get("attributes", [])
             cls.__root__ = cls
         attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])

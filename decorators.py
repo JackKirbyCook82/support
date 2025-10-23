@@ -36,12 +36,6 @@ class Wrapper(object):
         setattr(instance, attribute, bounded)
         return bounded
 
-#    def __getattr__(self, attribute):
-#        if self.function is None: raise AttributeError(attribute)
-#        if self.instance is not None and hasattr(self.function, "__get__"):
-#            return getattr(self.function.__get__(self.instance, type(self.instance)))
-#        else: return getattr(self.function, attribute)
-
     def wrapper(self, *args, **kwargs):
         return self.function(*args, **kwargs)
 
@@ -83,12 +77,6 @@ class Decorator(object):
         attribute = self.function.__name__
         setattr(instance, attribute, bounded)
         return bounded
-
-#    def __getattr__(self, attribute):
-#        if self.function is None: raise AttributeError(attribute)
-#        if self.instance is not None and hasattr(self.function, "__get__"):
-#            return getattr(self.function.__get__(self.instance, type(self.instance)))
-#        else: return getattr(self.function, attribute)
 
     def wrapper(self, function):
         assert callable(function)

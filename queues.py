@@ -20,7 +20,7 @@ __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-QueueTypes = Enum("QueueTypes", "LIFO FIFO PIFO")
+class QueueTypes(Enum): LIFO, FIFO, PIFO = list(range(3))
 class QueueMeta(AttributeMeta, ABCMeta):
     def __init__(cls, name, bases, attrs, *args, queuetype=None, datatype=None, **kwargs):
         if not any([type(base) is QueueMeta for base in bases]):
