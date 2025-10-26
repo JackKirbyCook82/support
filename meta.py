@@ -8,6 +8,7 @@ Created on Fri Aug 27 2021
 
 import types
 from abc import ABCMeta
+from itertools import product
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -66,40 +67,53 @@ class TreeMeta(Meta):
 
 
 class RegistryMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, reset=False, **kwargs):
+    registries = dict()
+
+    def __init__(cls, name, bases, attrs, *args, register=None, **kwargs):
         super(RegistryMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        function = lambda base: type(base) is RegistryMeta or issubclass(type(base), RegistryMeta)
-        if not any([function(base) for base in bases]) or bool(reset):
-            assert "register" not in kwargs.keys()
-            cls.__registry__ = dict()
-            return
-        register = kwargs.get("register", [])
         register = [register] if not isinstance(register, list) else register
         register = list(filter(lambda value: value is not None, register))
-        for key in register: cls[key] = cls
+        if not any([isinstance(base, RegistryMeta) for base in bases]):
+            root = f"{cls.__module__}.{cls.__qualname__}"
+            registry = RegistryMeta.registries.get(root, {})
+            RegistryMeta.registries[root] = registry
+            for key in register: registry[key] = cls
+            cls.root = root
+            return
+        if bool(kwargs.get("root", False)):
+            root = f"{cls.__module__}.{cls.__qualname__}"
+            registry = RegistryMeta.registries.get(root, {})
+            RegistryMeta.registries[root] = registry
+            cls.root = root
+        parents = [base for base in bases if isinstance(base, RegistryMeta)]
+        for (base, key) in product(parents, register):
+            registry = RegistryMeta.registries[base.root]
+            registry[key] = cls
 
-    def __setitem__(cls, key, value): cls.registry[key] = value
-    def __getitem__(cls, key): return cls.registry[key]
-    def __iter__(cls): return iter(cls.registry.items())
+    def __getitem__(cls, key): return RegistryMeta.registries[cls.root][key]
+    def __setitem__(cls, key, value): RegistryMeta.registries[cls.root][key] = value
+    def __iter__(cls): return iter(RegistryMeta.registries[cls.root].items())
 
     @property
-    def registry(cls): return cls.__registry__
+    def root(cls): return cls.__root__
+    @root.setter
+    def root(cls, root): cls.__root__ = root
 
 
 class AttributeMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, reset=False, **kwargs):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        function = lambda base: type(base) is AttributeMeta or issubclass(type(base), AttributeMeta)
-        if not any([function(base) for base in bases]) or bool(reset):
-            assert kwargs.get("attribute", None) is None and not kwargs.get("attributes", [])
-            cls.__root__ = cls
+        if not any([isinstance(base, AttributeMeta) for base in bases]): cls.root = cls
         attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
         attributes = list(filter(lambda attribute: attribute is not None, attributes))
         assert all([isinstance(attribute, str) for attribute in attributes])
         for attribute in attributes: setattr(cls.root, attribute, cls)
+        if bool(kwargs.get("root", False)): cls.root = cls
 
     @property
     def root(cls): return cls.__root__
+    @root.setter
+    def root(cls, root): cls.__root__ = root
 
 
 class ParameterMeta(Meta):
