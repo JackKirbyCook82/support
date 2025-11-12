@@ -203,41 +203,41 @@ class Process(Sizing, Emptying, Partition, Logging, ABC):
         self.__table = table
 
     @abstractmethod
-    def execute(self, *args, **kwargs): pass
+    def execute(self, /, **kwargs): pass
 
     @property
     def table(self): return self.__table
 
 
 class Routine(Process, ABC):
-    def execute(self, *args, **kwargs):
+    def execute(self, /, **kwargs):
         if not bool(self.table): return
-        self.routine(*args, **kwargs)
+        self.routine(**kwargs)
 
     @abstractmethod
-    def routine(self, *args, **kwargs): pass
+    def routine(self, /, **kwargs): pass
 
 
 class Reader(Process, ABC):
-    def execute(self, *args, **kwargs):
+    def execute(self, /, **kwargs):
         if not bool(self.table): return
-        dataframe = self.read(*args, **kwargs)
+        dataframe = self.read(**kwargs)
         assert isinstance(dataframe, (pd.DataFrame, types.NoneType))
         if self.empty(dataframe): return
         yield dataframe
 
     @abstractmethod
-    def read(self, *args, **kwargs): pass
+    def read(self, /, **kwargs): pass
 
 
 class Writer(Process, ABC):
-    def execute(self, dataframe, *args, **kwargs):
-        assert isinstance(dataframe, (pd.DataFrame, types.NoneType))
-        if self.empty(dataframe): return
-        self.write(dataframe, *args, **kwargs)
+    def execute(self, contents, /, **kwargs):
+        assert isinstance(contents, (pd.DataFrame, types.NoneType))
+        if self.empty(contents): return
+        self.write(contents, **kwargs)
 
     @abstractmethod
-    def write(self, dataframe, *args, **kwargs): pass
+    def write(self, contents, /, **kwargs): pass
 
 
 

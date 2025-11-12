@@ -91,14 +91,14 @@ class PIFOQueue(Queue, datatype=queue.PriorityQueue, queuetype=QueueTypes.PIFO):
         self.__ascending = ascending
         self.__priority = priority
 
-    def write(self, content, *args, **kwargs):
+    def write(self, content, **kwargs):
         priority = self.priority(content)
         assert isinstance(priority, int)
         multiplier = (int(not self.ascending) * 2) - 1
         couple = (multiplier * priority, content)
         self.data.put(couple, timeout=self.timeout)
 
-    def read(self, *args, **kwargs):
+    def read(self, **kwargs):
         couple = self.data.get(timeout=self.timeout)
         priority, content = couple
         return content
@@ -115,26 +115,26 @@ class Process(Logging, ABC):
         self.__feed = feed
 
     @abstractmethod
-    def execute(self, *args, **kwargs): pass
+    def execute(self, /, **kwargs): pass
     @property
     def feed(self): return self.__feed
 
 
 class Dequeuer(Process, title="Dequeued"):
-    def execute(self, *args, **kwargs):
+    def execute(self, /, **kwargs):
         if not bool(self.feed): return
         while bool(self.feed):
-            content = self.feed.read(*args, **kwargs)
+            content = self.feed.read(**kwargs)
             yield content
             self.feed.complete()
 
 
 class Requeuer(Process, title="Requeued"):
-    def execute(self, contents, *args, **kwargs):
+    def execute(self, contents, /, **kwargs):
         contents = list(contents) if isinstance(contents, list) else [contents]
         if not bool(contents): return
         for content in list(contents):
-            self.feed.write(content, *args, **kwargs)
+            self.feed.write(content, **kwargs)
 
 
 

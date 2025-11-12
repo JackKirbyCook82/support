@@ -25,10 +25,10 @@ class Filter(Sizing, Emptying, Partition, Logging, title="Filtered"):
         super().__init__(*args, **kwargs)
         self.__criteria = criteria
 
-    def execute(self, contents, *args, **kwargs):
+    def execute(self, contents, /, **kwargs):
         if self.empty(contents): return
         prior = self.size(contents)
-        results = self.calculate(contents, *args, **kwargs)
+        results = self.calculate(contents, **kwargs)
         post = self.size(results)
         querys = self.keys(contents, by=self.query)
         querys = ",".join(list(map(str, querys)))
@@ -36,7 +36,7 @@ class Filter(Sizing, Emptying, Partition, Logging, title="Filtered"):
         if self.empty(results): return
         yield results
 
-    def calculate(self, dataframe, *args, **kwargs):
+    def calculate(self, dataframe, /, **kwargs):
         mask = self.criteria(dataframe)
         dataframe = dataframe.where(mask, axis=0)
         dataframe = dataframe.dropna(how="all", inplace=False)

@@ -9,9 +9,11 @@ Created on Weds Jul 12 2023
 import time
 import types
 import inspect
+import regex as re
 from threading import RLock
 from functools import reduce
 from abc import ABC, abstractmethod
+from collections import namedtuple as ntuple
 from collections import OrderedDict as ODict
 
 from support.meta import AttributeMeta
@@ -19,13 +21,9 @@ from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Routine", "Producer", "Processor", "Consumer", "Carryover", "PipelineError"]
+__all__ = ["Routine", "Producer", "Processor", "Consumer", "Carryover"]
 __copyright__ = "Copyright 2023, Jack Kirby Cook"
 __license__ = "MIT License"
-
-
-class PipelineError(Exception, metaclass=AttributeMeta): pass
-class PipelineDomainError(PipelineError, attribute="Domain"): pass
 
 
 class Pipeline(ABC):
@@ -34,9 +32,9 @@ class Pipeline(ABC):
         string = ', '.join(list(map(repr, self.segments)))
         return f"{self.__class__.__name__}[{string}]"
 
-    def cease(self, *args, **kwargs):
+    def cease(self):
         for segment in self.segments:
-            segment.cease(*args, **kwargs)
+            segment.cease()
 
 
 class OpenPipeline(Pipeline):
@@ -52,9 +50,9 @@ class OpenPipeline(Pipeline):
         if isinstance(other, Processor): return OpenPipeline(self.source, self.processors + [other])
         else: return ClosedPipeline(self.source, self.processors, other)
 
-    def __call__(self, *args, **kwargs):
-        source = self.source(*args, **kwargs)
-        function = lambda lead, lag: lag(lead, *args, **kwargs)
+    def __call__(self, /, **kwargs):
+        source = self.source(**kwargs)
+        function = lambda lead, lag: lag(lead, **kwargs)
         generator = reduce(function, self.processors, source)
         yield from generator
 
@@ -73,11 +71,11 @@ class ClosedPipeline(Pipeline):
         self.__processors = processors
         self.__source = source
 
-    def __call__(self, *args, **kwargs):
-        source = self.source(*args, **kwargs)
-        function = lambda lead, lag: lag(lead, *args, **kwargs)
+    def __call__(self, /, **kwargs):
+        source = self.source(**kwargs)
+        function = lambda lead, lag: lag(lead, **kwargs)
         generator = reduce(function, self.processors, source)
-        self.destination(generator, *args, **kwargs)
+        self.destination(generator, **kwargs)
 
     @property
     def destination(self): return self.__destination
@@ -87,9 +85,31 @@ class ClosedPipeline(Pipeline):
     def source(self): return self.__source
 
 
+class Error(Exception, metaclass=AttributeMeta): pass
+class ArgumentError(Error, attribute="Argument"): pass
+class ParameterError(Error, attribute="Parameter"): pass
+class DomainError(Error, attribute="Domain"): pass
+class RangeError(Error, attribute="Range"): pass
+
+
 class Stage(Logging, ABC):
+    @property
+    def signature(self): return ODict(list(inspect.signature(self.execute).parameters.items()))
+
+    @property
+    def arguments(self):
+        positional = lambda value: value.kind == inspect.Parameter.POSITIONAL_ONLY and value.kind != inspect.Parameter.VAR_POSITIONAL
+        instance = lambda value: str(value.name) == "self"
+        return [key for key, value in self.signature.items() if positional(value) and not instance(value)]
+
+    @property
+    def parameters(self):
+        keyword = lambda value: value.kind == inspect.Parameter.KEYWORD_ONLY and value.kind != inspect.Parameter.VAR_KEYWORD
+        return [key for key, value in self.signature.items() if keyword(value)]
+
     @abstractmethod
-    def execute(self, *args, **kwargs): pass
+    def execute(self, /, **kwargs): pass
+
 
 class Generator(Stage, ABC):
     def __new__(cls, *args, **kwargs):
@@ -103,10 +123,10 @@ class Function(Stage, ABC):
 
 
 class Routine(Stage, ABC):
-    def __call__(self, *args, **kwargs):
+    def __call__(self, /, **kwargs):
         start = time.time()
-        if not inspect.isgeneratorfunction(self.execute): self.execute(*args, **kwargs)
-        else: list(self.execute(*args, **kwargs))
+        if not inspect.isgeneratorfunction(self.execute): self.execute(**kwargs)
+        else: list(self.execute(**kwargs))
         elapsed = time.time() - start
         self.console(f"{elapsed:.02f} seconds", title="Routined")
 
@@ -117,22 +137,24 @@ class Segment(Stage, ABC):
         self.__running = True
         self.__mutex = RLock()
 
-    def producer(self, *args, **kwargs):
-        for outlet in self.execute(*args, **kwargs):
+    def producer(self, /, **kwargs):
+        for outlet in self.execute(**kwargs):
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
             yield outlet
 
-    def processor(self, inlet, *args, **kwargs):
+    def processor(self, inlet, /, **kwargs):
         assert isinstance(inlet, tuple)
-        for outlet in self.execute(*inlet, *args, **kwargs):
+        if len(inlet) != len(self.arguments): raise Error.Argument()
+        for outlet in self.execute(*inlet, **kwargs):
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
             yield outlet
 
-    def consumer(self, inlet, *args, **kwargs):
+    def consumer(self, inlet, /, **kwargs):
         assert isinstance(inlet, tuple)
-        self.execute(*inlet, *args, **kwargs)
+        if len(inlet) != len(self.arguments): raise Error.Argument()
+        self.execute(*inlet, **kwargs)
 
-    def cease(self, *args, **kwargs):
+    def cease(self):
         with self.mutex: self.running = False
         self.console(title="Ceased")
 
@@ -150,10 +172,10 @@ class Producer(Segment, Generator, ABC):
         if isinstance(other, Processor): return OpenPipeline(self, [other])
         else: return ClosedPipeline(self, [], other)
 
-    def __call__(self, *args, **kwargs):
+    def __call__(self, /, **kwargs):
         assert inspect.isgeneratorfunction(self.execute)
         start = time.time()
-        for content in self.producer(*args, **kwargs):
+        for content in self.producer(**kwargs):
             elapsed = time.time() - start
             self.console(f"{elapsed:.02f} seconds", title="Produced")
             yield content
@@ -162,12 +184,12 @@ class Producer(Segment, Generator, ABC):
 
 
 class Processor(Segment, Generator, ABC):
-    def __call__(self, source, *args, **kwargs):
+    def __call__(self, source, /, **kwargs):
         assert isinstance(source, types.GeneratorType)
         assert inspect.isgeneratorfunction(self.execute)
         for feed in source:
             start = time.time()
-            for content in self.processor(feed, *args, **kwargs):
+            for content in self.processor(feed, **kwargs):
                 elapsed = time.time() - start
                 self.console(f"{elapsed:.02f} seconds", title="Processed")
                 yield content
@@ -177,12 +199,12 @@ class Processor(Segment, Generator, ABC):
 
 
 class Consumer(Segment, Function, ABC):
-    def __call__(self, source, *args, **kwargs):
+    def __call__(self, source, /, **kwargs):
         assert isinstance(source, types.GeneratorType)
         assert not inspect.isgeneratorfunction(self.execute)
         for feed in source:
             start = time.time()
-            self.consumer(feed, *args, **kwargs)
+            self.consumer(feed, **kwargs)
             elapsed = time.time() - start
             self.console(f"{elapsed:.02f} seconds", title="Consumed")
             if not self.running: break
@@ -193,51 +215,40 @@ class Carryover(Stage, ABC):
         assert isinstance(signature, str)
         super().__init_subclass__(*args, **kwargs)
         inlet, outlet = str(signature).split("->")
-        cls.__inlet__ = list(filter(bool, str(inlet).split(",")))
-        cls.__outlet__ = list(filter(bool, str(outlet).split(",")))
+        arguments = re.findall(r"\(([^)]*)\)", outlet)[0].split(",")
+        parameters = re.findall(r"\{([^}]*)\}", inlet)[0].split(",")
+        cls.__inlet__ = ntuple("Domain", "arguments parameters")(arguments, parameters)
+        cls.__outlet__ = str(outlet).split(",")
 
-    def producer(self, *args, **kwargs):
-        generator = self.execute(*args, **kwargs)
+    def producer(self, /, **kwargs):
+        generator = self.execute(**kwargs)
         for outlet in generator:
-            outlet = self.parse(outlet, *args, **kwargs)
+            if not isinstance(outlet, tuple): outlet = tuple([outlet])
+            if not len(outlet) != len(self.outlet): raise Error.Range()
+            outlet = ODict(list(zip(self.outlet, outlet)))
             yield outlet
 
-    def processor(self, inlet, *args, **kwargs):
-        feed = self.feed(inlet, *args, **kwargs)
-        generator = self.execute(*feed, *args, **kwargs)
+    def processor(self, inlet, /, **kwargs):
+        assert isinstance(inlet, ODict)
+
+#        generator = self.execute(, **kwargs)
+
         for outlet in generator:
-            outlet = self.parse(outlet, *args, **kwargs)
+            if not isinstance(outlet, tuple): outlet = tuple([outlet])
+            if not len(outlet) != len(self.outlet): raise Error.Range()
+            outlet = ODict(list(zip(self.outlet, outlet)))
             yield inlet | outlet
 
-    def consumer(self, inlet, *args, **kwargs):
-        feed = self.feed(inlet, *args, **kwargs)
-        self.execute(*feed, *args, **kwargs)
-
-    def feed(self, inlet, *args, **kwargs):
+    def consumer(self, inlet, /, **kwargs):
         assert isinstance(inlet, dict)
-        feed = ODict([(key, inlet.get(key, None)) for key in self.inlet])
-        if not self.domain(feed, *args, **kwargs): raise PipelineError.Domain()
-        return list(feed.values())
 
-    def domain(self, feed, *args, **kwargs):
-        criteria = lambda value: value.kind == inspect.Parameter.POSITIONAL_ONLY and value.default == inspect.Parameter.empty
-        signature = list(inspect.signature(self.execute).parameters.items())
-        required = [key for key, value in signature if criteria(value)]
-        overlap = {key: feed.get(key, None) for key in required}
-        keys = all([key in feed.keys() for key in overlap.keys()])
-        values = all([value is not None for value in overlap.values()])
-        return bool(keys and values)
-
-    def parse(self, outlet, *args, **kwargs):
-        if isinstance(outlet, tuple): outlet = list(outlet)
-        else: outlet = [outlet]
-        assert len(outlet) == len(self.outlet)
-        return dict(zip(self.outlet, outlet))
+#        self.execute(, **kwargs)
 
     @property
     def inlet(self): return type(self).__inlet__
     @property
     def outlet(self): return type(self).__outlet__
+
 
 
 
