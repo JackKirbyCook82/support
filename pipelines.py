@@ -104,7 +104,7 @@ class Stage(Logging, ABC):
 
     @property
     def parameters(self):
-        keyword = lambda value: value.kind == inspect.Parameter.KEYWORD_ONLY and value.kind != inspect.Parameter.VAR_KEYWORD
+        keyword = lambda value: value.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD and value.kind != inspect.Parameter.VAR_KEYWORD
         return [key for key, value in self.signature.items() if keyword(value)]
 
     @abstractmethod
@@ -138,14 +138,16 @@ class Segment(Stage, ABC):
         self.__mutex = RLock()
 
     def producer(self, /, **kwargs):
-        for outlet in self.execute(**kwargs):
+        generator = self.execute(**kwargs)
+        for outlet in generator:
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
             yield outlet
 
     def processor(self, inlet, /, **kwargs):
         assert isinstance(inlet, tuple)
         if len(inlet) != len(self.arguments): raise Error.Argument()
-        for outlet in self.execute(*inlet, **kwargs):
+        generator = self.execute(*inlet, **kwargs)
+        for outlet in generator:
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
             yield outlet
 
@@ -215,8 +217,10 @@ class Carryover(Stage, ABC):
         assert isinstance(signature, str)
         super().__init_subclass__(*args, **kwargs)
         inlet, outlet = str(signature).split("->")
-        arguments = re.findall(r"\(([^)]*)\)", outlet)[0].split(",")
-        parameters = re.findall(r"\{([^}]*)\}", inlet)[0].split(",")
+        arguments = re.findall(r"\(([^)]*)\)", inlet)
+        parameters = re.findall(r"\{([^}]*)\}", inlet)
+        arguments = arguments[0].split(",") if bool(arguments) else []
+        parameters = parameters[0].split(",") if bool(parameters) else []
         cls.__inlet__ = ntuple("Domain", "arguments parameters")(arguments, parameters)
         cls.__outlet__ = str(outlet).split(",")
 
@@ -224,25 +228,36 @@ class Carryover(Stage, ABC):
         generator = self.execute(**kwargs)
         for outlet in generator:
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
-            if not len(outlet) != len(self.outlet): raise Error.Range()
+            if len(outlet) != len(self.outlet): raise Error.Range()
             outlet = ODict(list(zip(self.outlet, outlet)))
             yield outlet
 
     def processor(self, inlet, /, **kwargs):
         assert isinstance(inlet, ODict)
-
-#        generator = self.execute(, **kwargs)
-
+        arguments = ODict([(argument, inlet.get(argument, None)) for argument in self.inlet.arguments])
+        parameters = ODict([(parameter, inlet.get(parameter, None)) for parameter in self.inlet.parameters])
+        if any([isinstance(argument, types.NoneType) for argument in arguments.values()]): raise Error.Domain()
+        if any([isinstance(parameter, types.NoneType) for parameter in parameters.values()]): raise Error.Domain()
+        if len(arguments) != len(self.arguments): raise Error.Argument()
+        if len(parameters) > len(self.parameters): raise Error.Parameter()
+        arguments, parameters = list(arguments.values()), dict(parameters.items())
+        generator = self.execute(*arguments, **parameters, **kwargs)
         for outlet in generator:
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
-            if not len(outlet) != len(self.outlet): raise Error.Range()
+            if len(outlet) != len(self.outlet): raise Error.Range()
             outlet = ODict(list(zip(self.outlet, outlet)))
             yield inlet | outlet
 
     def consumer(self, inlet, /, **kwargs):
         assert isinstance(inlet, dict)
-
-#        self.execute(, **kwargs)
+        arguments = ODict([(argument, inlet.get(argument, None)) for argument in self.inlet.arguments])
+        parameters = ODict([(parameter, inlet.get(parameter, None)) for parameter in self.inlet.parameters])
+        if any([isinstance(argument, types.NoneType) for argument in arguments.values()]): raise Error.Domain()
+        if any([isinstance(parameter, types.NoneType) for parameter in parameters.values()]): raise Error.Domain()
+        if len(arguments) != len(self.arguments): raise Error.Argument()
+        if len(parameters) != len(self.parameters): raise Error.Parameter()
+        arguments, parameters = list(arguments.values()), dict(parameters.items())
+        self.execute(*arguments, **parameters, **kwargs)
 
     @property
     def inlet(self): return type(self).__inlet__

@@ -6,6 +6,7 @@ Created on Mon Oct 14 2024
 
 """
 
+import types
 import inspect
 from enum import Enum
 from numbers import Number
@@ -152,6 +153,7 @@ class QueryBase(ABC):
         return contents[attr].value
 
     def __eq__(self, other):
+        if isinstance(other, types.NoneType): return False
         assert type(other) is type(self) and list(type(self)) == list(type(other))
         return all([primary == secondary for primary, secondary in zip(self, other)])
 
