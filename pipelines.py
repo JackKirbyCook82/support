@@ -50,8 +50,8 @@ class OpenPipeline(Pipeline):
         if isinstance(other, Processor): return OpenPipeline(self.source, self.processors + [other])
         else: return ClosedPipeline(self.source, self.processors, other)
 
-    def __call__(self, /, **kwargs):
-        source = self.source(**kwargs)
+    def __call__(self, *args, **kwargs):
+        source = self.source(*args, **kwargs)
         function = lambda lead, lag: lag(lead, **kwargs)
         generator = reduce(function, self.processors, source)
         yield from generator
@@ -71,8 +71,8 @@ class ClosedPipeline(Pipeline):
         self.__processors = processors
         self.__source = source
 
-    def __call__(self, /, **kwargs):
-        source = self.source(**kwargs)
+    def __call__(self, *args, **kwargs):
+        source = self.source(*args, **kwargs)
         function = lambda lead, lag: lag(lead, **kwargs)
         generator = reduce(function, self.processors, source)
         self.destination(generator, **kwargs)
@@ -108,7 +108,7 @@ class Stage(Logging, ABC):
         return [key for key, value in self.signature.items() if keyword(value)]
 
     @abstractmethod
-    def execute(self, /, **kwargs): pass
+    def execute(self, *args, **kwargs): pass
 
 
 class Generator(Stage, ABC):
@@ -137,8 +137,8 @@ class Segment(Stage, ABC):
         self.__running = True
         self.__mutex = RLock()
 
-    def producer(self, /, **kwargs):
-        generator = self.execute(**kwargs)
+    def producer(self, *args, **kwargs):
+        generator = self.execute(*args, **kwargs)
         for outlet in generator:
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
             yield outlet
@@ -174,10 +174,10 @@ class Producer(Segment, Generator, ABC):
         if isinstance(other, Processor): return OpenPipeline(self, [other])
         else: return ClosedPipeline(self, [], other)
 
-    def __call__(self, /, **kwargs):
+    def __call__(self, *args, **kwargs):
         assert inspect.isgeneratorfunction(self.execute)
         start = time.time()
-        for content in self.producer(**kwargs):
+        for content in self.producer(*args, **kwargs):
             elapsed = time.time() - start
             self.console(f"{elapsed:.02f} seconds", title="Produced")
             yield content
@@ -224,8 +224,8 @@ class Carryover(Stage, ABC):
         cls.__inlet__ = ntuple("Domain", "arguments parameters")(arguments, parameters)
         cls.__outlet__ = str(outlet).split(",")
 
-    def producer(self, /, **kwargs):
-        generator = self.execute(**kwargs)
+    def producer(self, *args, **kwargs):
+        generator = self.execute(*args, **kwargs)
         for outlet in generator:
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
             if len(outlet) != len(self.outlet): raise Error.Range()
