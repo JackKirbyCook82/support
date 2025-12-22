@@ -103,17 +103,17 @@ class RegistryMeta(Meta):
 class AttributeMeta(Meta):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        if not any([isinstance(base, AttributeMeta) for base in bases]): cls.root = cls
+        if not any([isinstance(base, AttributeMeta) for base in bases]): cls.source = cls
         attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
         attributes = list(filter(lambda attribute: attribute is not None, attributes))
         assert all([isinstance(attribute, str) for attribute in attributes])
-        for attribute in attributes: setattr(cls.root, attribute, cls)
-        if bool(kwargs.get("root", False)): cls.root = cls
+        for attribute in attributes: setattr(cls.source, attribute, cls)
+        if bool(kwargs.get("source", False)): cls.source = cls
 
     @property
-    def root(cls): return cls.__root__
-    @root.setter
-    def root(cls, root): cls.__root__ = root
+    def source(cls): return cls.__source__
+    @source.setter
+    def source(cls, source): cls.__source__ = source
 
 
 class ParameterMeta(Meta):
