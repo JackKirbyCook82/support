@@ -72,22 +72,45 @@ class FieldEnum(FieldData, datatype=Enum, dataparams={"variable": None}):
     def string(value, *args, variable, **kwargs): return str(variable(value))
 
 
+class FieldError(Exception): pass
+class EmptyFieldError(FieldError): pass
+class DifferentFieldError(FieldError): pass
+
+class EmptyFieldComparisonError(EmptyFieldError): pass
+class EmptyFieldEquatingError(EmptyFieldError): pass
+class EmptyFieldEncodingError(EmptyFieldError): pass
+class EmptyFieldFormattingError(EmptyFieldError): pass
+
+class DifferentFieldComparisonError(EmptyFieldError): pass
+class DifferentFieldEquatingError(EmptyFieldError): pass
+class DifferentFieldEncodingError(EmptyFieldError): pass
+class DifferentFieldFormattingError(EmptyFieldError): pass
+
+
 @total_ordering
 class FieldBase(ABC):
+    def __bool__(self): return self.value is not None
     def __init__(self, name, value, parameters):
         self.__parameters = parameters
         self.__value = value
         self.__name = name
 
-    def __hash__(self): return self.encode(self.value, **self.parameters)
-    def __str__(self): return self.string(self.value, **self.parameters)
+    def __hash__(self):
+        if not self: raise EmptyFieldEncodingError()
+        return self.encode(self.value, **self.parameters)
+
+    def __str__(self):
+        if not self: raise EmptyFieldFormattingError()
+        return self.string(self.value, **self.parameters)
 
     def __eq__(self, other):
-        assert type(other) == type(self)
+        if type(self) != type(other): raise DifferentFieldEquatingError()
+        if not self or other: raise EmptyFieldEquatingError()
         return self.value == other.value
 
     def __lt__(self, other):
-        assert type(other) == type(self)
+        if not type(self) != type(other): raise DifferentFieldComparisonError()
+        if not self or other: raise EmptyFieldComparisonError()
         return self.value < other.value
 
     @staticmethod
@@ -126,7 +149,7 @@ class Field(ABCMeta):
         return instance
 
     def __call__(cls, datavalue):
-        assert isinstance(datavalue, cls.datatype)
+        assert isinstance(datavalue, (cls.datatype, types.NoneType))
         instance = super(Field, cls).__call__(cls.dataname, datavalue, cls.dataparams)
         return instance
 
@@ -143,8 +166,8 @@ class QueryBase(ABC):
         self.__contents = tuple(contents)
 
     def __iter__(self): return iter(ODict([(content.name, content.value) for content in self.contents]).items())
+    def __str__(self): return str(self.delimiter).join([str(content) for content in self.contents]).rstrip(self.delimiter)
     def __hash__(self): return hash(tuple([hash(content) for content in self.contents]))
-    def __str__(self): return str(self.delimiter).join([str(content) for content in self.contents])
 
     def __getattr__(self, attr):
         contents = {content.name: content for content in self.contents}
@@ -188,7 +211,7 @@ class Query(ABCMeta):
     def __getitem__(cls, strings):
         assert isinstance(strings, str)
         strings = str(strings).split(cls.delimiter)
-        assert len(strings) == len(cls.datafields)
+        assert len(strings) <= len(cls.datafields)
         mapping = ODict([(name, field[string]) for (name, field), string in zip(cls.datafields.items(), strings)])
         contents = list(mapping.values())
         instance = super(Query, cls).__call__(contents, delimiter=cls.delimiter)
@@ -197,18 +220,18 @@ class Query(ABCMeta):
     def __call__(cls, parameters):
         if isinstance(parameters, str):
             strings = str(parameters).split(cls.delimiter)
-            assert len(strings) == len(cls.datafields)
-            contents = [field[string] for field, string in zip(cls.datafields.values(), strings)]
+            assert len(strings) <= len(cls.datafields)
+            mapping = ODict([(name, field[string]) for (name, field), string in zip(cls.datafields.items(), strings)])
         elif isinstance(parameters, list):
-            assert len(parameters) == len(cls.datafields)
-            contents = [field(value) for field, value in zip(cls.datafields.values(), parameters)]
+            assert len(parameters) <= len(cls.datafields)
+            mapping = ODict([name, field(value)] for (name, field), value in zip(cls.datafields.items(), parameters))
         elif isinstance(parameters, dict):
-            assert len(parameters) >= len(cls.datafields)
-            contents = [field(parameters[name]) for name, field in cls.datafields.items()]
+            mapping = ODict([name, field(parameters.get(name, None))] for name, field in cls.datafields.items())
         elif isinstance(parameters, QueryBase):
-            values = ODict(parameters.items())
-            contents = [field(values[name]) for name, field in cls.datafields.items()]
+            parameters = ODict(parameters.items())
+            mapping = [(name, parameters.get(name, None)) for name, field in cls.datafields.items()]
         else: raise TypeError(type(parameters))
+        contents = list(mapping.values())
         instance = super(Query, cls).__call__(contents, delimiter=cls.delimiter)
         return instance
 
