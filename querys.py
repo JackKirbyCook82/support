@@ -8,7 +8,7 @@ Created on Mon Oct 14 2024
 
 import types
 import inspect
-from enum import Enum
+
 from numbers import Number
 from functools import total_ordering
 from datetime import date as Date
