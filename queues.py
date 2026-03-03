@@ -33,7 +33,7 @@ class QueueMeta(AttributeMeta, ABCMeta):
         cls.__queuetype__ = queuetype
         cls.__datatype__ = datatype
 
-    def __call__(cls, *args, contents=[], capacity=None, **kwargs):
+    def __call__(cls, *args, contents, capacity=None, **kwargs):
         assert all([cls.queuetype is not None, cls.datatype is not None])
         data = cls.datatype(maxsize=capacity if capacity is not None else 0)
         instance = super(QueueMeta, cls).__call__(*args, data=data, **kwargs)
@@ -69,8 +69,6 @@ class Queue(ABC, metaclass=QueueMeta):
     def timeout(self): return self.__timeout
     @property
     def data(self): return self.__data
-    @property
-    def name(self): return self.__name
 
 
 class StandardQueue(Queue, ABC):
@@ -115,13 +113,13 @@ class Process(Logging, ABC):
         self.__feed = feed
 
     @abstractmethod
-    def execute(self, /, **kwargs): pass
+    def execute(self, *args, **kwargs): pass
     @property
     def feed(self): return self.__feed
 
 
 class Dequeuer(Process, title="Dequeued"):
-    def execute(self, /, **kwargs):
+    def execute(self, *args, **kwargs):
         if not bool(self.feed): return
         while bool(self.feed):
             content = self.feed.read(**kwargs)
@@ -130,7 +128,7 @@ class Dequeuer(Process, title="Dequeued"):
 
 
 class Requeuer(Process, title="Requeued"):
-    def execute(self, contents, /, **kwargs):
+    def execute(self, contents, *args, **kwargs):
         contents = list(contents) if isinstance(contents, list) else [contents]
         if not bool(contents): return
         for content in list(contents):

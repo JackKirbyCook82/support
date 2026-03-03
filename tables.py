@@ -22,7 +22,7 @@ __license__ = "MIT License"
 
 
 class Header(Naming, fields=["index", "columns"]):
-    def __new__(cls, *args, index=[], columns=[], stacking=None, **kwargs):
+    def __new__(cls, *args, index, columns, stacking=None, **kwargs):
         if bool(stacking):
             generator = lambda value: product([value], stacking.layers) if value in stacking.columns else product([value], [""])
             columns = [value for key in columns for value in generator(key)]
@@ -36,7 +36,7 @@ class Header(Naming, fields=["index", "columns"]):
 class Layout(Naming, fields=["width", "space", "columns", "rows"]): pass
 class Stacking(Naming, fields=["axis", "columns", "layers"]): pass
 class Renderer(Naming, fields=["formatters", "layout", "order"]):
-    def __new__(cls, *args, layout={}, order=[], stacking=None, **kwargs):
+    def __new__(cls, *args, layout, order, stacking=None, **kwargs):
         split = lambda contents: iter(str(contents).split(" ")) if isinstance(contents, str) else iter(contents)
         formatters = {key: value for keys, value in kwargs.get("formatters", {}).items() for key in split(keys)}
         if bool(stacking):
@@ -52,7 +52,7 @@ class Renderer(Naming, fields=["formatters", "layout", "order"]):
         boundary = str("=") * int(self.layout.width)
         formatters = {"formatters": self.formatters}
         parameters = formatters | numbers | layout
-        string = dataframe[self.order].to_string(**parameters, show_dimensions=True)
+        string = dataframe[list(self.order)].to_string(**parameters, show_dimensions=True)
         strings = [boundary, string, boundary] if bool(string) else []
         string = ("\n".join(strings) + "\n") if bool(strings) else ""
         return string
@@ -203,14 +203,14 @@ class Process(Sizing, Emptying, Partition, Logging, ABC):
         self.__table = table
 
     @abstractmethod
-    def execute(self, /, **kwargs): pass
+    def execute(self, *args, **kwargs): pass
 
     @property
     def table(self): return self.__table
 
 
 class Routine(Process, ABC):
-    def execute(self, /, **kwargs):
+    def execute(self, *args, **kwargs):
         if not bool(self.table): return
         self.routine(**kwargs)
 
@@ -219,7 +219,7 @@ class Routine(Process, ABC):
 
 
 class Reader(Process, ABC):
-    def execute(self, /, **kwargs):
+    def execute(self, *args, **kwargs):
         if not bool(self.table): return
         dataframe = self.read(**kwargs)
         assert isinstance(dataframe, (pd.DataFrame, types.NoneType))
@@ -231,7 +231,7 @@ class Reader(Process, ABC):
 
 
 class Writer(Process, ABC):
-    def execute(self, contents, /, **kwargs):
+    def execute(self, contents, *args, **kwargs):
         assert isinstance(contents, (pd.DataFrame, types.NoneType))
         if self.empty(contents): return
         self.write(contents, **kwargs)

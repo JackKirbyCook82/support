@@ -23,12 +23,12 @@ class Meta(ABCMeta):
         except TypeError: return super(Meta, mcs).__init_subclass__()
 
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        try: return super(Meta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+        try: return super(Meta, mcs).__new__(mcs, name, bases, attrs, **kwargs)
         except TypeError: return super(Meta, mcs).__new__(mcs, name, bases, attrs)
 
     def __init__(cls, *args, **kwargs):
         try: super(Meta, cls).__init__(*args, **kwargs)
-        except TypeError: super(Meta, cls).__init__()
+        except TypeError: super(Meta, cls).__init__(cls)
 
 
 class SingletonMeta(Meta):
@@ -52,7 +52,7 @@ class TreeMeta(Meta):
         cls = super(TreeMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
         return cls
 
-    def __init__(cls, name, bases, attrs, *args, dependents=[], **kwargs):
+    def __init__(cls, name, bases, attrs, *args, dependents, **kwargs):
         function = lambda value: type(value) is TreeMeta or issubclass(type(value), TreeMeta)
         assert isinstance(dependents, list)
         assert all([function(child) for child in dependents])

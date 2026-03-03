@@ -6,7 +6,6 @@ Created on Mon Oct 14 2024
 
 """
 
-import time
 import types
 import logging
 import numpy as np
@@ -19,7 +18,7 @@ from support.decorators import Dispatchers
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Mixin", "Naming", "Logging", "Emptying", "Memory", "Sizing", "Partition", "Publisher", "Subscriber"]
+__all__ = ["Mixin", "Naming", "Counting", "Logging", "Emptying", "Memory", "Sizing", "Partition", "Publisher", "Subscriber"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)

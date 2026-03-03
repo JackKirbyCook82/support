@@ -165,27 +165,33 @@ class Plot(ABC, metaclass=VariablesMeta):
 
 
 class Hist2D(Plot, projection=None, variables=["x", "y"]):
-    def execute(self, ax, *args, x, y, **kwargs):
+    def execute(self, ax, *args, **kwargs):
+        x, y = kwargs["x"], kwargs["y"]
         ax.hist(y, bins=x)
 
 class Line2D(Plot, projection=None, variables=["x", "y"]):
-    def execute(self, ax, *args, x, y, **kwargs):
+    def execute(self, ax, *args, **kwargs):
+        x, y = kwargs["x"], kwargs["y"]
         ax.plot(x, y)
 
 class Scatter2D(Plot, projection=None, variables=["x", "y", "s"]):
-    def execute(self, ax, *args, x, y, s, **kwargs):
+    def execute(self, ax, *args, **kwargs):
+        x, y, s = kwargs["x"], kwargs["y"], kwargs["s"]
         ax.scatter(x, y, s=s)
 
 class Line3D(Plot, projection="3d", variables=["x", "y", "z"]):
-    def execute(self, ax, *args, x, y, z, **kwargs):
+    def execute(self, ax, *args, **kwargs):
+        x, y, z = kwargs["x"], kwargs["y"], kwargs["z"]
         ax.plot(x, y, z)
 
 class Scatter3D(Plot, projection="3d", variables=["x", "y", "z", "s"]):
-    def execute(self, ax, *args, x, y, z, s, **kwargs):
+    def execute(self, ax, *args, **kwargs):
+        x, y, z, s = kwargs["x"], kwargs["y"], kwargs["z"], kwargs["s"]
         ax.scatter(x, y, z, s=s)
 
 class Surface3D(Plot, projection="3d", variables=["xx", "yy", "zz"]):
-    def execute(self, ax, *args, xx, yy, zz, **kwargs):
+    def execute(self, ax, *args, **kwargs):
+        xx, yy, zz = kwargs["xx"], kwargs["yy"], kwargs["zz"]
         ax.plot_surface(xx, yy, zz)
 
 

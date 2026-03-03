@@ -29,7 +29,7 @@ class FileLock(dict, metaclass=SingletonMeta):
 
 
 class FileMeta(ABCMeta):
-    def __call__(cls, *args, order=[], **kwargs):
+    def __call__(cls, *args, order, **kwargs):
         assert isinstance(order, list) and bool(order)
         split = lambda contents: iter(str(contents).split(" ")) if isinstance(contents, str) else iter(contents)
         formatters = {key: value for keys, value in kwargs.pop("formatters", {}).items() for key in split(keys) if key in order}
@@ -62,20 +62,20 @@ class File(ABC, metaclass=FileMeta):
         self.__order = order
         self.__mutex = mutex
 
-    def __bool__(self): return bool(os.listdir(os.path.join(self.repository, self.folder)))
-    def __len__(self): return len(os.listdir(os.path.join(self.repository, self.folder)))
+    def __bool__(self): return bool(os.listdir(os.path.join(self.repository, str(self.folder))))
+    def __len__(self): return len(os.listdir(os.path.join(self.repository, str(self.folder))))
     def __iter__(self): return iter(self.directory)
 
     def read(self, *args, file, mode="r", **kwargs):
-        directory = os.path.join(self.repository, self.folder)
-        file = os.path.join(directory, file)
-        if not os.path.exists(file): return
+        directory = os.path.join(self.repository, str(self.folder))
+        file = os.path.join(directory, str(file))
+        if not os.path.exists(file): return None
         with self.mutex[file]: content = self.load(*args, file=file, mode=mode, **kwargs)
         return content
 
     def write(self, content, *args, file, mode, **kwargs):
-        directory = os.path.join(self.repository, self.folder)
-        file = os.path.join(directory, file)
+        directory = os.path.join(self.repository, str(self.folder))
+        file = os.path.join(directory, str(file))
         with self.mutex[file]: self.save(content, *args, file=file, mode=mode, **kwargs)
         return file
 
@@ -95,12 +95,10 @@ class File(ABC, metaclass=FileMeta):
             try: dataframe[column] = dataframe[column].dt.strftime(dateformat)
             except AttributeError: dataframe[column] = dataframe[column].apply(lambda value: value.strftime(dateformat))
         columns = [column for column in list(self.order if bool(self.order) else dataframe.columns) if column in dataframe.columns]
-        dataframe[columns].to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
+        dataframe[list(columns)].to_csv(file, mode=mode, index=False, header=not os.path.isfile(file) or mode == "w")
 
     @property
-    def directory(self):
-        directory = os.path.join(self.repository, self.folder)
-        return list(os.listdir(directory))
+    def directory(self): return list(os.listdir(os.path.join(self.repository, str(self.folder))))
 
     @property
     def repository(self): return self.__repository

@@ -145,7 +145,7 @@ class Segment(Stage, ABC):
 
     def processor(self, inlet, /, **kwargs):
         assert isinstance(inlet, tuple)
-        if len(inlet) != len(self.arguments): raise Error.Argument()
+        if len(inlet) != len(self.arguments): raise ArgumentError()
         generator = self.execute(*inlet, **kwargs)
         for outlet in generator:
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
@@ -153,7 +153,7 @@ class Segment(Stage, ABC):
 
     def consumer(self, inlet, /, **kwargs):
         assert isinstance(inlet, tuple)
-        if len(inlet) != len(self.arguments): raise Error.Argument()
+        if len(inlet) != len(self.arguments): raise ArgumentError()
         self.execute(*inlet, **kwargs)
 
     def cease(self):
@@ -228,7 +228,7 @@ class Carryover(Stage, ABC):
         generator = self.execute(*args, **kwargs)
         for outlet in generator:
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
-            if len(outlet) != len(self.outlet): raise Error.Range()
+            if len(outlet) != len(self.outlet): raise RangeError()
             outlet = ODict(list(zip(self.outlet, outlet)))
             yield outlet
 
@@ -236,15 +236,15 @@ class Carryover(Stage, ABC):
         assert isinstance(inlet, ODict)
         arguments = ODict([(argument, inlet.get(argument, None)) for argument in self.inlet.arguments])
         parameters = ODict([(parameter, inlet.get(parameter, None)) for parameter in self.inlet.parameters])
-        if any([isinstance(argument, types.NoneType) for argument in arguments.values()]): raise Error.Domain()
-        if any([isinstance(parameter, types.NoneType) for parameter in parameters.values()]): raise Error.Domain()
-        if len(arguments) != len(self.arguments): raise Error.Argument()
-        if len(parameters) > len(self.parameters): raise Error.Parameter()
+        if any([isinstance(argument, types.NoneType) for argument in arguments.values()]): raise DomainError()
+        if any([isinstance(parameter, types.NoneType) for parameter in parameters.values()]): raise DomainError()
+        if len(arguments) != len(self.arguments): raise ArgumentError()
+        if len(parameters) > len(self.parameters): raise ParameterError()
         arguments, parameters = list(arguments.values()), dict(parameters.items())
         generator = self.execute(*arguments, **parameters, **kwargs)
         for outlet in generator:
             if not isinstance(outlet, tuple): outlet = tuple([outlet])
-            if len(outlet) != len(self.outlet): raise Error.Range()
+            if len(outlet) != len(self.outlet): raise RangeError()
             outlet = ODict(list(zip(self.outlet, outlet)))
             yield inlet | outlet
 
@@ -252,10 +252,10 @@ class Carryover(Stage, ABC):
         assert isinstance(inlet, dict)
         arguments = ODict([(argument, inlet.get(argument, None)) for argument in self.inlet.arguments])
         parameters = ODict([(parameter, inlet.get(parameter, None)) for parameter in self.inlet.parameters])
-        if any([isinstance(argument, types.NoneType) for argument in arguments.values()]): raise Error.Domain()
-        if any([isinstance(parameter, types.NoneType) for parameter in parameters.values()]): raise Error.Domain()
-        if len(arguments) != len(self.arguments): raise Error.Argument()
-        if len(parameters) != len(self.parameters): raise Error.Parameter()
+        if any([isinstance(argument, types.NoneType) for argument in arguments.values()]): raise DomainError()
+        if any([isinstance(parameter, types.NoneType) for parameter in parameters.values()]): raise DomainError()
+        if len(arguments) != len(self.arguments): raise ArgumentError()
+        if len(parameters) != len(self.parameters): raise ParameterError()
         arguments, parameters = list(arguments.values()), dict(parameters.items())
         self.execute(*arguments, **parameters, **kwargs)
 

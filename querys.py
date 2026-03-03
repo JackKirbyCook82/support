@@ -9,6 +9,7 @@ Created on Mon Oct 14 2024
 import types
 import inspect
 
+from enum import Enum
 from numbers import Number
 from functools import total_ordering
 from datetime import date as Date
@@ -36,7 +37,7 @@ class FieldData(ABC):
     def encode(value, *args, **kwargs): pass
     @staticmethod
     @abstractmethod
-    def string(value, *args, **kwargs): pass
+    def string(value, *args, variable, **kwargs): pass
 
 
 class FieldString(FieldData, datatype=str, dataparams={}):
@@ -49,27 +50,27 @@ class FieldString(FieldData, datatype=str, dataparams={}):
 
 class FieldNumber(FieldData, datatype=Number, dataparams={"digits": 2}):
     @staticmethod
-    def parse(string, *args, digits, **kwargs): return round(string, digits)
+    def parse(string, *args, **kwargs): return round(string, kwargs["digits"])
     @staticmethod
     def encode(value, *args, **kwargs): return hash(value)
     @staticmethod
-    def string(value, *args, digits, **kwargs): return str(round(value, digits))
+    def string(value, *args, **kwargs): return str(round(value, kwargs["digits"]))
 
 class FieldDate(FieldData, datatype=Date, dataparams={"formatting": "%Y%m%d"}):
     @staticmethod
-    def parse(string, *args, formatting, **kwargs): return Datetime.strptime(string, formatting)
+    def parse(string, *args, **kwargs): return Datetime.strptime(string, kwargs["formatting"])
     @staticmethod
     def encode(value, *args, **kwargs): return hash(Datetime(year=value.year, month=value.month, day=value.day).timestamp())
     @staticmethod
-    def string(value, *args, formatting, **kwargs): return str(value.strftime(formatting))
+    def string(value, *args, **kwargs): return str(value.strftime(kwargs["formatting"]))
 
 class FieldEnum(FieldData, datatype=Enum, dataparams={"variable": None}):
     @staticmethod
-    def parse(string, *args, variable, **kwargs): return variable(string)
+    def parse(string, *args, **kwargs): return kwargs["variable"](string)
     @staticmethod
-    def encode(value, *args, variable, **kwargs): return hash(variable(value))
+    def encode(value, *args, **kwargs): return hash(kwargs["variable"](value))
     @staticmethod
-    def string(value, *args, variable, **kwargs): return str(variable(value))
+    def string(value, *args, **kwargs): return str(kwargs["variable"](value))
 
 
 class FieldError(Exception): pass
@@ -136,8 +137,10 @@ class Field(ABCMeta):
 
     def __str__(cls): return str(cls.dataname)
     def __init__(cls, dataname, datatype, **dataparams):
-        assert dataname == cls.__name__ and inspect.isclass(datatype) and datatype is cls.datatype
-        cls.dataparams = {key: dataparams.get(key, default) for key, default in cls.dataparams.items()}
+        fielddata = {subclass.datatype: subclass for subclass in FieldData.__subclasses__()}[datatype]
+        super(Field, cls).__init__(dataname, (fielddata, FieldBase, ABC), {})
+        assert dataname == cls.__name__ and inspect.isclass(datatype) and datatype is getattr(cls, "datatype")
+        cls.dataparams = {key: dataparams.get(key, default) for key, default in getattr(cls, "dataparams").items()}
         cls.datatype = datatype
         cls.dataname = dataname
 
@@ -195,13 +198,14 @@ class QueryBase(ABC):
 
 
 class Query(ABCMeta):
-    def __new__(mcs, name, *args, bases=[], fields=[], **kwargs):
+    def __new__(mcs, name, *args, bases, fields, **kwargs):
         bases = tuple([QueryBase] + list(bases) + [ABC])
         cls = super(Query, mcs).__new__(mcs, name, bases, {})
         return cls
 
     def __iter__(cls): return map(str, cls.datafields)
-    def __init__(cls, name, *args, fields=[], delimiter="|", **kwargs):
+    def __init__(cls, name, *args, bases, fields, delimiter="|", **kwargs):
+        super(Query, cls).__init__(name, bases, {})
         assert name == cls.__name__ and isinstance(fields, list)
         assert all([isinstance(field, Field) for field in fields])
         cls.datafields = {str(field): field for field in fields}

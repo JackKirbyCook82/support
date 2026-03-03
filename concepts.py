@@ -103,7 +103,7 @@ class Concept(Enum, metaclass=ConceptMeta):
 
 
 class Concepts(ABCMeta):
-    def __new__(mcs, dataname, datafields, dataparams=set()):
+    def __new__(mcs, dataname, datafields, dataparams):
         cls = super(Concepts, mcs).__new__(mcs, dataname, (Collection, ABC), {})
         return cls
 
@@ -112,10 +112,11 @@ class Concepts(ABCMeta):
     def __hash__(cls): return hash(tuple(cls.datafields))
     def __len__(cls): return len(cls.datafields)
 
-    def __init__(cls, dataname, datafields, dataparams=set()):
+    def __init__(cls, dataname, datafields, dataparams):
         assert bool(dataname == cls.__name__) and isinstance(datafields, list) and isinstance(dataparams, set)
         assert all([isinstance(datafield, str) for datafield in datafields])
         assert all([isinstance(dataparam, str) for dataparam in dataparams])
+        super(Concepts, cls).__init__(dataname, (Collection, ABC), {})
         cls.dataparams = dataparams
         cls.datafields = datafields
         cls.dataname = dataname
