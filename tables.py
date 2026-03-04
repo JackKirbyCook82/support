@@ -114,7 +114,7 @@ class Table(ABC, metaclass=TableMeta):
             self.dataframe.dropna(how="all", inplace=True)
 
     def portray(self, mask):
-        if not bool(self): return
+        if not bool(self): return None
         assert isinstance(mask, pd.Series)
         with self.mutex:
             dataframe = self.dataframe.where(mask, inplace=False)
@@ -122,7 +122,7 @@ class Table(ABC, metaclass=TableMeta):
             return dataframe
 
     def take(self, mask):
-        if not bool(self): return
+        if not bool(self): return None
         assert isinstance(mask, pd.Series)
         with self.mutex:
             dataframe = self.dataframe.where(mask, inplace=False)

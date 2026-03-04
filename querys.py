@@ -120,6 +120,9 @@ class FieldBase(ABC):
     @staticmethod
     @abstractmethod
     def string(value, *args, **kwargs): pass
+    @staticmethod
+    @abstractmethod
+    def parse(string, *args, **kwargs): pass
 
     @property
     def parameters(self): return self.__parameters
@@ -155,10 +158,6 @@ class Field(ABCMeta):
         assert isinstance(datavalue, (cls.datatype, types.NoneType))
         instance = super(Field, cls).__call__(cls.dataname, datavalue, cls.dataparams)
         return instance
-
-    @staticmethod
-    @abstractmethod
-    def parse(string, *args, **kwargs): pass
 
 
 @total_ordering
