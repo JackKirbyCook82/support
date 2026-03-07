@@ -52,13 +52,11 @@ class TreeMeta(Meta):
         cls = super(TreeMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
         return cls
 
-    def __init__(cls, name, bases, attrs, *args, dependents, **kwargs):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
         function = lambda value: type(value) is TreeMeta or issubclass(type(value), TreeMeta)
-        assert isinstance(dependents, list)
-        assert all([function(child) for child in dependents])
         super(TreeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         primary = {str(child): child for child in attrs.values() if function(child)}
-        secondary = {str(child): child for child in list(dependents)}
+        secondary = {str(child): child for child in kwargs.get("dependents", [])}
         cls.__dependents__ = getattr(cls, "__dependents__", {}) | dict(primary) | dict(secondary)
         cls.__key__ = kwargs.get("key", getattr(cls, "__key__", None))
 
