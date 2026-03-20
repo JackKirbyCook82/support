@@ -11,6 +11,7 @@ import time
 import inspect
 import traceback
 import threading
+from abc import ABC, abstractmethod
 
 from support.mixins import Logging
 
@@ -21,7 +22,7 @@ __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Thread(Logging):
+class Thread(Logging, ABC):
     def __bool__(self): return bool(self.active)
     def __init__(self, routine, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -55,6 +56,11 @@ class Thread(Logging):
         if not inspect.isgeneratorfunction(routine): routine(*args, **kwargs)
         else: list(routine(*args, **kwargs))
 
+    @abstractmethod
+    def start(self): pass
+    @abstractmethod
+    def join(self): pass
+
     @property
     def active(self): return self.__active
     @active.setter
@@ -72,11 +78,11 @@ class RoutineThread(Thread, threading.Thread):
         Thread.__init__(self, *args, **kwargs)
         threading.Thread.__init__(self, name=self.name, daemon=False)
 
-    def start(self, *args, **kwargs):
+    def start(self):
 #        self.console(title="Started")
         threading.Thread.start(self)
 
-    def join(self, *args, **kwargs):
+    def join(self):
         threading.Thread.join(self)
 #        self.console(title="Stopped")
 
