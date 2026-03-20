@@ -18,8 +18,8 @@ __logger__ = logging.getLogger(__name__)
 
 
 class Mixin(ABC):
-    def __init_subclass__(cls, *args, **kwargs):
-        try: super().__init_subclass__(*args, **kwargs)
+    def __init_subclass__(cls, **kwargs):
+        try: super().__init_subclass__(**kwargs)
         except TypeError: super().__init_subclass__()
 
     def __new__(cls, *args, **kwargs):
@@ -37,11 +37,11 @@ class Logging(Mixin):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__logger = __logger__
 
-    def console(self, *strings, title):
-        string = ", ".join(list(strings))
-        if not bool(string): string = f"{str(title)}[{str(self.name)}]"
-        else: string = f"{str(title)}[{str(self.name)}]: {str(string)}"
-        self.logger.info(string)
+#    def console(self, *strings, title):
+#        string = ", ".join(list(strings))
+#        if not bool(string): string = f"{str(title)}[{str(self.name)}]"
+#        else: string = f"{str(title)}[{str(self.name)}]: {str(string)}"
+#        self.logger.info(string)
 
     @property
     def logger(self): return self.__logger

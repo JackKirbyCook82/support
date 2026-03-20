@@ -39,15 +39,15 @@ class Thread(Logging):
     def run(self):
         self.active = True
         try:
-            self.console(title="Running")
+#            self.console(title="Running")
             self.process(*self.arguments, **self.parameters)
         except BaseException as error:
             string = str(error.__class__.__name__)
-            self.console(string, title="Error")
+#            self.console(string, title="Error")
             error_type, error_value, error_traceback = sys.exc_info()
             traceback.print_exception(error_type, error_value, error_traceback)
         else:
-            self.console(title="Completed")
+#            self.console(title="Completed")
         self.active = False
 
     def process(self, *args, **kwargs):
@@ -73,12 +73,12 @@ class RoutineThread(Thread, threading.Thread):
         threading.Thread.__init__(self, name=self.name, daemon=False)
 
     def start(self, *args, **kwargs):
-        self.console(title="Started")
+#        self.console(title="Started")
         threading.Thread.start(self)
 
     def join(self, *args, **kwargs):
         threading.Thread.join(self)
-        self.console(title="Stopped")
+#        self.console(title="Stopped")
 
 
 class RepeatingThread(Thread, threading.Thread):
@@ -97,7 +97,7 @@ class RepeatingThread(Thread, threading.Thread):
 
     def cease(self):
         with self.mutex:
-            self.console(title="Ceased")
+#            self.console(title="Ceased")
             self.repeating = False
 
     @property
