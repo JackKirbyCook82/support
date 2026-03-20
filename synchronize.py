@@ -17,7 +17,7 @@ from support.mixins import Logging
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["RoutineThread", "RepeatingThread"]
-__copyright__ = "Copyright 2023, Jack Kirby Cook"
+__copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
@@ -95,7 +95,7 @@ class RepeatingThread(Thread, threading.Thread):
             if self.wait is not None:
                 time.sleep(self.wait)
 
-    def cease(self, *args, **kwargs):
+    def cease(self):
         with self.mutex:
             self.console(title="Ceased")
             self.repeating = False

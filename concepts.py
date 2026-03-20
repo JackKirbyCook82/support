@@ -18,7 +18,7 @@ from collections import OrderedDict as ODict
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["DateRange", "NumRange", "Concept", "Concepts", "Assembly"]
-__copyright__ = "Copyright 2021, Jack Kirby Cook"
+__copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 

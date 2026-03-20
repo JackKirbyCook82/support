@@ -13,7 +13,7 @@ from functools import update_wrapper
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Wrapper", "Decorator", "Dispatchers"]
-__copyright__ = "Copyright 2018, Jack Kirby Cook"
+__copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 

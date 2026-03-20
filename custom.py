@@ -13,7 +13,7 @@ from support.decorators import Dispatchers
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["SliceOrderedDict"]
-__copyright__ = "Copyright 2023, Jack Kirby Cook"
+__copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
@@ -22,38 +22,42 @@ class SliceOrderedDict(OrderedDict):
 
     @Dispatchers.Type(locator=0)
     def pop(self, key, default=None): return super().pop(key, default)
+
     @pop.register(str)
-    def popString(self, key, default=None): return super().pop(key, default)
+    def _(self, key, default=None): return super().pop(key, default)
+
     @pop.register(int)
-    def popInteger(self, index, default=None):
+    def _(self, index, default=None):
         key = list(self.keys())[index]
         return super().pop(key, default)
 
     @Dispatchers.Type(locator=0)
     def get(self, key, default=None): return super().get(key, default)
+
     @pop.register(str)
-    def getString(self, key, default=None): return super().get(key, default)
+    def _(self, key, default=None): return super().get(key, default)
+
     @pop.register(int)
-    def getInteger(self, index, default=None):
+    def _(self, index, default=None):
         key = list(self.keys())[index]
         return super().get(key, default)
 
     @Dispatchers.Type(locator=0)
     def locate(self, key): return super().__getitem__(key)
+
     @locate.register(str)
-    def locateString(self, key): return super().__getitem__(key)
+    def _(self, key): return super().__getitem__(key)
 
     @locate.register(int)
-    def locateInteger(self, index):
+    def _(self, index):
         key = list(self.keys())[index]
         value = self.locate(key)
         return type(self)({key: value})
 
     @locate.register(slice)
-    def locateSlice(self, indexes):
+    def _(self, indexes):
         items = list(self.items())[indexes]
         return type(self)(items)
-
 
 
 

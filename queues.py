@@ -6,100 +6,89 @@ Created on Weds Jul 12 2023
 
 """
 
+import types
 import queue
-from enum import Enum
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.meta import AttributeMeta
-from support.mixins import Logging
+from support.concepts import Assembly
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Queue", "Dequeuer", "Requeuer"]
-__copyright__ = "Copyright 2023, Jack Kirby Cook"
+__all__ = ["Queues"]
+__copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class QueueTypes(Enum): LIFO, FIFO, PIFO = list(range(3))
-class QueueMeta(AttributeMeta, ABCMeta):
-    def __init__(cls, name, bases, attrs, *args, queuetype=None, datatype=None, **kwargs):
-        if not any([type(base) is QueueMeta for base in bases]):
-            super(QueueMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-            return
-        if ABC in bases:
-            return
-        assert all([queuetype is not None, datatype is not None])
-        super(QueueMeta, cls).__init__(name, bases, attrs, *args, attribute=str(queuetype.name), **kwargs)
-        cls.__queuetype__ = queuetype
-        cls.__datatype__ = datatype
+class QueueMeta(ABCMeta):
+    def __init__(cls, *args, **kwargs):
+        super(QueueMeta, cls).__init__(*args, **kwargs)
+        cls.__queuetype__ = kwargs.get("queuetype", getattr(cls, "__queuetype__", None))
 
     def __call__(cls, *args, contents, capacity=None, **kwargs):
-        assert all([cls.queuetype is not None, cls.datatype is not None])
-        data = cls.datatype(maxsize=capacity if capacity is not None else 0)
-        instance = super(QueueMeta, cls).__call__(*args, data=data, **kwargs)
+        assert cls.queuetype is not None
+        assert isinstance(contents, (list, types.NoneType))
+        queuedata = cls.queuetype(maxsize=capacity if capacity is not None else 0)
+        instance = super(QueueMeta, cls).__call__(*args, queuedata=queuedata, **kwargs)
         for content in contents: instance.write(content)
         return instance
 
     @property
     def queuetype(cls): return cls.__queuetype__
-    @property
-    def datatype(cls): return cls.__datatype__
 
 
 class Queue(ABC, metaclass=QueueMeta):
     def __bool__(self): return not bool(self.empty)
     def __len__(self): return int(self.size)
 
-    def __init__(self, *args, data, timeout=None, **kwargs):
+    def __init__(self, *args, queuedata, timeout=None, **kwargs):
+        self.__queuedata = queuedata
         self.__timeout = timeout
-        self.__data = data
 
     @abstractmethod
-    def write(self, content, *args, **kwargs): pass
+    def write(self, content): pass
     @abstractmethod
-    def read(self, *args, **kwargs): pass
+    def read(self): pass
 
     @property
-    def empty(self): return self.data.empty()
+    def empty(self): return self.queuedata.empty()
     @property
-    def size(self): return self.data.qsize()
-    def complete(self): self.data.task_done()
+    def size(self): return self.queuedata.qsize()
+    def complete(self): self.queuedata.task_done()
 
+    @property
+    def queuedata(self): return self.__queuedata
     @property
     def timeout(self): return self.__timeout
-    @property
-    def data(self): return self.__data
 
 
 class StandardQueue(Queue, ABC):
-    def write(self, content, *args, **kwargs):
-        self.data.put(content, timeout=self.timeout)
+    def write(self, content):
+        self.queuedata.put(content, timeout=self.timeout)
 
-    def read(self, *args, **kwargs):
-        content = self.data.get(timeout=self.timeout)
+    def read(self):
+        content = self.queuedata.get(timeout=self.timeout)
         return content
 
 
-class LIFOQueue(StandardQueue, datatype=queue.LifoQueue, queuetype=QueueTypes.LIFO): pass
-class FIFOQueue(StandardQueue, datatype=queue.Queue, queuetype=QueueTypes.FIFO): pass
-class PIFOQueue(Queue, datatype=queue.PriorityQueue, queuetype=QueueTypes.PIFO):
+class LIFOQueue(StandardQueue, queuetype=queue.LifoQueue): pass
+class FIFOQueue(StandardQueue, queuetype=queue.Queue): pass
+class PIFOQueue(Queue, queuetype=queue.PriorityQueue):
     def __init__(self, *args, priority, ascending, **kwargs):
         assert callable(priority) and isinstance(ascending, bool)
         super().__init__(*args, **kwargs)
         self.__ascending = ascending
         self.__priority = priority
 
-    def write(self, content, **kwargs):
+    def write(self, content):
         priority = self.priority(content)
         assert isinstance(priority, int)
         multiplier = (int(not self.ascending) * 2) - 1
-        couple = (multiplier * priority, content)
-        self.data.put(couple, timeout=self.timeout)
+        namespace = types.SimpleNamespace(content=content, priority=priority * multiplier)
+        self.queuedata.put(namespace, timeout=self.timeout)
 
-    def read(self, **kwargs):
-        couple = self.data.get(timeout=self.timeout)
-        priority, content = couple
-        return content
+    def read(self):
+        namespace = self.queuedata.get(timeout=self.timeout)
+        return namespace.content
 
     @property
     def ascending(self): return self.__ascending
@@ -107,35 +96,8 @@ class PIFOQueue(Queue, datatype=queue.PriorityQueue, queuetype=QueueTypes.PIFO):
     def priority(self): return self.__priority
 
 
-class Process(Logging, ABC):
-    def __init__(self, *args, feed, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__feed = feed
-
-    @abstractmethod
-    def execute(self, *args, **kwargs): pass
-    @property
-    def feed(self): return self.__feed
-
-
-class Dequeuer(Process, title="Dequeued"):
-    def execute(self, *args, **kwargs):
-        if not bool(self.feed): return
-        while bool(self.feed):
-            content = self.feed.read(**kwargs)
-            yield content
-            self.feed.complete()
-
-
-class Requeuer(Process, title="Requeued"):
-    def execute(self, contents, *args, **kwargs):
-        contents = list(contents) if isinstance(contents, list) else [contents]
-        if not bool(contents): return
-        for content in list(contents):
-            self.feed.write(content, **kwargs)
-
-
-
-
-
+class Queues(Assembly):
+    LIFO = LIFOQueue
+    FIFO = FIFOQueue
+    PIFO = PIFOQueue
 

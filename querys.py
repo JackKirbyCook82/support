@@ -8,7 +8,6 @@ Created on Mon Oct 14 2024
 
 import types
 import inspect
-
 from enum import Enum
 from numbers import Number
 from functools import total_ordering
@@ -20,7 +19,7 @@ from collections import OrderedDict as ODict
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Query", "Field"]
-__copyright__ = "Copyright 2021, Jack Kirby Cook"
+__copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
@@ -105,12 +104,12 @@ class FieldBase(ABC):
         return self.string(self.value, **self.parameters)
 
     def __eq__(self, other):
-        if type(self) != type(other): raise DifferentFieldEquatingError()
+        if type(self) is type(other): raise DifferentFieldEquatingError()
         if not self or other: raise EmptyFieldEquatingError()
         return self.value == other.value
 
     def __lt__(self, other):
-        if not type(self) != type(other): raise DifferentFieldComparisonError()
+        if not type(self) is type(other): raise DifferentFieldComparisonError()
         if not self or other: raise EmptyFieldComparisonError()
         return self.value < other.value
 
@@ -202,7 +201,7 @@ class Query(ABCMeta):
         cls = super(Query, mcs).__new__(mcs, name, bases, {})
         return cls
 
-    def __iter__(cls): return map(str, cls.datafields)
+    def __iter__(cls): return iter(cls.datafields.keys())
     def __init__(cls, name, *args, bases, fields, delimiter="|", **kwargs):
         super(Query, cls).__init__(name, bases, {})
         assert name == cls.__name__ and isinstance(fields, list)
