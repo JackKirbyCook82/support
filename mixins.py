@@ -37,11 +37,12 @@ class Logging(Mixin):
         self.__name = kwargs.get("name", self.__class__.__name__)
         self.__logger = __logger__
 
-#    def console(self, *strings, title):
-#        string = ", ".join(list(strings))
-#        if not bool(string): string = f"{str(title)}[{str(self.name)}]"
-#        else: string = f"{str(title)}[{str(self.name)}]: {str(string)}"
-#        self.logger.info(string)
+    def console(self, event, *strings):
+        string = f"{str(event)}: {str(self.name)}"
+        if bool(strings):
+            strings = ", ".join(list(strings))
+            string = ": ".join([string, strings])
+        self.logger.info(string)
 
     @property
     def logger(self): return self.__logger

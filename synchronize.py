@@ -11,7 +11,6 @@ import time
 import inspect
 import traceback
 import threading
-from abc import ABC, abstractmethod
 
 from support.mixins import Logging
 
@@ -22,7 +21,7 @@ __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Thread(Logging, ABC):
+class Thread(Logging):
     def __bool__(self): return bool(self.active)
     def __init__(self, routine, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -40,26 +39,21 @@ class Thread(Logging, ABC):
     def run(self):
         self.active = True
         try:
-#            self.console(title="Running")
+            self.console("Running")
             self.process(*self.arguments, **self.parameters)
         except BaseException as error:
             string = str(error.__class__.__name__)
-#            self.console(string, title="Error")
+            self.console("Error", string)
             error_type, error_value, error_traceback = sys.exc_info()
             traceback.print_exception(error_type, error_value, error_traceback)
         else:
-#            self.console(title="Completed")
+            self.console("Completed")
         self.active = False
 
     def process(self, *args, **kwargs):
         routine = self.routine.__call__ if hasattr(self.routine, "__call__") else self.routine
         if not inspect.isgeneratorfunction(routine): routine(*args, **kwargs)
         else: list(routine(*args, **kwargs))
-
-    @abstractmethod
-    def start(self): pass
-    @abstractmethod
-    def join(self): pass
 
     @property
     def active(self): return self.__active
@@ -79,12 +73,13 @@ class RoutineThread(Thread, threading.Thread):
         threading.Thread.__init__(self, name=self.name, daemon=False)
 
     def start(self):
-#        self.console(title="Started")
+        self.console("Started")
         threading.Thread.start(self)
 
     def join(self):
+        self.console("Idled")
         threading.Thread.join(self)
-#        self.console(title="Stopped")
+        self.console("Stopped")
 
 
 class RepeatingThread(Thread, threading.Thread):
@@ -103,7 +98,7 @@ class RepeatingThread(Thread, threading.Thread):
 
     def cease(self):
         with self.mutex:
-#            self.console(title="Ceased")
+            self.console("Ceased")
             self.repeating = False
 
     @property

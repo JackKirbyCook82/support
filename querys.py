@@ -201,6 +201,7 @@ class Query(ABCMeta):
         cls = super(Query, mcs).__new__(mcs, name, bases, {})
         return cls
 
+    def __str__(cls): return str(cls.dataname)
     def __iter__(cls): return iter(cls.datafields.keys())
     def __init__(cls, name, *args, bases, fields, delimiter="|", **kwargs):
         super(Query, cls).__init__(name, bases, {})
