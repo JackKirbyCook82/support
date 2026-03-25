@@ -6,7 +6,7 @@ Created on Mon Nov 4 2024
 
 """
 
-from collections import namedtuple as ntuple
+from dataclasses import dataclass
 from collections import OrderedDict as ODict
 
 from support.decorators import Dispatchers
@@ -19,7 +19,8 @@ __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-Style = ntuple("Style", "branch terminate run blank")
+@dataclass(frozen=True)
+class Style: branch: str; terminate: str; run: str; blank: str
 class Styles:
     Double = Style("╠══", "╚══", "║  ", "   ")
     Single = Style("├──", "└──", "│  ", "   ")

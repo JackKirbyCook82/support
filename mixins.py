@@ -49,3 +49,14 @@ class Logging(Mixin):
     @property
     def name(self): return self.__name
 
+
+
+
+
+
+
+
+
+
+
+
