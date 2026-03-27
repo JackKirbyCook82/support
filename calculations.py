@@ -9,6 +9,7 @@ Created on Weds 25 2026
 import types
 import inspect
 import pandas as pd
+from abc import ABCMeta
 from dataclasses import dataclass
 from graphlib import TopologicalSorter, CycleError
 
@@ -29,7 +30,7 @@ class Equation:
     def create(cls, variable, function):
         signature = inspect.signature(function).parameters.items()
         arguments = [variable for variable, details in signature if details.kind in (details.POSITIONAL_OR_KEYWORD, details.POSITIONAL_OR_KEYWORD)]
-        parameters = [variable for variable, details in signature if details.kind in details.kind == details.KEYWORD_ONLY]
+        parameters = [variable for variable, details in signature if details.kind == details.KEYWORD_ONLY]
         return cls(variable, function, tuple(arguments), tuple(parameters))
 
 
@@ -39,18 +40,19 @@ class EquationParameterError(EquationError): pass
 class EquationOrderingError(EquationError): pass
 
 
-class CalculationMeta(type):
+class CalculationMeta(ABCMeta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         criteria = lambda function: isinstance(function, types.FunctionType) and function.__name__ == "<lambda>"
         equations = [variable for variable, function in attrs.items() if criteria(function)]
         attrs = {key: value for key, value in attrs.items() if key not in equations}
         return super().__new__(mcs, name, bases, attrs)
 
-    def __init__(cls, name, bases, attrs):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
         super().__init__(name, bases, attrs)
         criteria = lambda function: isinstance(function, types.FunctionType) and function.__name__ == "<lambda>"
         updated = {variable: function for variable, function in attrs.items() if criteria(function)}
         inherited = {variable: function for base in bases for variable, function in getattr(base, "__functions__", {}).items()}
+        cls.__variables__ = getattr(cls, "__variables__", []) + kwargs.get("variables", [])
         cls.__functions__ = inherited | updated
 
     def __call__(cls, *args, **kwargs):
@@ -59,14 +61,16 @@ class CalculationMeta(type):
         return instance
 
     @property
-    def functions(self): return self.__functions__
+    def functions(cls): return cls.__functions__
+    @property
+    def variables(cls): return cls.__variables__
 
 
 class Calculation(Mixin, metaclass=CalculationMeta):
-    def __init__(self, *args, equations, **kwargs):
-        try: super().__init__(*args, **kwargs)
-        except TypeError: super().__init__()
+    def __init__(self, *args, equations, variables, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__equations = equations
+        self.__variables = variables
 
     def calculate(self, dataframe, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
@@ -74,11 +78,14 @@ class Calculation(Mixin, metaclass=CalculationMeta):
         if bool(missing): raise EquationArgumentError()
         missing = {parameter for parameter in self.parameters if parameter not in kwargs.keys()}
         if bool(missing): raise EquationParameterError()
+        dataframe = dataframe.copy()
         for equation in self.order:
             arguments = [dataframe[argument] for argument in equation.arguments]
             parameters = {parameter: kwargs[parameter] for parameter in equation.parametere}
             dataframe[equation.variable] = equation.function(*arguments, **parameters)
-        return dataframe
+        if not bool(type(self).variables): return dataframe
+        columns = list(type(self).variables)
+        return dataframe[columns]
 
     @property
     def arguments(self):
