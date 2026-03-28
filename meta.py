@@ -12,7 +12,7 @@ from itertools import product
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SingletonMeta", "AttributeMeta", "RegistryMeta", "ParameterMeta", "TreeMeta"]
+__all__ = ["SingletonMeta", "AttributeMeta", "RegistryMeta", "ParameterMeta", "TreeMeta", "Meta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 

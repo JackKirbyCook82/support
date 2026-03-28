@@ -9,11 +9,11 @@ Created on Weds 25 2026
 import types
 import inspect
 import pandas as pd
-from abc import ABCMeta
 from dataclasses import dataclass
 from graphlib import TopologicalSorter, CycleError
 
 from support.mixins import Mixin
+from support.meta import Meta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -40,20 +40,21 @@ class EquationParameterError(EquationError): pass
 class EquationOrderingError(EquationError): pass
 
 
-class CalculationMeta(ABCMeta):
+class CalculationMeta(Meta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         criteria = lambda function: isinstance(function, types.FunctionType) and function.__name__ == "<lambda>"
         equations = [variable for variable, function in attrs.items() if criteria(function)]
         attrs = {key: value for key, value in attrs.items() if key not in equations}
-        return super().__new__(mcs, name, bases, attrs)
+        return super().__new__(mcs, name, bases, attrs, *args, **kwargs)
 
     def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super().__init__(name, bases, attrs)
+        super().__init__(name, bases, attrs, *args, **kwargs)
         criteria = lambda function: isinstance(function, types.FunctionType) and function.__name__ == "<lambda>"
         updated = {variable: function for variable, function in attrs.items() if criteria(function)}
         inherited = {variable: function for base in bases for variable, function in getattr(base, "__functions__", {}).items()}
-        cls.__variables__ = getattr(cls, "__variables__", []) + kwargs.get("variables", [])
+        variables = [variable for base in bases for variable in getattr(base, "__variables__", [])] + kwargs.get("variables", [])
         cls.__functions__ = inherited | updated
+        cls.__variables__ = variables
 
     def __call__(cls, *args, **kwargs):
         equations = {variable: Equation.create(variable, function) for variable, function in cls.functions.items()}
@@ -67,10 +68,9 @@ class CalculationMeta(ABCMeta):
 
 
 class Calculation(Mixin, metaclass=CalculationMeta):
-    def __init__(self, *args, equations, variables, **kwargs):
+    def __init__(self, *args, equations, **kwargs):
         super().__init__(*args, **kwargs)
         self.__equations = equations
-        self.__variables = variables
 
     def calculate(self, dataframe, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
@@ -81,7 +81,7 @@ class Calculation(Mixin, metaclass=CalculationMeta):
         dataframe = dataframe.copy()
         for equation in self.order:
             arguments = [dataframe[argument] for argument in equation.arguments]
-            parameters = {parameter: kwargs[parameter] for parameter in equation.parametere}
+            parameters = {parameter: kwargs[parameter] for parameter in equation.parameters}
             dataframe[equation.variable] = equation.function(*arguments, **parameters)
         if not bool(type(self).variables): return dataframe
         columns = list(type(self).variables)
@@ -90,7 +90,7 @@ class Calculation(Mixin, metaclass=CalculationMeta):
     @property
     def arguments(self):
         dependency = {variable: equation.arguments for variable, equation in self.equations.items()}
-        return {arguments for arguments in dependency.values() for argument in arguments if argument not in dependency}
+        return {argument for arguments in dependency.values() for argument in arguments if argument not in dependency}
 
     @property
     def parameters(self):
@@ -102,7 +102,7 @@ class Calculation(Mixin, metaclass=CalculationMeta):
         dependency = {variable: equation.arguments for variable, equation in self.equations.items()}
         try: order = tuple(TopologicalSorter(dependency).static_order())
         except CycleError: raise EquationOrderingError()
-        return [self.equations[variable] for variable in order]
+        return [self.equations[variable] for variable in order if variable in dependency]
 
     @property
     def equations(self): return self.__equations
