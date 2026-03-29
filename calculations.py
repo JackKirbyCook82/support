@@ -53,8 +53,10 @@ class CalculationMeta(Meta):
         updated = {variable: function for variable, function in attrs.items() if criteria(function)}
         inherited = {variable: function for base in bases for variable, function in getattr(base, "__functions__", {}).items()}
         variables = [variable for base in bases for variable in getattr(base, "__variables__", [])] + kwargs.get("variables", [])
+        vectorize = kwargs.get("vectorize", getattr(cls, "__vectorize__", False))
         cls.__functions__ = inherited | updated
         cls.__variables__ = variables
+        cls.__vectorize__ = vectorize
 
     def __call__(cls, *args, **kwargs):
         equations = {variable: Equation.create(variable, function) for variable, function in cls.functions.items()}
@@ -65,6 +67,8 @@ class CalculationMeta(Meta):
     def functions(cls): return cls.__functions__
     @property
     def variables(cls): return cls.__variables__
+    @property
+    def vectorize(cls): return cls.__vectorize__
 
 
 class Calculation(Mixin, metaclass=CalculationMeta):
