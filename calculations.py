@@ -52,9 +52,12 @@ class CalculationMeta(Meta):
         criteria = lambda function: isinstance(function, types.FunctionType) and function.__name__ == "<lambda>"
         updated = {variable: function for variable, function in attrs.items() if criteria(function)}
         inherited = {variable: function for base in bases for variable, function in getattr(base, "__functions__", {}).items()}
-        variables = [variable for base in bases for variable in getattr(base, "__variables__", [])] + kwargs.get("variables", [])
-        cls.__variables__ = list(dict.fromkeys(variables))
-        cls.__functions__ = inherited | updated
+        functions = inherited | updated
+        updated = list(kwargs.get("variables", updated.keys()))
+        inherited = [variable for base in bases for variable in getattr(base, "__variables__", [])]
+        variables = list(dict.fromkeys(inherited + updated))
+        cls.__functions__ = functions
+        cls.__variables__ = variables
 
     def __call__(cls, *args, **kwargs):
         equations = {variable: Equation.create(variable, function) for variable, function in cls.functions.items()}
