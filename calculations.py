@@ -56,35 +56,44 @@ class CalculationMeta(Meta):
         updated = list(kwargs.get("variables", updated.keys()))
         inherited = [variable for base in bases for variable in getattr(base, "__variables__", [])]
         variables = list(dict.fromkeys(inherited + updated))
+        updated = kwargs.get("defaults", {})
+        inherited = {key: value for base in bases for key, value in getattr(base, "__defaults__", {}).items()}
+        defaults = inherited | updated
         cls.__functions__ = functions
         cls.__variables__ = variables
+        cls.__defaults__ = defaults
 
     def __call__(cls, *args, **kwargs):
         equations = {variable: Equation.create(variable, function) for variable, function in cls.functions.items()}
-        instance = super().__call__(*args, equations=equations, **kwargs)
+        hyperparams = {hyperparam: kwargs.get(hyperparam, default) for hyperparam, default in cls.defaults.items()}
+        instance = super().__call__(*args, equations=equations, hyperparams=hyperparams, **kwargs)
         return instance
 
     @property
     def functions(cls): return cls.__functions__
     @property
     def variables(cls): return cls.__variables__
+    @property
+    def defaults(cls): return cls.__defaults__
 
 
 class Calculation(Mixin, metaclass=CalculationMeta):
-    def __init__(self, *args, equations, **kwargs):
+    def __init__(self, *args, equations, hyperparams, **kwargs):
         super().__init__(*args, **kwargs)
+        self.__hyperparams = hyperparams
         self.__equations = equations
 
     def calculate(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
         missing = {argument for argument in self.arguments if argument not in dataframe.columns}
         if bool(missing): raise EquationArgumentError()
-        missing = {parameter for parameter in self.parameters if parameter not in kwargs.keys()}
+        missing = {parameter for parameter in self.parameters if parameter not in kwargs.keys() and parameter not in self.hyperparams.keys()}
         if bool(missing): raise EquationParameterError()
         dataframe = dataframe.copy()
         for equation in self.order:
             arguments = [dataframe[argument] for argument in equation.arguments]
-            parameters = {parameter: kwargs[parameter] for parameter in equation.parameters}
+            parameters = {parameter: kwargs.get(parameter, self.hyperparams.get(parameter, None)) for parameter in equation.parameters}
+            assert None not in parameters.values()
             dataframe[equation.variable] = equation.function(*arguments, **parameters)
         if not bool(type(self).variables): return dataframe
         columns = list(type(self).variables)
@@ -107,6 +116,8 @@ class Calculation(Mixin, metaclass=CalculationMeta):
         except CycleError: raise EquationOrderingError()
         return [self.equations[variable] for variable in order if variable in dependency]
 
+    @property
+    def hyperparams(self): return self.__hyperparams
     @property
     def equations(self): return self.__equations
 
