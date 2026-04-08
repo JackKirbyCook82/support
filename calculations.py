@@ -40,6 +40,10 @@ class EquationParameterError(EquationError): pass
 class EquationOrderingError(EquationError): pass
 
 
+class Missing: __slots__ = ()
+MISSING = Missing()
+
+
 class CalculationMeta(Meta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         criteria = lambda function: isinstance(function, types.FunctionType) and function.__name__ == "<lambda>"
@@ -64,9 +68,14 @@ class CalculationMeta(Meta):
         cls.__defaults__ = defaults
 
     def __call__(cls, *args, **kwargs):
+        signatures = [inspect.signature(function).parameters.items() for function in cls.functions.values()]
+        arguments = [variable for signature in signatures for variable, details in signature if details.kind in (details.POSITIONAL_OR_KEYWORD, details.POSITIONAL_OR_KEYWORD)]
+        parameters = {variable for signature in signatures for variable, details in signature if details.kind == details.KEYWORD_ONLY}
+        dependents = {argument for argument in arguments if argument in cls.functions.keys()}
+        independents = {argument for argument in arguments if argument not in cls.functions.keys()}
         equations = {variable: Equation.create(variable, function) for variable, function in cls.functions.items()}
-        hyperparams = {hyperparam: kwargs.get(hyperparam, default) for hyperparam, default in cls.defaults.items()}
-        instance = super().__call__(*args, equations=equations, hyperparams=hyperparams, **kwargs)
+        hyperparams = {parameter: kwargs.get(parameter, cls.defaults.get(parameter, MISSING)) for parameter in parameters}
+        instance = super().__call__(*args, equations=equations, hyperparams=hyperparams, independents=independents, dependents=dependents, **kwargs)
         return instance
 
     @property
@@ -78,36 +87,27 @@ class CalculationMeta(Meta):
 
 
 class Calculation(Mixin, metaclass=CalculationMeta):
-    def __init__(self, *args, equations, hyperparams, **kwargs):
+    def __init__(self, *args, equations, hyperparams, dependents, independents, **kwargs):
         super().__init__(*args, **kwargs)
         self.__hyperparams = hyperparams
+        self.__independents = independents
+        self.__dependents = dependents
         self.__equations = equations
 
     def calculate(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
-        missing = {argument for argument in self.arguments if argument not in dataframe.columns}
+        missing = {argument for argument in self.independents if argument not in dataframe.columns}
         if bool(missing): raise EquationArgumentError()
-        missing = {parameter for parameter in self.parameters if parameter not in kwargs.keys() and parameter not in self.hyperparams.keys()}
-        if bool(missing): raise EquationParameterError()
+        keywords = {parameter: kwargs.get(parameter, default) for parameter, default in self.hyperparams.items()}
+        if MISSING in keywords.values(): raise EquationParameterError()
         dataframe = dataframe.copy()
         for equation in self.order:
             arguments = [dataframe[argument] for argument in equation.arguments]
-            parameters = {parameter: kwargs.get(parameter, self.hyperparams.get(parameter, None)) for parameter in equation.parameters}
-            assert None not in parameters.values()
+            parameters = {parameter: keywords[parameter] for parameter in equation.parameters}
             dataframe[equation.variable] = equation.function(*arguments, **parameters)
         if not bool(type(self).variables): return dataframe
         columns = list(type(self).variables)
         return dataframe[columns]
-
-    @property
-    def arguments(self):
-        dependency = {variable: equation.arguments for variable, equation in self.equations.items()}
-        return {argument for arguments in dependency.values() for argument in arguments if argument not in dependency}
-
-    @property
-    def parameters(self):
-        dependency = {variable: equation.parameters for variable, equation in self.equations.items()}
-        return {parameter for parameters in dependency.values() for parameter in parameters}
 
     @property
     def order(self):
@@ -118,6 +118,10 @@ class Calculation(Mixin, metaclass=CalculationMeta):
 
     @property
     def hyperparams(self): return self.__hyperparams
+    @property
+    def independents(self): return self.__independents
+    @property
+    def dependents(self): return self.__dependents
     @property
     def equations(self): return self.__equations
 
