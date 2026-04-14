@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-Created on Weds 25 2026
-@name:   Calculation Objects
+Created on Tues Apr 14 2026
+@name:   Equation Objects
 @author: Jack Kirby Cook
 
 """
@@ -17,9 +17,13 @@ from support.meta import Meta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Calculation"]
+__all__ = ["Equations"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
+
+
+class Missing: __slots__ = ()
+MISSING = Missing()
 
 
 @dataclass(frozen=True)
@@ -40,11 +44,7 @@ class EquationParameterError(EquationError): pass
 class EquationOrderingError(EquationError): pass
 
 
-class Missing: __slots__ = ()
-MISSING = Missing()
-
-
-class CalculationMeta(Meta):
+class EquationsMeta(Meta):
     def __new__(mcs, name, bases, attrs, *args, **kwargs):
         criteria = lambda function: isinstance(function, types.FunctionType) and function.__name__ == "<lambda>"
         equations = [variable for variable, function in attrs.items() if criteria(function)]
@@ -86,7 +86,7 @@ class CalculationMeta(Meta):
     def defaults(cls): return cls.__defaults__
 
 
-class Calculation(Mixin, metaclass=CalculationMeta):
+class Equations(Mixin, metaclass=EquationsMeta):
     def __init__(self, *args, equations, hyperparams, dependents, independents, **kwargs):
         super().__init__(*args, **kwargs)
         self.__hyperparams = hyperparams
@@ -94,7 +94,7 @@ class Calculation(Mixin, metaclass=CalculationMeta):
         self.__dependents = dependents
         self.__equations = equations
 
-    def calculate(self, dataframe, *args, **kwargs):
+    def equate(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
         missing = {argument for argument in self.independents if argument not in dataframe.columns}
         if bool(missing): raise EquationArgumentError()
