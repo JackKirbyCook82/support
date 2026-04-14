@@ -10,12 +10,14 @@ import numbers
 from enum import Enum
 from datetime import date as Date
 
-from support.concepts import Assembly, Concepts, Concept
+from support.concepts import Assembly, Concepts, Concept, DateRange
+from support.decorators import Dispatchers
 from support.querys import Field, Query
+from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Concepts", "Querys", "Securities", "Strategies", "OptionOSI"]
+__all__ = ["Concepts", "Querys", "Securities", "Strategies", "Alerting"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -95,4 +97,27 @@ class Securities(Assembly):
 class Strategies(Assembly):
     class Verticals(Assembly): Put = VerticalPutStrategy; Call = VerticalCallStrategy
     class Collars(Assembly): Long = CollarLongStrategy; Short = CollarShortStrategy
+
+
+class Alerting(Logging):
+    @Dispatchers.Value(locator="instrument")
+    def alert(self, dataframe, *args, instrument, **kwargs): raise ValueError(instrument)
+
+    @alert.register(Concepts.Securities.Instrument.STOCK)
+    def stock(self, dataframe, *args, instrument, **kwargs):
+        tickers = "|".join(list(dataframe["ticker"].unique()))
+        previous, post = kwargs.get("previous", None), kwargs.get("post", len(dataframe.index))
+        sizes = f"{int(previous):.0f}|{int(post):.0f}" if previous is not None else f"{len(dataframe.index):.0f}"
+        self.console("Calculated", f"{str(instrument)}[{str(tickers)}, {str(sizes)}]")
+
+    @alert.register(Concepts.Securities.Instrument.OPTION)
+    def option(self, dataframe, *args, instrument, **kwargs):
+        tickers = "|".join(list(dataframe["ticker"].unique()))
+        expires = DateRange.create(list(dataframe["expire"].unique()))
+        expires = f"{expires.minimum.strftime('%Y%m%d')}->{expires.maximum.strftime('%Y%m%d')}"
+        previous, post = kwargs.get("previous", None), kwargs.get("post", len(dataframe.index))
+        sizes = f"{int(previous):.0f}|{int(post):.0f}" if previous is not None else f"{len(dataframe.index):.0f}"
+        self.console("Calculated", f"{str(instrument)}[{str(tickers)}, {str(expires)}, {str(sizes)}]")
+
+
 
