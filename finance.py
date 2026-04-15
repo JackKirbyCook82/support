@@ -101,23 +101,23 @@ class Strategies(Assembly):
 
 class Alerting(Logging):
     @Dispatchers.Value(locator="instrument")
-    def alert(self, dataframe, *args, instrument, **kwargs): raise ValueError(instrument)
+    def alert(self, dataframe, *args, title, instrument, **kwargs): raise ValueError(instrument)
 
     @alert.register(Concepts.Securities.Instrument.STOCK)
-    def stock(self, dataframe, *args, instrument, **kwargs):
+    def stock(self, dataframe, *args, title, instrument, **kwargs):
         tickers = "|".join(list(dataframe["ticker"].unique()))
         previous, post = kwargs.get("previous", None), kwargs.get("post", len(dataframe.index))
         sizes = f"{int(previous):.0f}|{int(post):.0f}" if previous is not None else f"{len(dataframe.index):.0f}"
-        self.console("Calculated", f"{str(instrument)}[{str(tickers)}, {str(sizes)}]")
+        self.console(str(title), f"{str(instrument).title()}[{str(tickers)}, {str(sizes)}]")
 
     @alert.register(Concepts.Securities.Instrument.OPTION)
-    def option(self, dataframe, *args, instrument, **kwargs):
+    def option(self, dataframe, *args, title, instrument, **kwargs):
         tickers = "|".join(list(dataframe["ticker"].unique()))
         expires = DateRange.create(list(dataframe["expire"].unique()))
         expires = f"{expires.minimum.strftime('%Y%m%d')}->{expires.maximum.strftime('%Y%m%d')}"
         previous, post = kwargs.get("previous", None), kwargs.get("post", len(dataframe.index))
         sizes = f"{int(previous):.0f}|{int(post):.0f}" if previous is not None else f"{len(dataframe.index):.0f}"
-        self.console("Calculated", f"{str(instrument)}[{str(tickers)}, {str(expires)}, {str(sizes)}]")
+        self.console(str(title), f"{str(instrument).title()}[{str(tickers)}, {str(expires)}, {str(sizes)}]")
 
 
 
