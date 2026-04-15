@@ -94,7 +94,7 @@ class Equations(Mixin, metaclass=EquationsMeta):
         self.__dependents = dependents
         self.__equations = equations
 
-    def equate(self, dataframe, *args, **kwargs):
+    def execute(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
         missing = {argument for argument in self.independents if argument not in dataframe.columns}
         if bool(missing): raise EquationArgumentError()
