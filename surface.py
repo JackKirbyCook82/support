@@ -9,6 +9,8 @@ Created on Tues Apr 21 2026
 import numpy as np
 import pandas as pd
 from enum import Enum
+from typing import Optional
+from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from collections import namedtuple as ntuple
 from scipy.interpolate import UnivariateSpline, CubicSpline, PchipInterpolator, Akima1DInterpolator, RectBivariateSpline, SmoothBivariateSpline
@@ -17,7 +19,7 @@ from support.concepts import NumRange, Assembly
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Curves", "Surfaces"]
+__all__ = ["Surfaces", "Curves", "Curvature", "Axes"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -26,7 +28,11 @@ CurveAxes = ntuple("Axes", "x y")
 SurfaceAxes = ntuple("Axes", "x y z")
 
 
+@dataclass
+class Axes: x: Optional[int] = None; y: Optional[int] = None; z: Optional[int] = None
 class Curvature(Enum): REGRESSIVE, INTERPOLATIVE, SHAPE, VISUAL = range(4)
+
+
 class Curve(ABC):
     def __call__(self, yaxis): return self.curve(yaxis)
     def __init__(self, yaxis, zaxis, /, **kwargs):
@@ -160,33 +166,33 @@ class InterpolativeSurface(Surface):
         return surface, domain
 
     @staticmethod
-    def samples(dataframe, /, size, **kwargs):
+    def samples(dataframe, /, samplesize, **kwargs):
         for xaxis, sample in dataframe.groupby("x", sort="x"):
             sample = sample.sort_values("y")
             yaxis = sample["y"].to_numpy()
             zaxis = sample["z"].to_numpy()
-            if len(yaxis) < size: continue
+            if len(yaxis) < samplesize: continue
             if np.any(np.diff(yaxis) <= 0): continue
             sample = SurfaceAxes(xaxis, yaxis, zaxis)
             yield sample
 
     @staticmethod
-    def interpolation(curves, /, degree, smoothing, grid, **kwargs):
+    def interpolation(curves, /, degree, smoothing, gridsize, **kwargs):
         left = max(curve.boundary.minimum for (xaxis, curve) in curves)
         right = min(curve.boundary.maximum for (xaxis, curve) in curves)
         assert left < right
         xaxis = np.array([xaxis for (xaxis, curve) in curves], dtype=float)
-        yaxis = np.linspace(left, right, grid)
+        yaxis = np.linspace(left, right, gridsize)
         zaxis = np.array([curve(yaxis) for (xaxis, curve) in curves], dtype=float)
         return RectBivariateSpline(xaxis, yaxis, zaxis, kx=degree.x, ky=degree.y, s=smoothing)
 
     @staticmethod
-    def grid(curves, /, grid, **kwargs):
+    def grid(curves, /, gridsize, **kwargs):
         left = max(curve.boundary.minimum for (xaxis, curve) in curves)
         right = min(curve.boundary.maximum for (xaxis, curve) in curves)
         assert left < right
         xaxis = np.array([xaxis for (xaxis, curve) in curves], dtype=float)
-        yaxis = np.linspace(left, right, grid)
+        yaxis = np.linspace(left, right, gridsize)
         return CurveAxes(xaxis, yaxis)
 
 
