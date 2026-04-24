@@ -44,8 +44,8 @@ class Curve(ABC):
         scatter = scatter["yz".split()].dropna(how="any", inplace=False)
         yaxis, zaxis = [scatter[axis] for axis in "yz".split()]
         order = np.argsort(yaxis)
-        assert not np.any(np.diff(yaxis) <= 0)
         yaxis, zaxis = (yaxis[order], zaxis[order])
+        assert not np.any(np.diff(yaxis) <= 0)
         curve = self.create(yaxis, zaxis, **kwargs)
         boundary = NumRange.create([yaxis.min(), yaxis.max()])
         self.__boundary = boundary
@@ -82,7 +82,6 @@ class VisualInterpolativeCurve(InterpolativeCurve):
 class Surface(ABC):
     def __init__(self, scatter, /, **kwargs):
         scatter = scatter["xyz".split()].dropna(how="any", inplace=False)
-#        xaxis, yaxis, zaxis = [scatter[axis] for axis in "xyz".split()]
         surface, domain = self.create(scatter, weights=None, **kwargs)
         self.__surface = surface
         self.__domain = domain
@@ -129,7 +128,7 @@ class Surface(ABC):
         return x | y
 
     @abstractmethod
-    def create(self, xaxis, yaxis, zaxis, /, degree, smoothing, weights, **kwargs): pass
+    def create(self, scatter, /, degree, smoothing, weights, **kwargs): pass
 
     @property
     def surface(self): return self.__surface
@@ -160,14 +159,14 @@ class InterpolativeSurface(Surface):
         scatter = scatter.groupby(["x", "y"], as_index=False)["z"].mean()
         samples = self.samples(scatter, **kwargs)
         curves = {Curvature.REGRESSIVE: RegressiveCurve, Curvature.INTERPOLATIVE: InterpolativeCurve, Curvature.SHAPE: ShapeInterpolativeCurve, Curvature.VISUAL: VisualInterpolativeCurve}
-        curves = [(xaxis, curves[curvature](yaxis, zaxis, **kwargs)) for (xaxis, yaxis, zaxis) in samples]
+        curves = [(xaxis, curves[curvature](pd.DataFrame({"y": yaxis.y, "z": zaxis.z}), **kwargs)) for (xaxis, yaxis, zaxis) in samples]
         surface = self.interpolation(curves, **kwargs)
         domain = self.grid(curves, **kwargs)
         return surface, domain
 
     @staticmethod
     def samples(scatter, /, samplesize, **kwargs):
-        for xaxis, sample in scatter.groupby("x", sort="x"):
+        for xaxis, sample in scatter.groupby("x", sort=True):
             sample = sample.sort_values("y")
             yaxis = sample["y"].to_numpy()
             zaxis = sample["z"].to_numpy()
@@ -205,13 +204,18 @@ class Screener(Logging):
     def __call__(self, scatter, *args, **kwargs):
         scatter = scatter["xyz".split()].dropna(how="any", inplace=False)
         if len(scatter) < max(3, self.neighbors + 1): return scatter
-        xaxis, yaxis, zaxis = [scatter[axis] for axis in "xyz".split()]
+        xaxis = scatter["x"].to_numpy(dtype=float)
+        yaxis = scatter["y"].to_numpy(dtype=float)
+        zaxis = scatter["z"].to_numpy(dtype=float)
         residuals = self.residuals(xaxis, yaxis, zaxis)
-        residuals = pd.Series(list(residuals))
-        scatter = scatter.loc[~residuals > self.threshold]
-        return scatter
+        residuals = np.fromiter(residuals, dtype=float, count=len(scatter))
+        mask = residuals > self.threshold
+        return scatter.loc[~mask]
 
     def residuals(self, xaxis, yaxis, zaxis):
+        xaxis = np.asarray(xaxis, dtype=float)
+        yaxis = np.asarray(yaxis, dtype=float)
+        zaxis = np.asarray(zaxis, dtype=float)
         x = (xaxis - np.median(xaxis)) / self.deviation(xaxis)
         y = (yaxis - np.median(yaxis)) / self.deviation(yaxis)
         xy = np.column_stack([x, y])
@@ -219,16 +223,13 @@ class Screener(Logging):
         _, ij = tree.query(xy, k=self.neighbors + 1)
         for index in range(len(zaxis)):
             nbr = zaxis[ij[index, 1:]]
-            median = np.median(nbr)
             deviation = self.deviation(nbr)
-            residual = np.abs(zaxis[index] - median) / deviation
-            yield residual
+            yield np.abs(zaxis[index] - np.median(nbr)) / deviation
 
     @staticmethod
     def deviation(axis):
         axis = np.asarray(axis, dtype=float)
-        median = np.median(axis)
-        return 1.4826 * np.median(np.abs(axis - median)) + 1e-12
+        return 1.4826 * np.median(np.abs(axis - np.median(axis))) + 1e-12
 
     @property
     def neighbors(self): return self.__neighbors
