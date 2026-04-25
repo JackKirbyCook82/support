@@ -6,43 +6,45 @@ Created on Tues Apr 21 2026
 
 """
 
-import math
+import types
 import numpy as np
 import pandas as pd
 from enum import Enum
-from typing import Optional
-import matplotlib.pyplot as plt
+from operator import is_not
+from functools import partial
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from collections import namedtuple as ntuple
 from scipy.spatial import cKDTree
 from scipy.interpolate import UnivariateSpline, CubicSpline, PchipInterpolator, Akima1DInterpolator, RectBivariateSpline, SmoothBivariateSpline
-from mpl_toolkits.mplot3d import Axes3D
 
 from support.concepts import NumRange, Assembly
+from support.meta import RegistryMeta
 from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Surfaces", "Curves", "Screener", "Plotter", "Curvature", "Axes"]
+__all__ = ["SurfaceScreener", "SurfaceCreator", "Methods"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-CurveAxes = ntuple("Axes", "x y")
-SurfaceAxes = ntuple("Axes", "x y z")
-
-
 @dataclass
-class Axes: x: Optional[int] = None; y: Optional[int] = None; z: Optional[int] = None
-class Curvature(Enum): REGRESSIVE, INTERPOLATIVE, SHAPE, VISUAL = range(4)
+class Axes:
+    x: int | np.ndarray | NumRange | types.NoneType = None
+    y: int | np.ndarray | NumRange | types.NoneType = None
+    z: int | np.ndarray | NumRange | types.NoneType = None
 
 
-class Curve(ABC):
+class CurveMethod(Enum): REGRESSION, SPLINE, SHAPE, VISUAL = range(4)
+class SurfaceMethod(Enum): REGRESSION, INTERPOLATIVE = range(2)
+class Methods(Assembly): Curve, Surface = CurveMethod, SurfaceMethod
+
+
+class Curve(ABC, metaclass=RegistryMeta):
     def __call__(self, yaxis): return self.curve(yaxis)
     def __init__(self, scatter, /, **kwargs):
-        scatter = scatter["yz".split()].dropna(how="any", inplace=False)
-        yaxis, zaxis = [scatter[axis] for axis in "yz".split()]
+        scatter = scatter[list("yz")].dropna(how="any", inplace=False)
+        yaxis, zaxis = [scatter[axis] for axis in list("yz")]
         order = np.argsort(yaxis)
         yaxis, zaxis = (yaxis[order], zaxis[order])
         assert not np.any(np.diff(yaxis) <= 0)
@@ -61,27 +63,27 @@ class Curve(ABC):
     def curve(self): return self.__curve
 
 
-class RegressiveCurve(Curve):
+class RegressiveCurve(Curve, register=CurveMethod.REGRESSION):
     @staticmethod
     def create(yaxis, zaxis, /, smoothing, degree, **kwargs):
         return UnivariateSpline(yaxis, zaxis, w=None, s=smoothing, k=degree.y, ext=2)
 
-class InterpolativeCurve(Curve):
+class SplineCurve(Curve, register=CurveMethod.SPLINE):
     @staticmethod
     def create(yaxis, zaxis, /, **kwargs): return CubicSpline(yaxis, zaxis, bc_type="natural")
 
-class ShapeInterpolativeCurve(InterpolativeCurve):
+class ShapeInterpolativeCurve(Curve, register=CurveMethod.SHAPE):
     @staticmethod
     def create(yaxis, zaxis, /, **kwargs): return PchipInterpolator(yaxis, zaxis, extrapolate=False)
 
-class VisualInterpolativeCurve(InterpolativeCurve):
+class VisualInterpolativeCurve(Curve, register=CurveMethod.VISUAL):
     @staticmethod
     def create(yaxis, zaxis, /, **kwargs): return Akima1DInterpolator(yaxis, zaxis)
 
 
-class Surface(ABC):
+class Surface(ABC, metaclass=RegistryMeta):
     def __init__(self, scatter, /, **kwargs):
-        scatter = scatter["xyz".split()].dropna(how="any", inplace=False)
+        scatter = scatter[list("xyz")].dropna(how="any", inplace=False)
         surface, domain = self.create(scatter, weights=None, **kwargs)
         self.__surface = surface
         self.__domain = domain
@@ -119,7 +121,7 @@ class Surface(ABC):
     def boundary(self):
         x = NumRange.create([self.domain.x.min(), self.domain.x.max()])
         y = NumRange.create([self.domain.y.min(), self.domain.y.max()])
-        return CurveAxes(x, y)
+        return Axes(x=x, y=y)
 
     def violation(self, x, y):
         boundary = self.boundary()
@@ -136,9 +138,9 @@ class Surface(ABC):
     def domain(self): return self.__domain
 
 
-class RegressiveSurface(Surface):
+class RegressiveSurface(Surface, register=SurfaceMethod.REGRESSION):
     def create(self, scatter, /, **kwargs):
-        xaxis, yaxis, zaxis = [scatter[axis] for axis in "xyz".split()]
+        xaxis, yaxis, zaxis = [scatter[axis] for axis in list("xyz")]
         surface = self.regression(xaxis, yaxis, zaxis, **kwargs)
         domain = self.grid(xaxis, yaxis, **kwargs)
         return surface, domain
@@ -151,15 +153,14 @@ class RegressiveSurface(Surface):
     def grid(xaxis, yaxis, /, gridsize, **kwargs):
         xaxis = np.linspace(xaxis.min(), xaxis.max(), gridsize)
         yaxis = np.linspace(yaxis.min(), yaxis.max(), gridsize)
-        return CurveAxes(xaxis, yaxis)
+        return Axes(x=xaxis, y=yaxis)
 
 
-class InterpolativeSurface(Surface):
-    def create(self, scatter, /, curvature, **kwargs):
-        scatter = scatter.groupby(["x", "y"], as_index=False)["z"].mean()
+class InterpolativeSurface(Surface, register=SurfaceMethod.INTERPOLATIVE):
+    def create(self, scatter, /, curve, **kwargs):
+        scatter = scatter.groupby(list("xy"), as_index=False)["z"].mean()
         samples = self.samples(scatter, **kwargs)
-        curves = {Curvature.REGRESSIVE: RegressiveCurve, Curvature.INTERPOLATIVE: InterpolativeCurve, Curvature.SHAPE: ShapeInterpolativeCurve, Curvature.VISUAL: VisualInterpolativeCurve}
-        curves = [(xaxis, curves[curvature](pd.DataFrame({"y": yaxis.y, "z": zaxis.z}), **kwargs)) for (xaxis, yaxis, zaxis) in samples]
+        curves = [(xaxis, Curve[curve](pd.DataFrame({"y": yaxis, "z": zaxis}), **kwargs)) for (xaxis, yaxis, zaxis) in samples]
         surface = self.interpolation(curves, **kwargs)
         domain = self.grid(curves, **kwargs)
         return surface, domain
@@ -172,7 +173,7 @@ class InterpolativeSurface(Surface):
             zaxis = sample["z"].to_numpy()
             if len(yaxis) < samplesize: continue
             if np.any(np.diff(yaxis) <= 0): continue
-            sample = SurfaceAxes(xaxis, yaxis, zaxis)
+            sample = Axes(x=xaxis, y=yaxis, z=zaxis)
             yield sample
 
     @staticmethod
@@ -192,17 +193,53 @@ class InterpolativeSurface(Surface):
         assert left < right
         xaxis = np.array([xaxis for (xaxis, curve) in curves], dtype=float)
         yaxis = np.linspace(left, right, gridsize)
-        return CurveAxes(xaxis, yaxis)
+        return Axes(x=xaxis, y=yaxis)
 
 
-class Screener(Logging):
+class SurfaceCreator(Logging):
+    def __init__(self, *args, smoothing=1e-4, degree=Axes(x=3, y=3), gridsize=100, samplesize=5, **kwargs):
+        if isinstance(degree, tuple): degree = Axes(**{axis: value for axis, value in zip(list("xyz"), degree)})
+        multiples = kwargs.get("surfaces", [])
+        single = [kwargs.get("surface", None)]
+        surfaces = list(filter(partial(is_not, None), multiples + single))
+        surfaces = [surface if isinstance(surface, tuple) else (surface, None) for surface in surfaces]
+        super().__init__(*args, **kwargs)
+        self.__multiple = bool(multiples)
+        self.__samplesize = samplesize
+        self.__gridsize = gridsize
+        self.__smoothing = smoothing
+        self.__degree = degree
+        self.__surfaces = surfaces
+
+    def __call__(self, scatter, *args, **kwargs):
+        parameters = dict(samplesize=self.samplesize, gridsize=self.gridsize, smoothing=self.smoothing, degree=self.degree)
+        surfaces = [Surface[surface](scatter, *args, curve=curve, **parameters, **kwargs) for (surface, curve) in self.surfaces]
+        if self.multiple: return surfaces
+        assert len(surfaces) == 1
+        return surfaces[0]
+
+    @property
+    def surfaces(self): return self.__surfaces
+    @property
+    def multiple(self): return self.__multiple
+    @property
+    def samplesize(self): return self.__samplesize
+    @property
+    def gridsize(self): return self.__gridsize
+    @property
+    def smoothing(self): return self.__smoothing
+    @property
+    def degree(self): return self.__degree
+
+
+class SurfaceScreener(Logging):
     def __init__(self, *args, neighbors=12, threshold=5, **kwargs):
         super().__init__(*args, **kwargs)
         self.__neighbors = neighbors
         self.__threshold = threshold
 
     def __call__(self, scatter, *args, **kwargs):
-        scatter = scatter["xyz".split()].dropna(how="any", inplace=False)
+        scatter = scatter[list("xyz")].dropna(how="any", inplace=False)
         if len(scatter) < max(3, self.neighbors + 1): return scatter
         xaxis = scatter["x"].to_numpy(dtype=float)
         yaxis = scatter["y"].to_numpy(dtype=float)
@@ -236,52 +273,6 @@ class Screener(Logging):
     @property
     def threshold(self): return self.__threshold
 
-
-class Plotter(Logging):
-    def __init__(self, *args, plotsize=4, gridsize=100, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__plotsize = int(plotsize)
-        self.__gridsize = int(gridsize)
-
-    def __call__(self, scatter, *args, surfaces, **kwargs):
-        scatter = scatter["xyz".split()].dropna(how="any", inplace=False)
-        xaxis, yaxis, zaxis = [scatter[axis] for axis in "xyz".split()]
-        figure = self.figure(len(surfaces))
-        rows, cols = self.layout(len(surfaces))
-        for index, surface in enumerate(surfaces, start=1):
-            x = np.linspace(surface.domain.x.min(), surface.domain.x.max(), self.gridsize)
-            y = np.linspace(surface.domain.y.min(), surface.domain.y.max(), self.gridsize)
-            xx, yy = np.meshgrid(x, y, indexing="ij")
-            zz = surface(x, y)
-            ax = figure.add_subplot(rows, cols, index, projection="3d")
-            ax.set_xlabel("t"), ax.set_ylabel("k"), ax.set_zlabel("w")
-            ax.plot_surface(xx, yy, zz, alpha=0.75, color="blue")
-            ax.scatter(xaxis, yaxis, zaxis, s=30, color="red")
-        plt.show()
-
-    def figure(self, count):
-        rows, cols = self.layout(count)
-        figsize = (cols * self.plotsize, rows * self.plotsize)
-        figure = plt.figure(figsize=figsize)
-        return figure
-
-    @staticmethod
-    def layout(count):
-        cols = math.ceil(math.sqrt(count))
-        rows = math.ceil(count / cols)
-        layout = (rows, cols)
-        return layout
-
-    @property
-    def plotsize(self): return self.__plotsize
-    @property
-    def gridsize(self): return self.__gridsize
-
-
-class Surfaces(Assembly): Regressive, Interpolative = RegressiveSurface, InterpolativeSurface
-class Curves(Assembly):
-    class Regressive(Assembly): Standard = RegressiveCurve
-    class Interpolative(Assembly): Standard, Shape, Visual = InterpolativeCurve, ShapeInterpolativeCurve, VisualInterpolativeCurve
 
 
 
