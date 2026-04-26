@@ -34,10 +34,13 @@ class Axes:
     y: int | np.ndarray | NumRange | types.NoneType = None
     z: int | np.ndarray | NumRange | types.NoneType = None
 
+    def __iter__(self):
+        yield self.x; yield self.y; yield self.z
+
 
 class CurveMethod(Enum): REGRESSION, SPLINE, SHAPE, VISUAL = range(4)
 class SurfaceMethod(Enum): REGRESSION, INTERPOLATIVE = range(2)
-class Methods(Assembly): Curve, Surface = CurveMethod, SurfaceMethod
+class Methods(Assembly): Curves, Surfaces = CurveMethod, SurfaceMethod
 
 
 class Curve(ABC, metaclass=RegistryMeta):

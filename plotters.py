@@ -42,10 +42,11 @@ class Plot(dict):
 
 
 class Plotter(Logging):
-    def __init__(self, *args, plotsize=4, gridsize=100, **kwargs):
+    def __init__(self, *args, labels=0, plotsize=4, gridsize=100, **kwargs):
         super().__init__(*args, **kwargs)
         self.__plotsize = int(plotsize)
         self.__gridsize = int(gridsize)
+        self.__labels = int(labels)
 
     def __call__(self, plots, *args, **kwargs):
         assert isinstance(plots, (list, Plot))
@@ -53,12 +54,20 @@ class Plotter(Logging):
         rows, cols = self.layout(len(plots))
         figsize = (cols * self.plotsize, rows * self.plotsize)
         figure = plt.figure(figsize=figsize)
+        axes = list()
         for index, plot in enumerate(plots, start=1):
             ax = figure.add_subplot(rows, cols, index, projection="3d")
             ax.set_xlabel(plot.labels.x), ax.set_ylabel(plot.labels.y), ax.set_zlabel(plot.labels.z)
             for plottype, datasets in plot.items():
                 for (dataset, color) in datasets:
                     self.draw(ax, dataset, *args, plottype=plottype, color=color, **kwargs)
+                    axes.append(ax)
+        if bool(self.labels):
+            labels = Labels(**{axis: getattr(axes[self.labels-1], f"get_{axis}lim")() for axis in list("xyz")})
+            for ax in axes:
+                for axis in list("xyz"):
+                    getattr(ax, f"set_{axis}lim")(getattr(labels, axis))
+        plt.tight_layout()
         plt.show()
 
     @Dispatchers.Value(locator="plottype")
@@ -89,6 +98,8 @@ class Plotter(Logging):
     def plotsize(self): return self.__plotsize
     @property
     def gridsize(self): return self.__gridsize
+    @property
+    def labels(self): return self.__labels
 
 
 
