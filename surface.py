@@ -13,7 +13,7 @@ from enum import Enum
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from scipy.spatial import cKDTree
-from scipy.interpolate import make_interp_spline, make_splrep, SmoothBivariateSpline, RectBivariateSpline
+from scipy.interpolate import SmoothBivariateSpline, RectBivariateSpline, make_interp_spline, make_splrep
 
 from support.meta import RegistryMeta
 from support.concepts import NumRange
