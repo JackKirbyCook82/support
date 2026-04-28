@@ -10,20 +10,18 @@ import types
 import numpy as np
 import pandas as pd
 from enum import Enum
-from operator import is_not
-from functools import partial
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from scipy.spatial import cKDTree
-from scipy.interpolate import UnivariateSpline, CubicSpline, PchipInterpolator, Akima1DInterpolator, RectBivariateSpline, SmoothBivariateSpline
+from scipy.interpolate import make_interp_spline, make_splrep, SmoothBivariateSpline, RectBivariateSpline
 
-from support.concepts import NumRange, Assembly
 from support.meta import RegistryMeta
+from support.concepts import NumRange
 from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SurfaceScreener", "SurfaceCreator", "Methods"]
+__all__ = ["SurfaceScreener", "SurfaceCreator"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -38,11 +36,7 @@ class Axes:
         yield self.x; yield self.y; yield self.z
 
 
-class CurveMethod(Enum): REGRESSION, SPLINE, SHAPE, VISUAL = range(4)
-class SurfaceMethod(Enum): REGRESSION, INTERPOLATIVE = range(2)
-class Methods(Assembly): Curves, Surfaces = CurveMethod, SurfaceMethod
-
-
+class Method(Enum): REGRESSION, INTERPOLATION = range(2)
 class Curve(ABC, metaclass=RegistryMeta):
     def __call__(self, yaxis): return self.curve(yaxis)
     def __init__(self, scatter, /, **kwargs):
@@ -58,7 +52,7 @@ class Curve(ABC, metaclass=RegistryMeta):
 
     @staticmethod
     @abstractmethod
-    def create(yaxis, zaxis, /, smoothing, degree, **kwargs): pass
+    def create(yaxis, zaxis, /, smoothing=None, weights=None, **kwargs): pass
 
     @property
     def boundary(self): return self.__boundary
@@ -66,28 +60,19 @@ class Curve(ABC, metaclass=RegistryMeta):
     def curve(self): return self.__curve
 
 
-class RegressiveCurve(Curve, register=CurveMethod.REGRESSION):
+class RegressionCurve(Curve, register=Method.REGRESSION):
     @staticmethod
-    def create(yaxis, zaxis, /, smoothing, degree, **kwargs):
-        return UnivariateSpline(yaxis, zaxis, w=None, s=smoothing, k=degree.y, ext=2)
+    def create(yaxis, zaxis, /, smoothing=None, weights=None, **kwargs): return make_splrep(yaxis, zaxis, k=3, s=smoothing, w=weights, bc_type=None)
 
-class SplineCurve(Curve, register=CurveMethod.SPLINE):
+class InterpolationCurve(Curve, register=Method.INTERPOLATION):
     @staticmethod
-    def create(yaxis, zaxis, /, **kwargs): return CubicSpline(yaxis, zaxis, bc_type="natural")
-
-class ShapeInterpolativeCurve(Curve, register=CurveMethod.SHAPE):
-    @staticmethod
-    def create(yaxis, zaxis, /, **kwargs): return PchipInterpolator(yaxis, zaxis, extrapolate=False)
-
-class VisualInterpolativeCurve(Curve, register=CurveMethod.VISUAL):
-    @staticmethod
-    def create(yaxis, zaxis, /, **kwargs): return Akima1DInterpolator(yaxis, zaxis)
+    def create(yaxis, zaxis, /, **kwargs): return make_interp_spline(yaxis, zaxis, k=3, bc_type="natural")
 
 
 class Surface(ABC, metaclass=RegistryMeta):
     def __init__(self, scatter, /, **kwargs):
         scatter = scatter[list("xyz")].dropna(how="any", inplace=False)
-        surface, domain = self.create(scatter, weights=None, **kwargs)
+        surface, domain = self.create(scatter, **kwargs)
         self.__surface = surface
         self.__domain = domain
 
@@ -133,7 +118,7 @@ class Surface(ABC, metaclass=RegistryMeta):
         return x | y
 
     @abstractmethod
-    def create(self, scatter, /, degree, smoothing, weights, **kwargs): pass
+    def create(self, scatter, /, smoothing, weights, **kwargs): pass
 
     @property
     def surface(self): return self.__surface
@@ -141,53 +126,44 @@ class Surface(ABC, metaclass=RegistryMeta):
     def domain(self): return self.__domain
 
 
-class RegressiveSurface(Surface, register=SurfaceMethod.REGRESSION):
-    def create(self, scatter, /, **kwargs):
+class RegressionSurface(Surface, register=Method.REGRESSION):
+    def create(self, scatter, /, gridsize, smoothing=None, weights=None, **kwargs):
         xaxis, yaxis, zaxis = [scatter[axis] for axis in list("xyz")]
-        surface = self.regression(xaxis, yaxis, zaxis, **kwargs)
-        domain = self.grid(xaxis, yaxis, **kwargs)
-        return surface, domain
-
-    @staticmethod
-    def regression(xaxis, yaxis, zaxis, /, degree, smoothing, **kwargs):
-        return SmoothBivariateSpline(xaxis, yaxis, zaxis, w=None, kx=degree.x, ky=degree.y, s=smoothing)
-
-    @staticmethod
-    def grid(xaxis, yaxis, /, gridsize, **kwargs):
+        surface = SmoothBivariateSpline(xaxis, yaxis, zaxis, kx=3, ky=3, s=smoothing, w=weights)
         xaxis = np.linspace(xaxis.min(), xaxis.max(), gridsize)
         yaxis = np.linspace(yaxis.min(), yaxis.max(), gridsize)
-        return Axes(x=xaxis, y=yaxis)
+        domain = Axes(x=xaxis, y=yaxis)
+        return surface, domain
 
 
-class InterpolativeSurface(Surface, register=SurfaceMethod.INTERPOLATIVE):
-    def create(self, scatter, /, curve, **kwargs):
+class InterpolationSurface(Surface, register=Method.INTERPOLATION):
+    def create(self, scatter, /, **kwargs):
         scatter = scatter.groupby(list("xy"), as_index=False)["z"].mean()
-        samples = self.samples(scatter, **kwargs)
-        curves = [(xaxis, Curve[curve](pd.DataFrame({"y": yaxis, "z": zaxis}), **kwargs)) for (xaxis, yaxis, zaxis) in samples]
-        surface = self.interpolation(curves, **kwargs)
+        axes = list(self.align(scatter, **kwargs))
+        curves = [(xaxis, InterpolationCurve(pd.DataFrame({"y": yaxis, "z": zaxis}))) for (xaxis, yaxis, zaxis) in axes]
+        surface = self.interpolate(curves, **kwargs)
         domain = self.grid(curves, **kwargs)
         return surface, domain
 
     @staticmethod
-    def samples(scatter, /, samplesize, **kwargs):
-        for xaxis, sample in scatter.groupby("x", sort=True):
-            sample = sample.sort_values("y")
-            yaxis = sample["y"].to_numpy()
-            zaxis = sample["z"].to_numpy()
+    def align(scatter, /, samplesize, **kwargs):
+        for xaxis, dataframe in scatter.groupby("x", sort=True):
+            dataframe = dataframe.sort_values("y")
+            yaxis = dataframe["y"].to_numpy()
+            zaxis = dataframe["z"].to_numpy()
             if len(yaxis) < samplesize: continue
             if np.any(np.diff(yaxis) <= 0): continue
-            sample = Axes(x=xaxis, y=yaxis, z=zaxis)
-            yield sample
+            yield Axes(x=xaxis, y=yaxis, z=zaxis)
 
     @staticmethod
-    def interpolation(curves, /, degree, smoothing, gridsize, **kwargs):
+    def interpolate(curves, /, smoothing, gridsize, **kwargs):
         left = max(curve.boundary.minimum for (xaxis, curve) in curves)
         right = min(curve.boundary.maximum for (xaxis, curve) in curves)
         assert left < right
         xaxis = np.array([xaxis for (xaxis, curve) in curves], dtype=float)
         yaxis = np.linspace(left, right, gridsize)
         zaxis = np.array([curve(yaxis) for (xaxis, curve) in curves], dtype=float)
-        return RectBivariateSpline(xaxis, yaxis, zaxis, kx=degree.x, ky=degree.y, s=smoothing)
+        return RectBivariateSpline(xaxis, yaxis, zaxis, kx=3, ky=3, s=smoothing)
 
     @staticmethod
     def grid(curves, /, gridsize, **kwargs):
@@ -197,42 +173,6 @@ class InterpolativeSurface(Surface, register=SurfaceMethod.INTERPOLATIVE):
         xaxis = np.array([xaxis for (xaxis, curve) in curves], dtype=float)
         yaxis = np.linspace(left, right, gridsize)
         return Axes(x=xaxis, y=yaxis)
-
-
-class SurfaceCreator(Logging):
-    def __init__(self, *args, smoothing=1e-4, degree=Axes(x=3, y=3), gridsize=100, samplesize=5, **kwargs):
-        if isinstance(degree, tuple): degree = Axes(**{axis: value for axis, value in zip(list("xyz"), degree)})
-        multiples = kwargs.get("surfaces", [])
-        single = [kwargs.get("surface", None)]
-        surfaces = list(filter(partial(is_not, None), multiples + single))
-        surfaces = [surface if isinstance(surface, tuple) else (surface, None) for surface in surfaces]
-        super().__init__(*args, **kwargs)
-        self.__multiple = bool(multiples)
-        self.__samplesize = samplesize
-        self.__gridsize = gridsize
-        self.__smoothing = smoothing
-        self.__degree = degree
-        self.__surfaces = surfaces
-
-    def __call__(self, scatter, *args, **kwargs):
-        parameters = dict(samplesize=self.samplesize, gridsize=self.gridsize, smoothing=self.smoothing, degree=self.degree)
-        surfaces = [Surface[surface](scatter, *args, curve=curve, **parameters, **kwargs) for (surface, curve) in self.surfaces]
-        if self.multiple: return surfaces
-        assert len(surfaces) == 1
-        return surfaces[0]
-
-    @property
-    def surfaces(self): return self.__surfaces
-    @property
-    def multiple(self): return self.__multiple
-    @property
-    def samplesize(self): return self.__samplesize
-    @property
-    def gridsize(self): return self.__gridsize
-    @property
-    def smoothing(self): return self.__smoothing
-    @property
-    def degree(self): return self.__degree
 
 
 class SurfaceScreener(Logging):
@@ -276,6 +216,24 @@ class SurfaceScreener(Logging):
     @property
     def threshold(self): return self.__threshold
 
+
+class SurfaceCreator(Logging):
+    def __init__(self, *args, gridsize=100, samplesize=5, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.__samplesize = samplesize
+        self.__gridsize = gridsize
+
+    def __call__(self, scatter, *args, method, smoothing=None, weights=None, **kwargs):
+        method = Method[str(method).upper()] if isinstance(method, str) else method
+        parameters = dict(samplesize=self.samplesize, gridsize=self.gridsize)
+        parameters = parameters | dict(method=method, smoothing=smoothing, weights=weights)
+        surface = Surface[method](scatter, **parameters)
+        return surface
+
+    @property
+    def samplesize(self): return self.__samplesize
+    @property
+    def gridsize(self): return self.__gridsize
 
 
 
