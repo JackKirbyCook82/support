@@ -12,7 +12,6 @@ import pandas as pd
 from enum import Enum
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from scipy.spatial import cKDTree
 from scipy.interpolate import SmoothBivariateSpline, RectBivariateSpline, make_interp_spline, make_splrep
 
 from support.meta import RegistryMeta
@@ -21,16 +20,16 @@ from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SurfaceScreener", "SurfaceCreator"]
+__all__ = ["SurfaceCreator"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
 @dataclass
 class Axes:
-    x: int | np.ndarray | NumRange | types.NoneType = None
-    y: int | np.ndarray | NumRange | types.NoneType = None
-    z: int | np.ndarray | NumRange | types.NoneType = None
+    x: int | float | np.ndarray | NumRange | types.NoneType = None
+    y: int | float | np.ndarray | NumRange | types.NoneType = None
+    z: int | float | np.ndarray | NumRange | types.NoneType = None
 
     def __iter__(self):
         yield self.x; yield self.y; yield self.z
@@ -175,56 +174,20 @@ class InterpolationSurface(Surface, register=Method.INTERPOLATION):
         return Axes(x=xaxis, y=yaxis)
 
 
-class SurfaceScreener(Logging):
-    def __init__(self, *args, neighbors=12, threshold=5, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.__neighbors = neighbors
-        self.__threshold = threshold
-
-    def __call__(self, scatter, *args, **kwargs):
-        scatter = scatter[list("xyz")].dropna(how="any", inplace=False)
-        if len(scatter) < max(3, self.neighbors + 1): return scatter
-        xaxis = scatter["x"].to_numpy(dtype=float)
-        yaxis = scatter["y"].to_numpy(dtype=float)
-        zaxis = scatter["z"].to_numpy(dtype=float)
-        residuals = self.residuals(xaxis, yaxis, zaxis)
-        residuals = np.fromiter(residuals, dtype=float, count=len(scatter))
-        mask = residuals > self.threshold
-        return scatter.loc[~mask]
-
-    def residuals(self, xaxis, yaxis, zaxis):
-        xaxis = np.asarray(xaxis, dtype=float)
-        yaxis = np.asarray(yaxis, dtype=float)
-        zaxis = np.asarray(zaxis, dtype=float)
-        x = (xaxis - np.median(xaxis)) / self.deviation(xaxis)
-        y = (yaxis - np.median(yaxis)) / self.deviation(yaxis)
-        xy = np.column_stack([x, y])
-        tree = cKDTree(xy)
-        _, ij = tree.query(xy, k=self.neighbors + 1)
-        for index in range(len(zaxis)):
-            nbr = zaxis[ij[index, 1:]]
-            deviation = self.deviation(nbr)
-            yield np.abs(zaxis[index] - np.median(nbr)) / deviation
-
-    @staticmethod
-    def deviation(axis):
-        axis = np.asarray(axis, dtype=float)
-        return 1.4826 * np.median(np.abs(axis - np.median(axis))) + 1e-12
-
-    @property
-    def neighbors(self): return self.__neighbors
-    @property
-    def threshold(self): return self.__threshold
-
-
+class SurfaceQuantityError(Exception): pass
 class SurfaceCreator(Logging):
-    def __init__(self, *args, gridsize=100, samplesize=5, **kwargs):
+    def __init__(self, *args, quantity=35, gridsize=100, samplesize=5, **kwargs):
         super().__init__(*args, **kwargs)
         self.__samplesize = samplesize
         self.__gridsize = gridsize
+        self.__quantity = quantity
 
     def __call__(self, scatter, *args, method, smoothing=None, weights=None, **kwargs):
+        scatter = scatter[list("xyz")]
+        mask = np.logical_and(*[scatter[axis] for axis in list("xyz")])
+        assert mask.all()
         method = Method[str(method).upper()] if isinstance(method, str) else method
+        if len(scatter) < self.quantity: raise SurfaceQuantityError()
         parameters = dict(samplesize=self.samplesize, gridsize=self.gridsize)
         parameters = parameters | dict(method=method, smoothing=smoothing, weights=weights)
         surface = Surface[method](scatter, **parameters)
@@ -234,6 +197,8 @@ class SurfaceCreator(Logging):
     def samplesize(self): return self.__samplesize
     @property
     def gridsize(self): return self.__gridsize
+    @property
+    def quantity(self): return self.__quantity
 
 
 
