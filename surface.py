@@ -184,8 +184,7 @@ class SurfaceCreator(Logging):
 
     def __call__(self, scatter, *args, method, smoothing=None, weights=None, **kwargs):
         scatter = scatter[list("xyz")]
-        mask = np.logical_and(*[scatter[axis] for axis in list("xyz")])
-        assert mask.all()
+        assert scatter.notna().all(axis=1).all()
         method = Method[str(method).upper()] if isinstance(method, str) else method
         if len(scatter) < self.quantity: raise SurfaceQuantityError()
         parameters = dict(samplesize=self.samplesize, gridsize=self.gridsize)
