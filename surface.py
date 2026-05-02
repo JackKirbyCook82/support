@@ -20,7 +20,7 @@ from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SurfaceCreator"]
+__all__ = ["SurfaceCreator", "Surface", "Curve"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
