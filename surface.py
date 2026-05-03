@@ -174,7 +174,9 @@ class InterpolationSurface(Surface, register=Method.INTERPOLATION):
         return Axes(x=xaxis, y=yaxis)
 
 
-class SurfaceQuantityError(Exception): pass
+class SurfaceError(Exception): pass
+class SurfaceQuantityError(SurfaceError): pass
+
 class SurfaceCreator(Logging):
     def __init__(self, *args, quantity=35, gridsize=100, samplesize=5, **kwargs):
         super().__init__(*args, **kwargs)
@@ -182,14 +184,12 @@ class SurfaceCreator(Logging):
         self.__gridsize = gridsize
         self.__quantity = quantity
 
-    def __call__(self, scatter, *args, method, smoothing=None, weights=None, **kwargs):
-        scatter = scatter[list("xyz")]
-        assert scatter.notna().all(axis=1).all()
+    def __call__(self, dataset, *args, method, smoothing=None, weights=None, **kwargs):
         method = Method[str(method).upper()] if isinstance(method, str) else method
-        if len(scatter) < self.quantity: raise SurfaceQuantityError()
+        if len(dataset) < self.quantity: raise SurfaceQuantityError()
         parameters = dict(samplesize=self.samplesize, gridsize=self.gridsize)
         parameters = parameters | dict(method=method, smoothing=smoothing, weights=weights)
-        surface = Surface[method](scatter, **parameters)
+        surface = Surface[method](dataset.xyz, **parameters)
         return surface
 
     @property

@@ -12,6 +12,7 @@ import matplotlib.pyplot as plt
 from enum import Enum
 from typing import Optional
 from dataclasses import dataclass
+from matplotlib.patches import Rectangle
 from mpl_toolkits.mplot3d import Axes3D
 
 from support.decorators import Dispatchers
