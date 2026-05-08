@@ -178,18 +178,21 @@ class SurfaceError(Exception): pass
 class SurfaceQuantityError(SurfaceError): pass
 
 class SurfaceCreator(Logging):
-    def __init__(self, *args, quantity=35, gridsize=100, samplesize=5, **kwargs):
+    def __init__(self, *args, columns, quantity=35, gridsize=100, samplesize=5, **kwargs):
+        assert isinstance(columns, list) and len(columns) == 3
         super().__init__(*args, **kwargs)
         self.__samplesize = samplesize
         self.__gridsize = gridsize
         self.__quantity = quantity
+        self.__columns = columns
 
-    def __call__(self, dataset, *args, method, smoothing=None, weights=None, **kwargs):
+    def __call__(self, scatter, *args, method, smoothing=None, weights=None, **kwargs):
         method = Method[str(method).upper()] if isinstance(method, str) else method
-        if len(dataset) < self.quantity: raise SurfaceQuantityError()
+        if len(scatter) < self.quantity: raise SurfaceQuantityError()
+        xyz = pd.DataFrame(scatter[self.columns], columns=list("xyz"))
         parameters = dict(samplesize=self.samplesize, gridsize=self.gridsize)
         parameters = parameters | dict(method=method, smoothing=smoothing, weights=weights)
-        surface = Surface[method](dataset.xyz, **parameters)
+        surface = Surface[method](xyz, **parameters)
         return surface
 
     @property
@@ -198,6 +201,8 @@ class SurfaceCreator(Logging):
     def gridsize(self): return self.__gridsize
     @property
     def quantity(self): return self.__quantity
+    @property
+    def columns(self): return self.__columns
 
 
 
