@@ -31,9 +31,6 @@ class Filter(Equations, ABC):
 
 
 class Generator(ABC):
-    @abstractmethod
-    def generator(self, dataframe, *args, **kwargs): pass
-
     def generate(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
         if bool(dataframe.empty): return dataframe
@@ -41,6 +38,9 @@ class Generator(ABC):
         dataframe = pd.concat(list(generator), axis=0)
         dataframe = dataframe.reset_index(drop=True, inplace=False)
         return dataframe
+
+    @abstractmethod
+    def generator(self, dataframe, *args, **kwargs): pass
 
 
 

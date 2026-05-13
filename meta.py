@@ -12,7 +12,7 @@ from itertools import product
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SingletonMeta", "AttributeMeta", "RegistryMeta", "ParameterMeta", "TreeMeta", "Meta"]
+__all__ = ["CounterMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "ParameterMeta", "TreeMeta", "Meta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -29,6 +29,22 @@ class Meta(ABCMeta):
     def __init__(cls, *args, **kwargs):
         try: super(Meta, cls).__init__(*args, **kwargs)
         except TypeError: super(Meta, cls).__init__(cls)
+
+
+class CounterMeta(Meta):
+    def __init__(cls, *args, **kwargs):
+        super(CounterMeta, cls).__init__(*args, **kwargs)
+        cls.__counter__ = 1
+
+    def count(cls):
+        count = cls.counter
+        cls.counter = count + 1
+        return count
+
+    @property
+    def counter(cls): return cls.__counter__
+    @counter.setter
+    def counter(cls, counter): cls.__counter__ = counter
 
 
 class SingletonMeta(Meta):
