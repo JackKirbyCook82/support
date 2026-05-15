@@ -35,7 +35,9 @@ class Generator(ABC):
         assert isinstance(dataframe, pd.DataFrame)
         if bool(dataframe.empty): return dataframe
         generator = self.generator(dataframe, *args, **kwargs)
-        dataframe = pd.concat(list(generator), axis=0)
+        dataframes = list(generator)
+        if bool(dataframes): dataframe = pd.concat(dataframes, axis=0)
+        else: dataframe = pd.DataFrame(columns=dataframe.columns)
         dataframe = dataframe.reset_index(drop=True, inplace=False)
         return dataframe
 

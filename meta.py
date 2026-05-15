@@ -34,17 +34,18 @@ class Meta(ABCMeta):
 class CounterMeta(Meta):
     def __init__(cls, *args, **kwargs):
         super(CounterMeta, cls).__init__(*args, **kwargs)
-        cls.__counter__ = 1
-
-    def count(cls):
-        count = cls.counter
-        cls.counter = count + 1
-        return count
+        cls.__current__ = 1
 
     @property
-    def counter(cls): return cls.__counter__
-    @counter.setter
-    def counter(cls, counter): cls.__counter__ = counter
+    def counter(cls):
+        current = cls.current
+        cls.current = current + 1
+        return current
+
+    @property
+    def current(cls): return cls.__current__
+    @current.setter
+    def current(cls, current): cls.__current__ = current
 
 
 class SingletonMeta(Meta):
