@@ -23,7 +23,7 @@ __license__ = "MIT License"
 
 
 AppraisalConcept = Concept("Appraisal", ["BLACKSCHOLES", "GREEKS"], start=1)
-InstrumentConcept = Concept("Instrument", ["EMPTY", "STOCK", "OPTION"], start=0)
+InstrumentConcept = Concept("Instrument", ["EMPTY", "STOCK", "OPTION", "SPREAD"], start=0)
 OptionConcept = Concept("Option", ["PUT", "EMPTY", "CALL"], start=-1)
 PositionConcept = Concept("Position", ["SHORT", "EMPTY", "LONG"], start=-1)
 SpreadConcept = Concept("Spread", ["EMPTY", "STRANGLE", "COLLAR", "VERTICAL", "FLY", "CALENDAR"], start=0)
@@ -103,11 +103,18 @@ class Alerting(Logging):
     @Dispatchers.Value(locator="instrument")
     def alert(self, dataframe, *args, title, instrument, **kwargs): raise ValueError(instrument)
 
+    @alert.register(Concepts.Securities.Instrument.SPREAD)
+    def spread(self, collection, *args, title, instrument, **kwargs):
+        tickers = "|".join(list({content.ticker for content in collection}))
+        previous, post = kwargs.get("previous", None), kwargs.get("post", len(collection))
+        sizes = f"{int(previous):.0f}|{int(post):.0f}" if previous is not None else f"{len(collection):.0f}"
+        self.console(str(title), f"{str(instrument).title()}[{str(tickers)}, {str(sizes)}]")
+
     @alert.register(Concepts.Securities.Instrument.STOCK)
     def stock(self, dataframe, *args, title, instrument, **kwargs):
         tickers = "|".join(list(dataframe["ticker"].unique()))
-        previous, post = kwargs.get("previous", None), kwargs.get("post", len(dataframe.index))
-        sizes = f"{int(previous):.0f}|{int(post):.0f}" if previous is not None else f"{len(dataframe.index):.0f}"
+        previous, post = kwargs.get("previous", None), kwargs.get("post", len(dataframe))
+        sizes = f"{int(previous):.0f}|{int(post):.0f}" if previous is not None else f"{len(dataframe):.0f}"
         self.console(str(title), f"{str(instrument).title()}[{str(tickers)}, {str(sizes)}]")
 
     @alert.register(Concepts.Securities.Instrument.OPTION)
@@ -115,8 +122,8 @@ class Alerting(Logging):
         tickers = "|".join(list(dataframe["ticker"].unique()))
         expires = DateRange.create(list(dataframe["expire"].unique()))
         expires = f"{expires.minimum.strftime('%Y%m%d')}->{expires.maximum.strftime('%Y%m%d')}"
-        previous, post = kwargs.get("previous", None), kwargs.get("post", len(dataframe.index))
-        sizes = f"{int(previous):.0f}|{int(post):.0f}" if previous is not None else f"{len(dataframe.index):.0f}"
+        previous, post = kwargs.get("previous", None), kwargs.get("post", len(dataframe))
+        sizes = f"{int(previous):.0f}|{int(post):.0f}" if previous is not None else f"{len(dataframe):.0f}"
         self.console(str(title), f"{str(instrument).title()}[{str(tickers)}, {str(expires)}, {str(sizes)}]")
 
 
