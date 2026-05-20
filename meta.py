@@ -81,6 +81,26 @@ class TreeMeta(Meta):
     def dependents(cls): return cls.__dependents__
 
 
+class AttributeMeta(Meta):
+    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+        assert RegistryMeta not in bases
+        return super(AttributeMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        if not any([isinstance(base, AttributeMeta) for base in bases]): cls.root = cls
+        attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
+        attributes = list(filter(lambda attribute: attribute is not None, attributes))
+        assert all([isinstance(attribute, str) for attribute in attributes])
+        for attribute in attributes: setattr(cls.root, attribute, cls)
+        if bool(kwargs.get("root", False)): cls.root = cls
+
+    @property
+    def root(cls): return cls.__root__
+    @root.setter
+    def root(cls, root): cls.__root__ = root
+
+
 class RegistryMeta(Meta):
     registries = dict()
 
@@ -112,26 +132,6 @@ class RegistryMeta(Meta):
     def __getitem__(cls, key): return RegistryMeta.registries[cls.root][key]
     def __setitem__(cls, key, value): RegistryMeta.registries[cls.root][key] = value
     def __iter__(cls): return iter(RegistryMeta.registries[cls.root].items())
-
-    @property
-    def root(cls): return cls.__root__
-    @root.setter
-    def root(cls, root): cls.__root__ = root
-
-
-class AttributeMeta(Meta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        assert RegistryMeta not in bases
-        return super(AttributeMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
-
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        if not any([isinstance(base, AttributeMeta) for base in bases]): cls.root = cls
-        attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
-        attributes = list(filter(lambda attribute: attribute is not None, attributes))
-        assert all([isinstance(attribute, str) for attribute in attributes])
-        for attribute in attributes: setattr(cls.root, attribute, cls)
-        if bool(kwargs.get("root", False)): cls.root = cls
 
     @property
     def root(cls): return cls.__root__
