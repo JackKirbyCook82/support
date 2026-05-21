@@ -79,6 +79,8 @@ class TreeMeta(Meta):
 
     @property
     def dependents(cls): return cls.__dependents__
+    @property
+    def key(cls): return cls.__key__
 
 
 class AttributeMeta(Meta):
