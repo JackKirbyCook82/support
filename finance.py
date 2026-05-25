@@ -105,6 +105,7 @@ class Alerting(Logging):
 
     @alert.register(Concepts.Securities.Instrument.SPREAD)
     def spread(self, collection, *args, title, instrument, **kwargs):
+        if not isinstance(collection, list): collection = [collection]
         tickers = "|".join(list({content.ticker for content in collection}))
         previous, post = kwargs.get("previous", None), kwargs.get("post", len(collection))
         sizes = f"{int(previous):.0f}|{int(post):.0f}" if previous is not None else f"{len(collection):.0f}"
