@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from scipy.interpolate import SmoothBivariateSpline, RectBivariateSpline, make_interp_spline, make_splrep
 
 from support.meta import RegistryMeta
-from support.concepts import NumRange
+from support.custom import NumRange
 from support.mixins import Logging
 
 __version__ = "1.0.0"

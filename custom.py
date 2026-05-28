@@ -6,15 +6,55 @@ Created on Tues Mar 18 2025
 
 """
 
+import pandas as pd
+from numbers import Number
+from dataclasses import dataclass
 from collections import OrderedDict
+from datetime import date as Date
+from datetime import datetime as Datetime
 
 from support.decorators import Dispatchers
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SliceOrderedDict"]
+__all__ = ["DateRange", "NumRange", "SliceOrderedDict"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
+
+
+@dataclass(frozen=True)
+class DateRange:
+    minimum: Date | Datetime; maximum: Date | Datetime
+
+    @classmethod
+    def create(cls, dates):
+        assert isinstance(dates, list)
+        assert all([isinstance(value, (Date, Datetime)) for value in dates])
+        if not dates: return None
+        return cls(min(dates), max(dates))
+
+    def __contains__(self, value): return self.minimum <= value <= self.maximum
+    def __iter__(self): return iter(pd.date_range(start=self.minimum, end=self.maximum))
+    def __str__(self): return f"{self.minimum}|{self.maximum}"
+    def __bool__(self): return self.minimum < self.maximum
+    def __len__(self): return (self.maximum - self.minimum).days
+
+
+@dataclass(frozen=True)
+class NumRange:
+    minimum: Number; maximum: Number
+
+    @classmethod
+    def create(cls, numbers):
+        assert isinstance(numbers, list)
+        assert all([isinstance(number, Number) for number in numbers])
+        if not numbers: return None
+        return cls(min(numbers), max(numbers))
+
+    def __contains__(self, value): return self.minimum <= value <= self.maximum
+    def __str__(self): return f"{self.minimum}|{self.maximum}"
+    def __bool__(self): return self.minimum < self.maximum
+    def __len__(self): return self.maximum - self.minimum
 
 
 class SliceOrderedDict(OrderedDict):

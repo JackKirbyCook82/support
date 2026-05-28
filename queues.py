@@ -10,8 +10,6 @@ import types
 import queue
 from abc import ABC, ABCMeta, abstractmethod
 
-from support.concepts import Assembly
-
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Queues"]
