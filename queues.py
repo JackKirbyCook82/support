@@ -95,7 +95,7 @@ class PIFOQueue(Queue, queuetype=queue.PriorityQueue):
     def priority(self): return self.__priority
 
 
-class Queues(Assembly):
+class Queues:
     LIFO = LIFOQueue
     FIFO = FIFOQueue
     PIFO = PIFOQueue
