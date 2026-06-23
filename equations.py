@@ -36,6 +36,9 @@ class Equation:
 
 
 class EquationError(Exception): pass
+class EquationIndependentError(EquationError): pass
+class EquationDependentError(EquationError): pass
+class EquationConstantError(EquationError): pass
 class EquationArgumentError(EquationError): pass
 class EquationParameterError(EquationError): pass
 class EquationOrderingError(EquationError): pass
@@ -58,20 +61,20 @@ class EquationsMeta(Meta):
         inherited = [variable for base in bases for variable in getattr(base, "__variables__", [])]
         variables = list(dict.fromkeys(inherited + updated))
         updated = kwargs.get("parameters", {})
-        inherited = {parameter for base in bases for parameter, default in getattr(base, "__hyperparams__", {}).items()}
-        hyperparams = inherited | updated
-        cls.__hyperparams__ = hyperparams
+        inherited = {parameter: kwargs.get(parameter, default) for base in bases for parameter, default in getattr(base, "__parameters__", {}).items()}
+        parameters = inherited | updated
+        cls.__parameters__ = parameters
         cls.__functions__ = functions
         cls.__variables__ = variables
 
     def __call__(cls, *args, **kwargs):
         signatures = [inspect.signature(function).parameters.items() for function in cls.functions.values()]
-        arguments = [variable for signature in signatures for variable, details in signature if details.kind in (details.POSITIONAL_OR_KEYWORD, details.POSITIONAL_OR_KEYWORD)]
+        arguments = {variable for signature in signatures for variable, details in signature if details.kind in (details.POSITIONAL_OR_KEYWORD, details.POSITIONAL_OR_KEYWORD)}
         dependents = {argument for argument in arguments if argument in cls.functions.keys()}
         independents = {argument for argument in arguments if argument not in cls.functions.keys()}
         equations = {variable: Equation.create(variable, function) for variable, function in cls.functions.items()}
-        parameters = {variable: kwargs.get(variable, default) for variable, default in cls.hyperparams.items()}
-        instance = super().__call__(*args, equations=equations, independents=independents, dependents=dependents, parameters=parameters, **kwargs)
+        constants = {variable: kwargs.get(variable, default) for variable, default in cls.parameters.items()}
+        instance = super().__call__(*args, equations=equations, independents=independents, dependents=dependents, constants=constants, **kwargs)
         return instance
 
     @property
@@ -79,26 +82,28 @@ class EquationsMeta(Meta):
     @property
     def variables(cls): return cls.__variables__
     @property
-    def hyperparams(cls): return cls.__hyperparams__
+    def parameters(cls): return cls.__parameters__
 
 
 class Equations(Mixin, metaclass=EquationsMeta):
     def __getitem__(self, equation): return self.equations[equation]
-    def __init__(self, *args, equations, dependents, independents, parameters, **kwargs):
+    def __init__(self, *args, equations, dependents, independents, constants, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__parameters = parameters
         self.__independents = independents
         self.__dependents = dependents
+        self.__constants = constants
         self.__equations = equations
 
     def execute(self, dataframe, *args, **kwargs):
         assert isinstance(dataframe, pd.DataFrame)
-        missing = {argument for argument in self.independents if argument not in dataframe.columns and argument not in kwargs.keys()}
-        if bool(missing): raise EquationArgumentError()
         dataframe = dataframe.copy()
         for equation in self.order:
-            arguments = [dataframe[argument] for argument in equation.arguments]
-            dataframe[equation.variable] = equation.function(*arguments, **self.parameters)
+            try: arguments = [dataframe[argument] for argument in equation.arguments]
+            except KeyError: raise EquationArgumentError()
+            try: parameters = {parameter: kwargs[parameter] if parameter in kwargs.keys() else self.constants[parameter] for parameter in equation.parameters}
+            except KeyError: raise EquationParameterError()
+            series = equation.function(*arguments, **parameters)
+            dataframe[equation.variable] = series
         if not bool(type(self).variables): return dataframe
         columns = list(type(self).variables)
         return dataframe[columns]
@@ -115,8 +120,8 @@ class Equations(Mixin, metaclass=EquationsMeta):
     @property
     def dependents(self): return self.__dependents
     @property
-    def equations(self): return self.__equations
+    def constants(self): return self.__constants
     @property
-    def parameters(self): return self.__parameters
+    def equations(self): return self.__equations
 
 
