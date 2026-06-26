@@ -42,7 +42,7 @@ class DateRange:
 
 @dataclass(frozen=True)
 class NumRange:
-    minimum: Number; maximum: Number
+    minimum: float; maximum: float
 
     @classmethod
     def create(cls, numbers):
