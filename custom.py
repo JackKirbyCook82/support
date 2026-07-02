@@ -26,12 +26,12 @@ __license__ = "MIT License"
 class DateRange:
     minimum: Date | Datetime; maximum: Date | Datetime
 
-    @classmethod
-    def create(cls, dates):
-        assert isinstance(dates, list)
-        assert all([isinstance(value, (Date, Datetime)) for value in dates])
-        if not dates: return None
-        return cls(min(dates), max(dates))
+    def __add__(self, other):
+        if other is None: return self
+        assert isinstance(other, DateRange)
+        minimum = min(self.minimum, other.minimum)
+        maximum = max(self.maximum, other.maximum)
+        return type(self)(minimum=minimum, maximum=maximum)
 
     def __contains__(self, value): return self.minimum <= value <= self.maximum
     def __iter__(self): return iter(pd.date_range(start=self.minimum, end=self.maximum))
@@ -39,10 +39,29 @@ class DateRange:
     def __bool__(self): return self.minimum < self.maximum
     def __len__(self): return (self.maximum - self.minimum).days
 
+    @classmethod
+    def create(cls, dates):
+        assert isinstance(dates, list)
+        assert all([isinstance(value, (Date, Datetime)) for value in dates])
+        if not dates: return None
+        return cls(min(dates), max(dates))
+
 
 @dataclass(frozen=True)
 class NumRange:
     minimum: float; maximum: float
+
+    def __add__(self, other):
+        if other is None: return self
+        assert isinstance(other, NumRange)
+        minimum = min(self.minimum, other.minimum)
+        maximum = max(self.maximum, other.maximum)
+        return type(self)(minimum=minimum, maximum=maximum)
+
+    def __contains__(self, value): return self.minimum <= value <= self.maximum
+    def __str__(self): return f"{self.minimum}|{self.maximum}"
+    def __bool__(self): return self.minimum < self.maximum
+    def __len__(self): return self.maximum - self.minimum
 
     @classmethod
     def create(cls, numbers):
@@ -50,11 +69,6 @@ class NumRange:
         assert all([isinstance(number, Number) for number in numbers])
         if not numbers: return None
         return cls(min(numbers), max(numbers))
-
-    def __contains__(self, value): return self.minimum <= value <= self.maximum
-    def __str__(self): return f"{self.minimum}|{self.maximum}"
-    def __bool__(self): return self.minimum < self.maximum
-    def __len__(self): return self.maximum - self.minimum
 
 
 class SliceOrderedDict(OrderedDict):

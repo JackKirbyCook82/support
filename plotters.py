@@ -18,12 +18,11 @@ from types import NoneType, SimpleNamespace
 from collections import OrderedDict as ODict
 from mpl_toolkits.mplot3d import Axes3D
 
-from support.meta import AttributeMeta
 from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Plotter", "Plot", "Artist"]
+__all__ = ["Plotter", "Plot", "Pallet"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -35,7 +34,7 @@ class Axes:
     def __iter__(self): yield self.x; yield self.y; yield self.z
 
 
-class Artist(ABC, metaclass=AttributeMeta):
+class Artist(ABC):
     def __init__(self, source, *args, color, **kwargs):
         self.__source = source
         self.__color = color
@@ -49,7 +48,7 @@ class Artist(ABC, metaclass=AttributeMeta):
     def color(self): return self.__color
 
 
-class Surface(Artist, attribute="Surface"):
+class Surface(Artist):
     def __init__(self, *args, gridsize=100, transparency=0.75, **kwargs):
         assert isinstance(gridsize, int)
         super().__init__(*args, **kwargs)
@@ -107,7 +106,7 @@ class Dataset(Artist, ABC):
     def columns(self): return self.__columns
 
 
-class Scatter(Dataset, attribute="Scatter"):
+class Scatter(Dataset):
     def render(self, ax, *args, **kwargs):
         columns = list(self.columns)
         source = self.source[columns].dropna(how="any", inplace=False)
@@ -116,7 +115,7 @@ class Scatter(Dataset, attribute="Scatter"):
         return ax
 
 
-class Line(Scatter, attribute="Line"):
+class Line(Scatter):
     def render(self, ax, *args, **kwargs):
         source = self.source
         assert len(source) == 2
@@ -128,12 +127,19 @@ class Line(Scatter, attribute="Line"):
         return ax
 
 
-class Point(Scatter, attribute="Point"):
+class Point(Scatter):
     def render(self, ax, *args, **kwargs):
         source = self.source
         axes = self.axes(source)
         ax.scatter([axes.x], [axes.y], [axes.z], s=self.thickness, color=self.color)
         return ax
+
+
+class Pallet:
+    Surface = Surface
+    Scatter = Scatter
+    Line = Line
+    Point = Point
 
 
 class Plot(object):
@@ -143,6 +149,12 @@ class Plot(object):
         self.__labels = Axes(*labels) if labels is not None else labels
         self.__artists = list()
         self.__title = title
+
+    def __repr__(self):
+        title = str(self.title).title()
+        labels = [str(label).title() for label in self.labels]
+        labels = "|".join(labels)
+        return f"{title}->{labels}"
 
     def append(self, artist):
         assert isinstance(artist, Artist)
@@ -165,7 +177,7 @@ class Plot(object):
 
 
 class Plotter(Logging):
-    def __init__(self, *args, plotsize=4, **kwargs):
+    def __init__(self, *args, plotsize=6, **kwargs):
         super().__init__(*args, **kwargs)
         self.__plotsize = int(plotsize)
         self.__plots = ODict()
@@ -176,7 +188,6 @@ class Plotter(Logging):
         self.plots[name] = plot
 
     def display(self, *args, **kwargs):
-        names = list(self.plots.keys())
         plots = list(self.plots.values())
         if not plots: return None
         rows, cols = self.layout(len(plots))
@@ -185,7 +196,7 @@ class Plotter(Logging):
         for index, plot in enumerate(plots, start=1):
             ax = figure.add_subplot(rows, cols, index, projection="3d")
             plot.render(ax, *args, **kwargs)
-        self.console("Plotted", f"Plots[{','.join(names)}]")
+            self.console("Rendered", f"Plot[{repr(plot)}]")
         plt.tight_layout()
         plt.show()
         return figure
