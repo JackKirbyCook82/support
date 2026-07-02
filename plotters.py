@@ -19,6 +19,7 @@ from collections import OrderedDict as ODict
 from mpl_toolkits.mplot3d import Axes3D
 
 from support.meta import AttributeMeta
+from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -163,8 +164,9 @@ class Plot(object):
     def labels(self): return self.__labels
 
 
-class Plotter(object):
+class Plotter(Logging):
     def __init__(self, *args, plotsize=4, **kwargs):
+        super().__init__(*args, **kwargs)
         self.__plotsize = int(plotsize)
         self.__plots = ODict()
 
@@ -174,6 +176,7 @@ class Plotter(object):
         self.plots[name] = plot
 
     def display(self, *args, **kwargs):
+        names = list(self.plots.keys())
         plots = list(self.plots.values())
         if not plots: return None
         rows, cols = self.layout(len(plots))
@@ -182,6 +185,7 @@ class Plotter(object):
         for index, plot in enumerate(plots, start=1):
             ax = figure.add_subplot(rows, cols, index, projection="3d")
             plot.render(ax, *args, **kwargs)
+        self.console("Plotted", f"Plots[{','.join(names)}]")
         plt.tight_layout()
         plt.show()
         return figure
