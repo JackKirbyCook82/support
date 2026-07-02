@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from typing import Optional
 from dataclasses import dataclass
 from abc import ABC, abstractmethod
-from functools import singledispatch
+from functools import singledispatchmethod
 from types import NoneType, SimpleNamespace
 from collections import OrderedDict as ODict
 from mpl_toolkits.mplot3d import Axes3D
@@ -77,7 +77,7 @@ class Dataset(Artist, ABC):
         self.__columns = Axes(*columns) if columns is not None else columns
         self.__thickness = thickness
 
-    @singledispatch
+    @singledispatchmethod
     def axes(self, source): pass
 
     @axes.register(pd.DataFrame)
@@ -92,7 +92,8 @@ class Dataset(Artist, ABC):
         coordinates = {coordinate: mapping.get(axis, None) for coordinate, axis in coordinates}
         return Axes(**coordinates)
 
-    @axes.register(tuple, list)
+    @axes.register(tuple)
+    @axes.register(list)
     def collection(self, collection):
         assert 0 < len(collection) <= 3
         collection = tuple(collection[:3]) + tuple([None]) * max(0, 3 - len(collection))
@@ -119,9 +120,9 @@ class Line(Scatter, attribute="Line"):
         source = self.source
         assert len(source) == 2
         axes = self.axes(source)
-        x = ax.get_xlim(ax) if [axes.x] * 2 is None else axes.x
-        y = ax.get_ylim(ax) if [axes.y] * 2 is None else axes.y
-        z = ax.get_zlim(ax) if [axes.z] * 2 is None else axes.z
+        x = ax.get_xlim() if axes.x is None else [axes.x, axes.x]
+        y = ax.get_ylim() if axes.y is None else [axes.y, axes.y]
+        z = ax.get_zlim() if axes.z is None else [axes.z, axes.z]
         ax.plot(x, y, z, linewidth=self.thickness, color=self.color)
         return ax
 
