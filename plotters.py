@@ -150,7 +150,7 @@ class Plot(object):
         self.__artists = list()
         self.__title = title
 
-    def __repr__(self):
+    def __str__(self):
         title = str(self.title).title()
         labels = [str(label).title() for label in self.labels]
         labels = "|".join(labels)
@@ -196,7 +196,7 @@ class Plotter(Logging):
         for index, plot in enumerate(plots, start=1):
             ax = figure.add_subplot(rows, cols, index, projection="3d")
             plot.render(ax, *args, **kwargs)
-            self.console("Rendered", f"Plot[{repr(plot)}]")
+            self.console("Rendered", f"Plot[{str(plot)}]")
         plt.tight_layout()
         plt.show()
         return figure
