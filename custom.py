@@ -10,6 +10,7 @@ import pandas as pd
 from numbers import Number
 from dataclasses import dataclass
 from collections import OrderedDict
+from collections.abc import Mapping
 from datetime import date as Date
 from datetime import datetime as Datetime
 
@@ -17,7 +18,7 @@ from support.decorators import Dispatchers
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DateRange", "NumRange", "SliceOrderedDict"]
+__all__ = ["DateRange", "NumRange", "SliceOrderedDict", "ReversibleDict"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -69,6 +70,32 @@ class NumRange:
         assert all([isinstance(number, Number) for number in numbers])
         if not numbers: return None
         return cls(min(numbers), max(numbers))
+
+
+class ReversibleDict(Mapping):
+    def __len__(self): return len(self.forward)
+    def __init__(self, forward):
+        assert isinstance(forward, dict)
+        assert len(forward.values()) == len(set(forward.values()))
+        self.__backward = {value: key for key, value in forward.items()}
+        self.__forward = forward
+
+    def __iter__(self): return iter(self.forward)
+    def __reversed__(self): return iter(self.backward)
+
+    def __getitem__(self, couple):
+        key, reverse = couple
+        assert isinstance(reverse, bool)
+        return self.get(key, reverse, default=None)
+
+    def get(self, key, reverse=None, default=None):
+        if reverse: return self.backward.get(key, default)
+        else: return self.forward.get(key, default)
+
+    @property
+    def forward(self): return self.__forward
+    @property
+    def backward(self): return self.__backward
 
 
 class SliceOrderedDict(OrderedDict):
