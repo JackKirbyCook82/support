@@ -78,7 +78,7 @@ class Surface(ABC, metaclass=RegistryMeta):
     def __call__(self, x, y):
         x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
         assert not self.violation(x, y)
-        return self.surface(x, y)
+        return self.surface.ev(x, y)
 
     def z(self, x, y):
         x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
