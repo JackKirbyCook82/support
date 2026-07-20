@@ -60,6 +60,7 @@ class NumRange:
         return type(self)(minimum=minimum, maximum=maximum)
 
     def __contains__(self, value): return self.minimum <= value <= self.maximum
+    def __iter__(self): return iter([self.minimum, self.maximum])
     def __str__(self): return f"{self.minimum}|{self.maximum}"
     def __bool__(self): return self.minimum < self.maximum
     def __len__(self): return self.maximum - self.minimum
