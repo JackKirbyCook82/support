@@ -19,7 +19,7 @@ from support.decorators import Dispatchers
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["ValueRanges", "SliceOrderedDict", "ReversibleDict"]
+__all__ = ["SliceOrderedDict", "ReversibleDict", "NumberRange", "DateRange"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -74,10 +74,7 @@ class ValueRange(metaclass=ValueMeta):
 
 
 class NumberRange(ValueRange, valuetype=[int, float]): pass
-class PercentRange(ValueRange, valuetype=float): pass
 class DateRange(ValueRange, valuetype=(Date, Datetime)): pass
-class DurationRange(ValueRange, valuetype=Timedelta): pass
-class ValueRanges: Number, Percent, Date, Duration = NumberRange, PercentRange, DateRange, DurationRange
 
 
 class ReversibleDict(Mapping):
