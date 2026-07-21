@@ -6,71 +6,78 @@ Created on Tues Mar 18 2025
 
 """
 
-import pandas as pd
-from numbers import Number
+from inspect import isclass
+from typing import Iterable
 from dataclasses import dataclass
 from collections import OrderedDict
 from collections.abc import Mapping
 from datetime import date as Date
 from datetime import datetime as Datetime
+from datetime import timedelta as Timedelta
 
 from support.decorators import Dispatchers
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["DateRange", "NumRange", "SliceOrderedDict", "ReversibleDict"]
+__all__ = ["ValueRanges", "SliceOrderedDict", "ReversibleDict"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
+class ValueTypeError(Exception): pass
+class ValueOrderError(Exception): pass
+class ValueMeta(type):
+    def __new__(mcs, name, bases, attrs, *args, valuetype=tuple(), **kwargs):
+        assert isinstance(valuetype, tuple) or isclass(valuetype)
+        cls = super(ValueMeta, mcs).__new__(mcs, name, bases, attrs, **kwargs)
+        return cls
+
+    def __init__(cls, name, bases, attrs, *args, valuetype=tuple(), **kwargs):
+        super(ValueMeta, cls).__init__(name, bases, attrs, **kwargs)
+        valuetype = valuetype if isinstance(valuetype, tuple) else tuple([valuetype])
+        valuetype = getattr(cls, "__valuetype__", tuple()) + valuetype
+        cls.__valuetype__ = valuetype
+
+    def __call__(cls, *arguments, **parameters):
+        assert bool(cls.valuetype)
+        if len(arguments) == 1 and not parameters and isinstance(arguments[0], Iterable):
+            values = tuple(arguments[0])
+            if not values: return None
+            arguments = (min(values), max(values))
+        instance = super(ValueMeta, cls).__call__(*arguments, **parameters)
+        if not isinstance(instance.minimum, cls.valuetype): raise ValueTypeError(type(instance.minimum))
+        if not isinstance(instance.maximum, cls.valuetype): raise ValueTypeError(type(instance.maximum))
+        if instance.minimum > instance.maximum: raise ValueTypeError()
+        return instance
+
+    @property
+    def valuetype(cls): return cls.__valuetype__
+
+
 @dataclass(frozen=True)
-class DateRange:
-    minimum: Date | Datetime; maximum: Date | Datetime
+class ValueRange(metaclass=ValueMeta):
+    minimum: Date | Datetime | Timedelta | float
+    maximum: Date | Datetime | Timedelta | float
 
-    def __add__(self, other):
-        if other is None: return self
-        assert isinstance(other, DateRange)
-        minimum = min(self.minimum, other.minimum)
-        maximum = max(self.maximum, other.maximum)
-        return type(self)(minimum=minimum, maximum=maximum)
-
-    def __contains__(self, value): return self.minimum <= value <= self.maximum
-    def __iter__(self): return iter(pd.date_range(start=self.minimum, end=self.maximum))
+    def __iter__(self): return iter((self.minimum, self.maximum))
     def __str__(self): return f"{self.minimum}|{self.maximum}"
     def __bool__(self): return self.minimum < self.maximum
-    def __len__(self): return (self.maximum - self.minimum).days
-
-    @classmethod
-    def create(cls, dates):
-        assert isinstance(dates, list)
-        assert all([isinstance(value, (Date, Datetime)) for value in dates])
-        if not dates: return None
-        return cls(min(dates), max(dates))
-
-
-@dataclass(frozen=True)
-class NumRange:
-    minimum: float; maximum: float
-
-    def __add__(self, other):
-        if other is None: return self
-        assert isinstance(other, NumRange)
-        minimum = min(self.minimum, other.minimum)
-        maximum = max(self.maximum, other.maximum)
-        return type(self)(minimum=minimum, maximum=maximum)
 
     def __contains__(self, value): return self.minimum <= value <= self.maximum
-    def __iter__(self): return iter([self.minimum, self.maximum])
-    def __str__(self): return f"{self.minimum}|{self.maximum}"
-    def __bool__(self): return self.minimum < self.maximum
-    def __len__(self): return self.maximum - self.minimum
+    def __add__(self, other):
+        if other is None: return self
+        cls = type(self)
+        assert isinstance(other, cls)
+        minimum = min(self.minimum, other.minimum)
+        maximum = max(self.maximum, other.maximum)
+        return cls(minimum=minimum, maximum=maximum)
 
-    @classmethod
-    def create(cls, numbers):
-        assert isinstance(numbers, list)
-        assert all([isinstance(number, Number) for number in numbers])
-        if not numbers: return None
-        return cls(min(numbers), max(numbers))
+
+class NumberRange(ValueRange, valuetype=[int, float]): pass
+class PercentRange(ValueRange, valuetype=float): pass
+class DateRange(ValueRange, valuetype=(Date, Datetime)): pass
+class DurationRange(ValueRange, valuetype=Timedelta): pass
+class ValueRanges: Number, Percent, Date, Duration = NumberRange, PercentRange, DateRange, DurationRange
 
 
 class ReversibleDict(Mapping):
