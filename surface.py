@@ -15,7 +15,7 @@ from abc import ABC, abstractmethod
 from scipy.interpolate import SmoothBivariateSpline, RectBivariateSpline, make_interp_spline, make_splrep
 
 from support.meta import RegistryMeta
-from support.custom import NumRange
+from support.custom import NumberRange
 from support.mixins import Logging
 
 __version__ = "1.0.0"
@@ -27,9 +27,9 @@ __license__ = "MIT License"
 
 @dataclass
 class Axes:
-    x: int | float | np.ndarray | NumRange | types.NoneType = None
-    y: int | float | np.ndarray | NumRange | types.NoneType = None
-    z: int | float | np.ndarray | NumRange | types.NoneType = None
+    x: int | float | np.ndarray | NumberRange | types.NoneType = None
+    y: int | float | np.ndarray | NumberRange | types.NoneType = None
+    z: int | float | np.ndarray | NumberRange | types.NoneType = None
 
     def __iter__(self):
         yield self.x; yield self.y; yield self.z
@@ -45,7 +45,7 @@ class Curve(ABC, metaclass=RegistryMeta):
         yaxis, zaxis = (yaxis[order], zaxis[order])
         assert not np.any(np.diff(yaxis) <= 0)
         curve = self.create(yaxis, zaxis, **kwargs)
-        boundary = NumRange.create([yaxis.min(), yaxis.max()])
+        boundary = NumberRange([yaxis.min(), yaxis.max()])
         self.__boundary = boundary
         self.__curve = curve
 
@@ -106,8 +106,8 @@ class Surface(ABC, metaclass=RegistryMeta):
         return self.surface.ev(x, y, dx=0, dy=2)
 
     def boundary(self):
-        x = NumRange.create([self.domain.x.min(), self.domain.x.max()])
-        y = NumRange.create([self.domain.y.min(), self.domain.y.max()])
+        x = NumberRange([self.domain.x.min(), self.domain.x.max()])
+        y = NumberRange([self.domain.y.min(), self.domain.y.max()])
         return Axes(x=x, y=y)
 
     def violation(self, x, y):
