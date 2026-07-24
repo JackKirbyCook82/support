@@ -28,7 +28,7 @@ class ValueTypeError(Exception): pass
 class ValueOrderError(Exception): pass
 class ValueMeta(type):
     def __new__(mcs, name, bases, attrs, *args, valuetype=tuple(), **kwargs):
-        assert isinstance(valuetype, tuple) or isclass(valuetype)
+        assert isinstance(valuetype, (list, tuple)) or isclass(valuetype)
         cls = super(ValueMeta, mcs).__new__(mcs, name, bases, attrs, **kwargs)
         return cls
 
@@ -73,7 +73,7 @@ class ValueRange(metaclass=ValueMeta):
         return cls(minimum=minimum, maximum=maximum)
 
 
-class NumberRange(ValueRange, valuetype=[int, float]): pass
+class NumberRange(ValueRange, valuetype=(int, float)): pass
 class DateRange(ValueRange, valuetype=(Date, Datetime)): pass
 
 
