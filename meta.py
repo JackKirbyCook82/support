@@ -6,13 +6,12 @@ Created on Fri Aug 27 2021
 
 """
 
-import types
 from abc import ABCMeta
 from itertools import product
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["CounterMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "ParameterMeta", "TreeMeta", "Meta"]
+__all__ = ["CounterMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "TreeMeta", "Meta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -139,25 +138,5 @@ class RegistryMeta(Meta):
     def root(cls): return cls.__root__
     @root.setter
     def root(cls, root): cls.__root__ = root
-
-
-class ParameterMeta(Meta):
-    def __iter__(cls): return iter(cls.parameters.items())
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(ParameterMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        dunder = lambda attribute: str(attribute).startswith('__') and str(attribute).endswith('__')
-        function = lambda attribute: isinstance(attribute, types.FunctionType) and not attribute.__name__ == "<lambda>"
-        parameters = getattr(cls, "__parameters__", {})
-        for key, value in attrs.items():
-            if dunder(key) or function(value): continue
-            elif key not in parameters.keys(): parameters[key] = value
-            elif isinstance(value, list): parameters[key].append(value)
-            elif isinstance(value, (set, dict)): parameters[key].update(value)
-            else: parameters[key] = value
-        cls.__parameters__ = dict(parameters)
-
-    @property
-    def parameters(cls): return cls.__parameters__
-
 
 
