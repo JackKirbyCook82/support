@@ -31,30 +31,39 @@ class Header:
         self.parsers = {key: value for key, value in self.parsers.items() if key in self.columns}
 
 
-class File(Logging, ABC):
+class FileMeta(type(Logging), type):
     locking = {}
 
-    def __init_subclass__(cls, header, **kwargs):
-        super().__init_subclass__(**kwargs)
-        assert isinstance(header, Header)
-        cls.__header__ = header
+    def __init__(cls, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        parameters = getattr(cls, "__parameters__", {})
+        header = kwargs.get("header", parameters.get("header", None))
+        parameters.update({"header": header})
+        cls.__parameters__ = parameters
 
-    def __new__(cls, *args, file, **kwargs):
-        mutex = File.locking.get(file, multiprocessing.Lock())
-        File.locking[file] = mutex
-        instance = super().__new__(cls, *args, **kwargs)
-        instance.mutex = mutex
+    def __call__(cls, *args, file, **kwargs):
+        mutex = FileMeta.locking.get(file, multiprocessing.Lock())
+        FileMeta.locking[file] = mutex
+        parameters = dict(file=file, mutex=mutex) | cls.parameters
+        instance = super().__call__(*args, **parameters, **kwargs)
         return instance
 
-    def __init__(self, *args, file, **kwargs):
+    @property
+    def parameters(cls): return cls.__parameters__
+
+
+class File(Logging, ABC, metaclass=FileMeta):
+    def __init__(self, *args, file, mutex, header, **kwargs):
         assert isinstance(file, Path)
         super().__init__(*args, **kwargs)
-        self.__mutex = None
+        self.__header = header
+        self.__mutex = mutex
         self.__file = file
 
     def save(self, dataframe, mode):
         assert isinstance(dataframe, pd.DataFrame)
         assert isinstance(mode, str) and mode in ("w", "a")
+        if dataframe.empty: return
         self.file.parent.mkdir(exist_ok=True, parents=True)
         dataframe = dataframe[self.header.columns].copy()
         for column, formatter in self.header.formatting.items():
@@ -87,12 +96,12 @@ class File(Logging, ABC):
     @property
     def header(self): return type(self).__header__
     @property
+    def mutex(self): return self.__mutex
+    @property
     def file(self): return self.__file
 
-    @property
-    def mutex(self): return self.__mutex
-    @mutex.setter
-    def mutex(self, mutex): self.__mutex = mutex
+
+
 
 
 
