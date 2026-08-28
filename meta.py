@@ -3,6 +3,7 @@
 Created on Fri Aug 27 2021
 @name:   MetaTypes
 @author: Jack Kirby Cook
+@file:   support/meta.py
 
 """
 

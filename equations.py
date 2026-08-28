@@ -3,6 +3,7 @@
 Created on Tues Apr 14 2026
 @name:   Equation Objects
 @author: Jack Kirby Cook
+@file:   support/equations.py
 
 """
 

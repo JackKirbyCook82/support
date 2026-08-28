@@ -3,6 +3,7 @@
 Created on Sat Aug 19 2017
 @name    Function Dispatchers
 @author: Jack Kirby Cook
+@file:   support/decorators.py
 
 """
 

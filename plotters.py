@@ -3,6 +3,7 @@
 Created on Fri Apr 24 2026
 @name:   Plotter Objects
 @author: Jack Kirby Cook
+@file:   support/plotters.py
 
 """
 

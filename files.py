@@ -3,6 +3,7 @@
 Created on Weds Aug 5 2026
 @name:   File Objects
 @author: Jack Kirby Cook
+@file:   support/files.py
 
 """
 

@@ -3,6 +3,7 @@
 Created on Mon Oct 14 2024
 @name:   Mixins Object
 @author: Jack Kirby Cook
+@file:   support/mixins.py
 
 """
 
