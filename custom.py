@@ -89,6 +89,16 @@ class ReversibleDict(Mapping):
     def __iter__(self): return iter(self.forward)
     def __reversed__(self): return iter(self.backward)
 
+    def __setitem__(self, key, value):
+        self.forward[key] = value
+        self.backward[value] = key
+
+    def __contains__(self, couple):
+        key, reverse = couple
+        assert isinstance(reverse, bool)
+        if bool(reverse): return key in self.forward.keys()
+        else: return key in self.backward.keys()
+
     def __getitem__(self, couple):
         key, reverse = couple
         assert isinstance(reverse, bool)
