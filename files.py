@@ -61,12 +61,13 @@ class File(Logging, ABC, metaclass=FileMeta):
         self.__mutex = mutex
         self.__file = file
 
-    def save(self, dataframe, mode):
+    def save(self, dataframe, mode, columns=None):
         assert isinstance(dataframe, pd.DataFrame)
         assert isinstance(mode, str) and mode in ("w", "a")
         if dataframe.empty: return
         self.file.parent.mkdir(exist_ok=True, parents=True)
-        dataframe = dataframe[self.header.columns].copy()
+        columns = self.header.columns if columns is None else columns
+        dataframe = dataframe[columns].copy()
         for column, formatter in self.header.formatting.items():
             dataframe[column] = dataframe[column].apply(formatter)
         for column, astype in self.header.typing.items():
@@ -75,19 +76,21 @@ class File(Logging, ABC, metaclass=FileMeta):
             dataframe.to_csv(self.file, mode=mode, float_format="%.3f", index=False)
         self.results(dataframe, title="Saved")
 
-    def load(self, mode="r"):
+    def load(self, mode="r", columns=None):
         assert isinstance(mode, str) and mode == "r"
         if not self.file.exists():
             mapping = self.header.typing.items()
             mapping = {column: pd.Series(dtype=astype) for column, astype in mapping}
             dataframe = pd.DataFrame(mapping)
             return dataframe
+        columns = self.header.columns if columns is None else columns
         with self.mutex:
             dataframe = pd.read_csv(self.file)
         for column, astype in self.header.typing.items():
             dataframe[column] = dataframe[column].apply(astype)
         for column, parser in self.header.parsers.items():
             dataframe[column] = dataframe[column].apply(parser)
+        dataframe = dataframe[columns]
         self.results(dataframe, title="Loaded")
         return dataframe
 
