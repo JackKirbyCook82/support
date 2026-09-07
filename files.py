@@ -69,8 +69,10 @@ class File(Logging, ABC, metaclass=FileMeta):
         columns = self.header.columns if columns is None else columns
         dataframe = dataframe[columns].copy()
         for column, formatter in self.header.formatting.items():
+            if column not in columns: continue
             dataframe[column] = dataframe[column].apply(formatter)
         for column, astype in self.header.typing.items():
+            if column not in columns: continue
             dataframe[column] = dataframe[column].apply(astype)
         with self.mutex:
             dataframe.to_csv(self.file, mode=mode, float_format="%.3f", index=False)
@@ -85,10 +87,12 @@ class File(Logging, ABC, metaclass=FileMeta):
             return dataframe
         columns = self.header.columns if columns is None else columns
         with self.mutex:
-            dataframe = pd.read_csv(self.file)
+            dataframe = pd.read_csv(self.file)[columns]
         for column, astype in self.header.typing.items():
+            if column not in columns: continue
             dataframe[column] = dataframe[column].apply(astype)
         for column, parser in self.header.parsers.items():
+            if column not in columns: continue
             dataframe[column] = dataframe[column].apply(parser)
         dataframe = dataframe[columns]
         self.results(dataframe, title="Loaded")
@@ -98,7 +102,7 @@ class File(Logging, ABC, metaclass=FileMeta):
     def results(self, dataframe, *args, title, **kwargs): pass
 
     @property
-    def header(self): return type(self).__header__
+    def header(self): return self.__header
     @property
     def mutex(self): return self.__mutex
     @property
