@@ -21,7 +21,7 @@ from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SurfaceCreator", "Surface", "Curve"]
+__all__ = ["SurfaceCreator", "SurfaceError", "Surface", "Curve"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -176,8 +176,6 @@ class InterpolationSurface(Surface, register=Method.INTERPOLATION):
 
 
 class SurfaceError(Exception): pass
-class SurfaceQuantityError(SurfaceError): pass
-
 class SurfaceCreator(Logging):
     def __init__(self, *args, columns, quantity=35, gridsize=100, samplesize=5, **kwargs):
         assert isinstance(columns, (list, str))
@@ -191,7 +189,7 @@ class SurfaceCreator(Logging):
 
     def __call__(self, scatter, *args, method, smoothing=None, weights=None, **kwargs):
         method = Method[str(method).upper()] if isinstance(method, str) else method
-        if len(scatter) < self.quantity: raise SurfaceQuantityError()
+        if len(scatter) < self.quantity: raise SurfaceError()
         xyz = scatter[self.columns].rename(columns=dict(zip(self.columns, list("xyz"))))
         parameters = dict(samplesize=self.samplesize, gridsize=self.gridsize)
         parameters = parameters | dict(method=method, smoothing=smoothing, weights=weights)
