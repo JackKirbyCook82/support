@@ -8,7 +8,7 @@ Created on Fri Aug 27 2021
 """
 
 from abc import ABCMeta
-from itertools import product
+from itertools import product as iterprod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -127,7 +127,7 @@ class RegistryMeta(Meta):
             RegistryMeta.registries[root] = registry
             cls.root = root
         parents = [base for base in bases if isinstance(base, RegistryMeta)]
-        for (base, key) in product(parents, register):
+        for (base, key) in iterprod(parents, register):
             registry = RegistryMeta.registries[base.root]
             registry[key] = cls
 
