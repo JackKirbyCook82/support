@@ -12,7 +12,7 @@ from itertools import product as iterprod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["CounterMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "TreeMeta", "Meta"]
+__all__ = ["CounterMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "TreeMeta", "CollectionMeta", "Meta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -81,6 +81,17 @@ class TreeMeta(Meta):
     def dependents(cls): return cls.__dependents__
     @property
     def key(cls): return cls.__key__
+
+
+class CollectionMeta(Meta):
+    def __iter__(cls): return iter(cls.collection)
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super(CollectionMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        collection = [key for key, value in attrs.items() if not key.startswith("__") and not callable(value)]
+        cls.__collection__ = getattr(cls, "__collection__", []) + collection
+
+    @property
+    def collection(cls): return cls.__collection__
 
 
 class AttributeMeta(Meta):
