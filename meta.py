@@ -87,8 +87,8 @@ class CollectionMeta(Meta):
     def __iter__(cls): return iter(cls.collection)
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(CollectionMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
-        collection = [key for key, value in attrs.items() if not key.startswith("__") and not callable(value)]
-        cls.__collection__ = getattr(cls, "__collection__", []) + collection
+        collection = {key: value for key, value in attrs.items() if not key.startswith("__") and not callable(value)}
+        cls.__collection__ = getattr(cls, "__collection__", {}) | collection
 
     @property
     def collection(cls): return cls.__collection__

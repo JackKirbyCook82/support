@@ -73,6 +73,11 @@ class ValueRange(metaclass=ValueMeta):
         maximum = max(self.maximum, other.maximum)
         return cls(minimum=minimum, maximum=maximum)
 
+    @property
+    def start(self): return self.minimum
+    @property
+    def stop(self): return self.maximum
+
 
 class NumberRange(ValueRange, valuetype=(int, float)): pass
 class DateRange(ValueRange, valuetype=(Date, Datetime)): pass
