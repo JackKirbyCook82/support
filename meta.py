@@ -84,7 +84,7 @@ class TreeMeta(Meta):
 
 
 class CollectionMeta(Meta):
-    def __iter__(cls): return iter(cls.collection)
+    def __iter__(cls): return iter(cls.collection.items())
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super(CollectionMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
         collection = {key: value for key, value in attrs.items() if not key.startswith("__") and not callable(value)}
