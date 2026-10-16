@@ -49,7 +49,7 @@ class CounterMeta(Meta):
 
 
 class SingletonMeta(Meta):
-    instances = {}
+    instances = dict()
 
     def __call__(cls, *args, **kwargs):
         if cls not in SingletonMeta.instances.keys():
