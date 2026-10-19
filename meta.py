@@ -52,10 +52,10 @@ class SingletonMeta(Meta):
     instances = dict()
 
     def __call__(cls, *args, **kwargs):
-        if cls not in SingletonMeta.instances.keys():
+        if cls not in type(cls).instances.keys():
             instance = super(SingletonMeta, cls).__call__(*args, **kwargs)
-            SingletonMeta.instances[cls] = instance
-        return SingletonMeta.instances[cls]
+            type(cls).instances[cls] = instance
+        return type(cls).instances[cls]
 
 
 class TreeMeta(Meta):
