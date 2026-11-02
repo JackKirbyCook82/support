@@ -49,10 +49,10 @@ class EquationMeta(Meta):
 
     def __call__(cls, *args, **kwargs):
         functions = dict(cls.equations)
-        results = set(cls.variables) if not bool(cls.variables) else set(functions.keys())
+        outputs = tuple(cls.variables) if cls.variables else tuple(functions)
         parameters = {name for function in functions.values() for name in inspect.signature(function).parameters.keys()}
         defaults = cls.defaults | {name: kwargs[name] for name in parameters if name in kwargs.keys()}
-        instance = super().__call__(*args, functions=functions, defaults=defaults, results=results, **kwargs)
+        instance = super().__call__(*args, functions=functions, defaults=defaults, outputs=outputs, **kwargs)
         return instance
 
     @property
@@ -64,12 +64,12 @@ class EquationMeta(Meta):
 
 
 class Equation(Mixin, metaclass=EquationMeta):
-    def __init__(self, *args, functions, defaults, results, **kwargs):
+    def __init__(self, *args, functions, defaults, outputs, **kwargs):
         super().__init__(*args, **kwargs)
         assert isinstance(functions, dict) and isinstance(defaults, dict)
         self.__functions = functions
         self.__defaults = defaults
-        self.__results = results
+        self.__outputs = outputs
 
     def execute(self, **parameters): return self.evaluate(**parameters)
     def evaluate(self, **parameters):
@@ -94,28 +94,28 @@ class Equation(Mixin, metaclass=EquationMeta):
                 cache[name] = result
                 return result
             finally: order.pop()
-        results = {results: resolve(results) for results in self.results}
-        return results
+        outputs = {output: resolve(output) for output in self.outputs}
+        return outputs
 
     @property
     def functions(self): return self.__functions
     @property
     def defaults(self): return self.__defaults
     @property
-    def results(self): return self.__results
+    def outputs(self): return self.__outputs
 
 
 class DataframeEquation(Equation):
     def execute(self, dataframe, **parameters):
         if not isinstance(dataframe, pd.DataFrame): raise TypeError(type(dataframe))
-        result = pd.DataFrame(index=dataframe.index)
+        results = pd.DataFrame(index=dataframe.index)
         dependency = lambda parameter: parameter.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
         dependencies = {parameter.name for function in self.functions.values() for parameter in inspect.signature(function).parameters.values() if dependency(parameter)}
-        dependencies = dependencies - self.functions.keys()
+        dependencies = dependencies | (set(self.outputs) | self.functions.keys())
         series = {name: dataframe[name] for name in dependencies if name in dataframe.columns}
         parameters = series | parameters
-        results = self.evaluate(**parameters)
-        for name, series in results.items(): result[name] = series
-        return result
+        outputs = self.evaluate(**parameters)
+        for name, series in outputs.items(): results[name] = series
+        return results
 
 
