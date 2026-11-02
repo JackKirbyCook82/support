@@ -15,7 +15,7 @@ from support.meta import Meta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Equation"]
+__all__ = ["Equation", "DataframeEquation"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -35,7 +35,7 @@ class EquationMeta(Meta):
             if not any(isinstance(value, EquationMeta) for value in base.__mro__[1:]): continue
             for name, value in vars(base).items():
                 if name.startswith("_"): continue
-                if callable(value):
+                if inspect.isfunction(value) and value.__name__ == "<lambda>":
                     signature = inspect.signature(value)
                     for parameter in signature.parameters.values():
                         if parameter.kind not in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY): raise EquationParameterError()
@@ -62,7 +62,7 @@ class Equation(Mixin, metaclass=EquationMeta):
         self.__constants = constants
 
     def evaluate(self, *dependents, **independents):
-        domain = independents | self.constants
+        domain = self.constants | independents
         cache = dict()
         order = list()
 
@@ -93,14 +93,13 @@ class Equation(Mixin, metaclass=EquationMeta):
 
 class DataframeEquation(Equation):
     def execute(self, independents, *dependents, **constants):
-        assert isinstance(independents, pd.DataFrame)
+        if not isinstance(independents, pd.DataFrame): raise TypeError(type(independents))
         result = pd.DataFrame(index=independents.index)
         if not dependents: dependents = tuple(self.functions)
         dependencies = {parameter.name for function in self.functions.values() for parameter in inspect.signature(function).parameters.values()}
         dependencies = dependencies - self.functions.keys()
         series = {name: independents[name] for name in dependencies if name in independents.columns}
-        numerics = {name: constants[name] for name in dependencies if name in constants}
-        independents = series | numerics
+        independents = series | constants
         results = self.evaluate(*dependents, **independents)
         for name, series in results.items(): result[name] = series
         return result
