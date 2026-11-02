@@ -29,6 +29,8 @@ class EquationCircularError(EquationError): pass
 class EquationMeta(Meta):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super().__init__(name, bases, attrs)
+        variables = getattr(cls, "__variables__", []) + kwargs.pop("variables", [])
+        defaults = getattr(cls, "__defaults__", {}) | kwargs.get("defaults", {})
         equations = dict()
         for base in reversed(cls.__mro__):
             if not isinstance(base, EquationMeta): continue
@@ -41,28 +43,36 @@ class EquationMeta(Meta):
                         if parameter.kind not in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY): raise EquationParameterError()
                     equations[name] = value
                 else: equations.pop(name, None)
+        cls.__variables__ = variables
         cls.__equations__ = equations
+        cls.__defaults__ = defaults
 
     def __call__(cls, *args, **kwargs):
         functions = dict(cls.equations)
+        results = set(cls.variables) if not bool(cls.variables) else set(functions.keys())
         parameters = {name for function in functions.values() for name in inspect.signature(function).parameters.keys()}
-        constants = {name: kwargs[name] for name in parameters if name in kwargs.keys()}
-        instance = super().__call__(*args, functions=functions, constants=constants, **kwargs)
+        defaults = cls.defaults | {name: kwargs[name] for name in parameters if name in kwargs.keys()}
+        instance = super().__call__(*args, functions=functions, defaults=defaults, results=results, **kwargs)
         return instance
 
     @property
+    def variables(cls): return cls.__variables__
+    @property
     def equations(cls): return cls.__equations__
+    @property
+    def defaults(cls): return cls.__defaults__
 
 
 class Equation(Mixin, metaclass=EquationMeta):
-    def __init__(self, *args, functions, constants, **kwargs):
+    def __init__(self, *args, functions, defaults, results, **kwargs):
         super().__init__(*args, **kwargs)
-        assert isinstance(functions, dict) and isinstance(constants, dict)
+        assert isinstance(functions, dict) and isinstance(defaults, dict)
         self.__functions = functions
-        self.__constants = constants
+        self.__defaults = defaults
+        self.__results = results
 
-    def evaluate(self, *dependents, **independents):
-        domain = self.constants | independents
+    def evaluate(self, **parameters):
+        domain = self.defaults | parameters
         cache = dict()
         order = list()
 
@@ -83,26 +93,28 @@ class Equation(Mixin, metaclass=EquationMeta):
                 cache[name] = result
                 return result
             finally: order.pop()
-        return {dependent: resolve(dependent) for dependent in dependents}
+        results = {results: resolve(results) for results in self.results}
+        return results
 
     @property
     def functions(self): return self.__functions
     @property
-    def constants(self): return self.__constants
+    def defaults(self): return self.__defaults
+    @property
+    def results(self): return self.__results
 
 
 class DataframeEquation(Equation):
-    def execute(self, independents, *dependents, **constants):
-        if not isinstance(independents, pd.DataFrame): raise TypeError(type(independents))
-        result = pd.DataFrame(index=independents.index)
-        if not dependents: dependents = tuple(self.functions)
-        dependencies = {parameter.name for function in self.functions.values() for parameter in inspect.signature(function).parameters.values()}
+    def execute(self, dataframe, **parameters):
+        if not isinstance(dataframe, pd.DataFrame): raise TypeError(type(dataframe))
+        result = pd.DataFrame(index=dataframe.index)
+        dependency = lambda parameter: parameter.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
+        dependencies = {parameter.name for function in self.functions.values() for parameter in inspect.signature(function).parameters.values() if dependency(parameter)}
         dependencies = dependencies - self.functions.keys()
-        series = {name: independents[name] for name in dependencies if name in independents.columns}
-        independents = series | constants
-        results = self.evaluate(*dependents, **independents)
+        series = {name: dataframe[name] for name in dependencies if name in dataframe.columns}
+        parameters = series | parameters
+        results = self.evaluate(**parameters)
         for name, series in results.items(): result[name] = series
         return result
-
 
 
