@@ -71,6 +71,7 @@ class Equation(Mixin, metaclass=EquationMeta):
         self.__defaults = defaults
         self.__results = results
 
+    def execute(self, **parameters): return self.evaluate(**parameters)
     def evaluate(self, **parameters):
         domain = self.defaults | parameters
         cache = dict()
