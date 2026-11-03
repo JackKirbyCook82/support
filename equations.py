@@ -28,14 +28,14 @@ class EquationFunctionError(EquationError): pass
 class EquationCircularError(EquationError): pass
 
 
-@dataclass(frozen=True)
+@dataclass
 class EquationNamespace:
     variables: list = field(default_factory=list)
     defaults: dict = field(default_factory=dict)
     equations: dict[str, Callable] = field(default_factory=dict)
 
     def __or__(self, other):
-        if not isinstance(other, EquationNamespace): return TypeError(type(other))
+        if not isinstance(other, EquationNamespace): return NotImplemented
         variables = list(dict.fromkeys(self.variables + other.variables))
         defaults = self.defaults | other.defaults
         equations = self.equations | other.equations
@@ -56,16 +56,16 @@ class EquationMeta(Meta):
                     kinds = (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
                     if parameter.kind not in kinds: raise EquationParameterError()
                 equations[key] = value
-        localized = EquationNamespace(variables, defaults, equations)
+        cls.__localized__ = EquationNamespace(variables, defaults, equations)
         globalized = EquationNamespace()
         for base in reversed(cls.__mro__):
             if not isinstance(base, EquationMeta): continue
-            if base.localized is None: continue
+            localized = base.__dict__.get("__localized__")
+            if localized is None: continue
             for key, value in vars(base).items():
                 if not key.startswith("_") and key not in localized.equations: globalized.equations.pop(key, None)
             globalized = globalized | localized
         cls.__globalized__ = globalized
-        cls.__localized__ = localized
 
     def __call__(cls, *args, **kwargs):
         functions = dict(cls.globalized.equations)
