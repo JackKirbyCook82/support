@@ -9,6 +9,8 @@ Created on Tues Apr 14 2026
 
 import inspect
 import pandas as pd
+from typing import Callable
+from dataclasses import dataclass, field
 
 from support.mixins import Mixin
 from support.meta import Meta
@@ -26,41 +28,57 @@ class EquationFunctionError(EquationError): pass
 class EquationCircularError(EquationError): pass
 
 
+@dataclass(frozen=True)
+class EquationNamespace:
+    variables: list = field(default_factory=list)
+    defaults: dict = field(default_factory=dict)
+    equations: dict[str, Callable] = field(default_factory=dict)
+
+    def __or__(self, other):
+        if not isinstance(other, EquationNamespace): return TypeError(type(other))
+        variables = list(dict.fromkeys(self.variables + other.variables))
+        defaults = self.defaults | other.defaults
+        equations = self.equations | other.equations
+        return EquationNamespace(variables, defaults, equations)
+
+
 class EquationMeta(Meta):
     def __init__(cls, name, bases, attrs, *args, **kwargs):
         super().__init__(name, bases, attrs)
-        variables = getattr(cls, "__variables__", []) + kwargs.pop("variables", [])
-        defaults = getattr(cls, "__defaults__", {}) | kwargs.get("defaults", {})
+        variables = list(kwargs.get("variables", []))
+        defaults = dict(kwargs.get("defaults", {}))
         equations = dict()
+        for key, value in attrs.items():
+            if key.startswith("__"): continue
+            if inspect.isfunction(value) and value.__name__ == "<lambda>":
+                signature = inspect.signature(value)
+                for parameter in signature.parameters.values():
+                    kinds = (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+                    if parameter.kind not in kinds: raise EquationParameterError()
+                equations[key] = value
+        localized = EquationNamespace(variables, defaults, equations)
+        globalized = EquationNamespace()
         for base in reversed(cls.__mro__):
             if not isinstance(base, EquationMeta): continue
-            if not any(isinstance(value, EquationMeta) for value in base.__mro__[1:]): continue
-            for name, value in vars(base).items():
-                if name.startswith("_"): continue
-                if inspect.isfunction(value) and value.__name__ == "<lambda>":
-                    signature = inspect.signature(value)
-                    for parameter in signature.parameters.values():
-                        if parameter.kind not in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY): raise EquationParameterError()
-                    equations[name] = value
-                else: equations.pop(name, None)
-        cls.__variables__ = variables
-        cls.__equations__ = equations
-        cls.__defaults__ = defaults
+            if base.localized is None: continue
+            for key, value in vars(base).items():
+                if not key.startswith("_") and key not in localized.equations: globalized.equations.pop(key, None)
+            globalized = globalized | localized
+        cls.__globalized__ = globalized
+        cls.__localized__ = localized
 
     def __call__(cls, *args, **kwargs):
-        functions = dict(cls.equations)
-        outputs = tuple(cls.variables) if cls.variables else tuple(functions)
-        parameters = {name for function in functions.values() for name in inspect.signature(function).parameters.keys()}
-        defaults = cls.defaults | {name: kwargs[name] for name in parameters if name in kwargs.keys()}
+        functions = dict(cls.globalized.equations)
+        outputs = tuple(cls.globalized.variables) if cls.globalized.variables else tuple(functions)
+        parameters = {name for function in functions.values() for name in inspect.signature(function).parameters}
+        defaults = cls.globalized.defaults | {name: kwargs[name] for name in parameters if name in kwargs}
         instance = super().__call__(*args, functions=functions, defaults=defaults, outputs=outputs, **kwargs)
         return instance
 
     @property
-    def variables(cls): return cls.__variables__
+    def globalized(cls): return cls.__globalized__
     @property
-    def equations(cls): return cls.__equations__
-    @property
-    def defaults(cls): return cls.__defaults__
+    def localized(cls): return cls.__localized__
 
 
 class Equation(Mixin, metaclass=EquationMeta):
@@ -111,7 +129,7 @@ class DataframeEquation(Equation):
         results = pd.DataFrame(index=dataframe.index)
         dependency = lambda parameter: parameter.kind == inspect.Parameter.POSITIONAL_OR_KEYWORD
         dependencies = {parameter.name for function in self.functions.values() for parameter in inspect.signature(function).parameters.values() if dependency(parameter)}
-        dependencies = dependencies | (set(self.outputs) | self.functions.keys())
+        dependencies = dependencies | (set(self.outputs) - self.functions.keys())
         series = {name: dataframe[name] for name in dependencies if name in dataframe.columns}
         parameters = series | parameters
         outputs = self.evaluate(**parameters)
