@@ -175,7 +175,6 @@ class InterpolationSurface(Surface, register=Method.INTERPOLATION):
         return Axes(x=xaxis, y=yaxis)
 
 
-class SurfaceError(Exception): pass
 class SurfaceCreator(Logging):
     def __init__(self, *args, columns, quantity=35, gridsize=100, samplesize=5, **kwargs):
         assert isinstance(columns, (list, str))
@@ -188,8 +187,11 @@ class SurfaceCreator(Logging):
         self.__columns = columns
 
     def __call__(self, scatter, *args, method, smoothing=None, weights=None, **kwargs):
+        if scatter is None: return None
+        assert isinstance(scatter, pd.DataFrame)
+        if scatter.empty: return None
         method = Method[str(method).upper()] if isinstance(method, str) else method
-        if len(scatter) < self.quantity: raise SurfaceError()
+        if len(scatter) < self.quantity: return None
         xyz = scatter[self.columns].rename(columns=dict(zip(self.columns, list("xyz"))))
         parameters = dict(samplesize=self.samplesize, gridsize=self.gridsize)
         parameters = parameters | dict(method=method, smoothing=smoothing, weights=weights)
