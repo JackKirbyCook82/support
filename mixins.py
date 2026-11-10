@@ -35,14 +35,13 @@ class Mixin(ABC):
 class Logging(Mixin):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.__name = kwargs.get("name", self.__class__.__name__)
+        name = self.__class__.__name__
+        self.__name = kwargs.get("name", name)
         self.__logger = __logger__
 
-    def console(self, event, *strings):
-        string = f"{str(event)}: {str(self.name)}"
-        if bool(strings):
-            strings = ", ".join(list(strings))
-            string = ": ".join([string, strings])
+    def console(self, event, content):
+        assert isinstance(event, str) and isinstance(content, str)
+        string = f"{str(event)}: {str(self.name)}: {str(content)}"
         self.logger.info(string)
 
     @property
