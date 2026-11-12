@@ -61,7 +61,7 @@ class ValueRange(metaclass=ValueMeta):
     maximum: Date | Datetime | Timedelta | float
 
     def __iter__(self): return iter((self.minimum, self.maximum))
-    def __str__(self): return f"{self.minimum}|{self.maximum}"
+
     def __bool__(self): return self.minimum < self.maximum
 
     def __contains__(self, value): return self.minimum <= value <= self.maximum
@@ -79,8 +79,11 @@ class ValueRange(metaclass=ValueMeta):
     def stop(self): return self.maximum
 
 
-class NumberRange(ValueRange, valuetype=(int, float)): pass
-class DateRange(ValueRange, valuetype=(Date, Datetime)): pass
+class DateRange(ValueRange, valuetype=(Date, Datetime)):
+    def __str__(self): return f"{self.minimum.strftime('%Y/%m/%d')}->{self.maximum.strftime('%Y/%m/%d')}"
+
+class NumberRange(ValueRange, valuetype=(int, float)):
+    def __str__(self): return f"{self.minimum:.2f}->{self.maximum:.2f}"
 
 
 class ReversibleDict(Mapping):
