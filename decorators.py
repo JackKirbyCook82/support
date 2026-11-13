@@ -74,9 +74,6 @@ class Decorator(object):
         if instance is None: return self
         bounded = copy.copy(self)
         bounded.instance = instance
-        update_wrapper(self, self.function)
-        attribute = self.function.__name__
-        setattr(instance, attribute, bounded)
         return bounded
 
     def wrapper(self, function):
