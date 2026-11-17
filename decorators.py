@@ -18,7 +18,7 @@ __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Wrapper(object):
+class Wrapper(ABC):
     def __init__(self, function):
         update_wrapper(self, function)
         self.__wrapped__ = function
@@ -37,8 +37,8 @@ class Wrapper(object):
         setattr(instance, attribute, bounded)
         return bounded
 
-    def wrapper(self, *args, **kwargs):
-        return self.function(*args, **kwargs)
+    @abstractmethod
+    def wrapper(self, *args, **kwargs): pass
 
     @property
     def function(self): return self.__wrapped__
@@ -48,7 +48,7 @@ class Wrapper(object):
     def instance(self, instance): self.__self__ = instance
 
 
-class Decorator(object):
+class Decorator(ABC):
     def __init__(self, *arguments, **parameters):
         self.__parameters = dict(parameters)
         self.__arguments = list(arguments)
@@ -81,8 +81,8 @@ class Decorator(object):
         update_wrapper(self, function)
         return self
 
-    def decorator(self, *args, **kwargs):
-        return self.function(*args, **kwargs)
+    @abstractmethod
+    def decorator(self, *args, **kwargs): pass
 
     @property
     def parameters(self): return self.__parameters
