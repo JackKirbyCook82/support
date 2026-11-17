@@ -12,7 +12,7 @@ from itertools import product as iterprod
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["CounterMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "TreeMeta", "CollectionMeta", "Meta"]
+__all__ = ["CounterMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "NamespaceMeta", "TreeMeta", "CollectionMeta", "Meta"]
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -92,6 +92,28 @@ class CollectionMeta(Meta):
 
     @property
     def collection(cls): return cls.__collection__
+
+
+class NamespaceError(Exception): pass
+class NamespaceMeta(Meta):
+    def __init__(cls, name, bases, attrs, *args, **kwargs):
+        super().__init__(name, bases, attrs, *args, **kwargs)
+        existing = getattr(cls, "namespace", {})
+        updated = kwargs.get("namespace", {})
+        overlap = existing.keys() & updated.keys()
+        if overlap: raise NamespaceError()
+        namespace = existing | updated
+        for key in list(namespace.keys()):
+            namespace[key] = kwargs.get(key, namespace[key])
+        cls.__namespace__ = namespace
+
+    def __call__(cls, *args, **kwargs):
+        parameters = {key: kwargs.pop(key, value) for key, value in cls.namespace.items()}
+        instance = super().__call__(*args, **parameters, **kwargs)
+        return instance
+
+    @property
+    def namespace(cls): return cls.__namespace__
 
 
 class AttributeMeta(Meta):

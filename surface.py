@@ -17,11 +17,10 @@ from scipy.interpolate import SmoothBivariateSpline, RectBivariateSpline, make_i
 
 from support.meta import RegistryMeta
 from support.custom import NumberRange
-from support.mixins import Logging
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["SurfaceCreator", "SurfaceError", "Surface", "Curve"]
+__all__ = ["SurfaceCreator", "Surface", "Curve"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
@@ -175,7 +174,7 @@ class InterpolationSurface(Surface, register=Method.INTERPOLATION):
         return Axes(x=xaxis, y=yaxis)
 
 
-class SurfaceCreator(Logging):
+class SurfaceCreator(object):
     def __init__(self, *args, columns, quantity=35, gridsize=100, samplesize=5, **kwargs):
         assert isinstance(columns, (list, str))
         if isinstance(columns, str): columns = list(str(columns).split("|"))

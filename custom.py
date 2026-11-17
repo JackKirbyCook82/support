@@ -16,7 +16,7 @@ from datetime import date as Date
 from datetime import datetime as Datetime
 from datetime import timedelta as Timedelta
 
-from support.decorators import Dispatchers
+from support.dispatchers import TypeDispatcher
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -125,7 +125,7 @@ class ReversibleDict(Mapping):
 class SliceOrderedDict(OrderedDict):
     def __getitem__(self, key): return self.locate(key)
 
-    @Dispatchers.Type(locator=0)
+    @TypeDispatcher(locator=0)
     def pop(self, key, default=None): return super().pop(key, default)
 
     @pop.register(str)
@@ -136,7 +136,7 @@ class SliceOrderedDict(OrderedDict):
         key = list(self.keys())[index]
         return super().pop(key, default)
 
-    @Dispatchers.Type(locator=0)
+    @TypeDispatcher(locator=0)
     def get(self, key, default=None): return super().get(key, default)
 
     @pop.register(str)
@@ -147,7 +147,7 @@ class SliceOrderedDict(OrderedDict):
         key = list(self.keys())[index]
         return super().get(key, default)
 
-    @Dispatchers.Type(locator=0)
+    @TypeDispatcher(locator=0)
     def locate(self, key): return super().__getitem__(key)
 
     @locate.register(str)

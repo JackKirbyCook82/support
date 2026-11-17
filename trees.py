@@ -10,7 +10,7 @@ Created on Mon Nov 4 2024
 from dataclasses import dataclass
 from collections import OrderedDict as ODict
 
-from support.decorators import Dispatchers
+from support.dispatchers import TypeDispatcher
 from support.mixins import Mixin
 
 __version__ = "1.0.0"
@@ -125,7 +125,7 @@ class ParentalNode(Node):
         super().__init__(*args, **kwargs)
         self.__parent = parent
 
-    @Dispatchers.Type(locator=0)
+    @TypeDispatcher(locator=0)
     def assign(self, value):
         assert isinstance(value, Node)
         assert value.parent is None
