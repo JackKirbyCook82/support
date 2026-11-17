@@ -11,9 +11,9 @@ import multiprocessing
 import pandas as pd
 from pathlib import Path
 from dataclasses import dataclass
-from abc import ABC, abstractmethod
+from abc import ABC, ABCMeta, abstractmethod
 
-from support.mixins import Logging
+from support.mixins import LoggingMixin
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
@@ -32,7 +32,7 @@ class Header:
         self.parsers = {key: value for key, value in self.parsers.items() if key in self.columns}
 
 
-class FileMeta(type(Logging), type):
+class FileMeta(ABCMeta):
     locking = {}
 
     def __init__(cls, *args, **kwargs):
@@ -53,7 +53,7 @@ class FileMeta(type(Logging), type):
     def parameters(cls): return cls.__parameters__
 
 
-class File(Logging, ABC, metaclass=FileMeta):
+class File(LoggingMixin, ABC, metaclass=FileMeta):
     def __init__(self, *args, file, mutex, header, **kwargs):
         assert isinstance(file, Path)
         super().__init__(*args, **kwargs)

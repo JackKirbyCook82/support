@@ -15,8 +15,8 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from scipy.interpolate import SmoothBivariateSpline, RectBivariateSpline, make_interp_spline, make_splrep
 
-from support.meta import RegistryMeta
 from support.custom import NumberRange
+from support.meta import RegistryMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"

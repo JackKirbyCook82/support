@@ -12,7 +12,7 @@ from abc import ABC
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Mixin", "Logging"]
+__all__ = ["Mixin", "LoggingMixin"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class Mixin(ABC):
         except TypeError: super().__init__()
 
 
-class Logging(Mixin, ABC):
+class LoggingMixin(Mixin, ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         name = self.__class__.__name__
