@@ -72,11 +72,11 @@ class Pipelines:
     Function = PipelineFunction
     Generator = PipelineGenerator
 
-class Errors(metaclass=CollectionMeta):
-    class Inlet(metaclass=CollectionMeta):
+class Errors:
+    class Inlet:
         Missing = MissingInletError
         Empty = EmptyInletError
-    class Outlet(metaclass=CollectionMeta):
+    class Outlet:
         Missing = MissingOutletError
         Empty = EmptyOutletError
 

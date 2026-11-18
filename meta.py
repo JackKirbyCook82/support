@@ -16,8 +16,6 @@ __all__ = ["CounterMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "Nam
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
-from support.mixins import Mixin
-
 
 class MetaError(Exception): pass
 class Meta(ABCMeta):
@@ -25,7 +23,7 @@ class Meta(ABCMeta):
         super().__init_subclass__(**kwargs)
         mro = mcs.__mro__
         assert isinstance(mro, tuple)
-        index = mro.index(Mixin)
+        index = mro.index(Meta)
         remaining = mro[index + 1:]
         if remaining != (ABCMeta, type, object): raise MetaError()
 
@@ -92,14 +90,8 @@ class CollectionMeta(Meta):
     def __iter__(cls): return iter(cls.collection.items())
     def __init__(cls, name, bases, attrs, **kwargs):
         super().__init__(name, bases, attrs, **kwargs)
-        collection = {}
-        for base in bases: collection.update(getattr(base, "__collection__", {}))
-        for key, value in attrs.items():
-            if key.startswith("__"): continue
-            if isinstance(value, CollectionMeta): collection.update({f"{key}.{subkey}": subvalue for subkey, subvalue in value.collection.items()})
-            elif isinstance(value, type) and issubclass(value, BaseException): collection[key] = value
-            elif not callable(value): collection[key] = value
-        cls.__collection__ = collection
+        collection = {key: value for key, value in attrs.items() if not key.startswith("__") and not callable(value)}
+        cls.__collection__ = getattr(cls, "__collection__", {}) | collection
 
     @property
     def collection(cls): return cls.__collection__

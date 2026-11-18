@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from abc import ABC, abstractmethod
 from scipy.interpolate import SmoothBivariateSpline, RectBivariateSpline, make_interp_spline, make_splrep
 
+from support.mixins import LoggingMixin
 from support.custom import NumberRange
 from support.meta import RegistryMeta
 
@@ -176,7 +177,7 @@ class InterpolationSurface(Surface, register=Method.INTERPOLATION):
         return Axes(x=xaxis, y=yaxis)
 
 
-class SurfaceCreator(object):
+class SurfaceCreator(LoggingMixin):
     def __init__(self, *args, columns, quantity=35, gridsize=100, samplesize=5, **kwargs):
         assert isinstance(columns, (list, str))
         if isinstance(columns, str): columns = list(str(columns).split("|"))
