@@ -16,24 +16,29 @@ __all__ = ["CounterMeta", "SingletonMeta", "AttributeMeta", "RegistryMeta", "Nam
 __copyright__ = "Copyright 2021, Jack Kirby Cook"
 __license__ = "MIT License"
 
+from support.mixins import Mixin
 
+
+class MetaError(Exception): pass
 class Meta(ABCMeta):
-    def __init_subclass__(mcs, *args, **kwargs):
-        try: return super(Meta, mcs).__init_subclass__(*args, **kwargs)
-        except TypeError: return super(Meta, mcs).__init_subclass__()
+    def __init_subclass__(mcs, **kwargs):
+        super().__init_subclass__(**kwargs)
+        mro = mcs.__mro__
+        assert isinstance(mro, tuple)
+        index = mro.index(Mixin)
+        remaining = mro[index + 1:]
+        if remaining != (ABCMeta, type, object): raise MetaError()
 
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
-        try: return super(Meta, mcs).__new__(mcs, name, bases, attrs, **kwargs)
-        except TypeError: return super(Meta, mcs).__new__(mcs, name, bases, attrs)
+    def __new__(mcs, name, bases, attrs, **kwargs):
+        return super().__new__(mcs, name, bases, attrs, **kwargs)
 
-    def __init__(cls, *args, **kwargs):
-        try: super(Meta, cls).__init__(*args, **kwargs)
-        except TypeError: super(Meta, cls).__init__(cls)
+    def __init__(cls, name, bases, attrs, **kwargs):
+        super().__init__(name, bases, attrs)
 
 
 class CounterMeta(Meta):
-    def __init__(cls, *args, **kwargs):
-        super(CounterMeta, cls).__init__(*args, **kwargs)
+    def __init__(cls, name, bases, attrs, **kwargs):
+        super().__init__(name, bases, attrs, **kwargs)
         cls.__current__ = 1
 
     @property
@@ -53,7 +58,7 @@ class SingletonMeta(Meta):
 
     def __call__(cls, *args, **kwargs):
         if cls not in type(cls).instances.keys():
-            instance = super(SingletonMeta, cls).__call__(*args, **kwargs)
+            instance = super().__call__(*args, **kwargs)
             type(cls).instances[cls] = instance
         return type(cls).instances[cls]
 
@@ -62,16 +67,16 @@ class TreeMeta(Meta):
     def __repr__(cls): return str(cls.__name__)
     def __str__(cls): return str(cls.__key__)
 
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+    def __new__(mcs, name, bases, attrs, **kwargs):
         function = lambda value: type(value) is TreeMeta or issubclass(type(value), TreeMeta)
         exclude = [key for key, value in attrs.items() if function(value)]
         attrs = {key: value for key, value in attrs.items() if key not in exclude}
-        cls = super(TreeMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+        cls = super().__new__(mcs, name, bases, attrs, **kwargs)
         return cls
 
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
+    def __init__(cls, name, bases, attrs, **kwargs):
         function = lambda value: type(value) is TreeMeta or issubclass(type(value), TreeMeta)
-        super(TreeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+        super().__init__(name, bases, attrs, **kwargs)
         primary = {str(child): child for child in attrs.values() if function(child)}
         secondary = {str(child): child for child in kwargs.get("dependents", [])}
         cls.__dependents__ = getattr(cls, "__dependents__", {}) | dict(primary) | dict(secondary)
@@ -85,8 +90,8 @@ class TreeMeta(Meta):
 
 class CollectionMeta(Meta):
     def __iter__(cls): return iter(cls.collection.items())
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(CollectionMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+    def __init__(cls, name, bases, attrs, **kwargs):
+        super().__init__(name, bases, attrs, **kwargs)
         collection = {key: value for key, value in attrs.items() if not key.startswith("__") and not callable(value)}
         cls.__collection__ = getattr(cls, "__collection__", {}) | collection
 
@@ -96,8 +101,8 @@ class CollectionMeta(Meta):
 
 class NamespaceError(Exception): pass
 class NamespaceMeta(Meta):
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super().__init__(name, bases, attrs, *args, **kwargs)
+    def __init__(cls, name, bases, attrs, **kwargs):
+        super().__init__(name, bases, attrs, **kwargs)
         existing = getattr(cls, "namespace", {})
         updated = kwargs.get("namespace", {})
         overlap = existing.keys() & updated.keys()
@@ -117,12 +122,12 @@ class NamespaceMeta(Meta):
 
 
 class AttributeMeta(Meta):
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+    def __new__(mcs, name, bases, attrs, **kwargs):
         assert RegistryMeta not in bases
-        return super(AttributeMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+        return super().__new__(mcs, name, bases, attrs, **kwargs)
 
-    def __init__(cls, name, bases, attrs, *args, **kwargs):
-        super(AttributeMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+    def __init__(cls, name, bases, attrs, **kwargs):
+        super().__init__(name, bases, attrs, **kwargs)
         if not any([isinstance(base, AttributeMeta) for base in bases]): cls.root = cls
         attributes = [kwargs.get("attribute", None)] + kwargs.get("attributes", [])
         attributes = list(filter(lambda attribute: attribute is not None, attributes))
@@ -139,12 +144,12 @@ class AttributeMeta(Meta):
 class RegistryMeta(Meta):
     registries = dict()
 
-    def __new__(mcs, name, bases, attrs, *args, **kwargs):
+    def __new__(mcs, name, bases, attrs, **kwargs):
         assert AttributeMeta not in bases
-        return super(RegistryMeta, mcs).__new__(mcs, name, bases, attrs, *args, **kwargs)
+        return super().__new__(mcs, name, bases, attrs, **kwargs)
 
-    def __init__(cls, name, bases, attrs, *args, register=None, **kwargs):
-        super(RegistryMeta, cls).__init__(name, bases, attrs, *args, **kwargs)
+    def __init__(cls, name, bases, attrs, register=None, **kwargs):
+        super().__init__(name, bases, attrs, **kwargs)
         register = [register] if not isinstance(register, list) else register
         register = list(filter(lambda value: value is not None, register))
         if not any([isinstance(base, RegistryMeta) for base in bases]):

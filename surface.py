@@ -37,6 +37,7 @@ class Axes:
 
 class Method(Enum): REGRESSION, INTERPOLATION = range(2)
 class Curve(ABC, metaclass=RegistryMeta):
+    def __init_subclass__(cls, **kwargs): pass
     def __call__(self, yaxis): return self.curve(yaxis)
     def __init__(self, scatter, /, **kwargs):
         scatter = scatter[list("yz")].dropna(how="any", inplace=False)
@@ -69,6 +70,7 @@ class InterpolationCurve(Curve, register=Method.INTERPOLATION):
 
 
 class Surface(ABC, metaclass=RegistryMeta):
+    def __init_subclass__(cls, **kwargs): pass
     def __init__(self, scatter, /, **kwargs):
         scatter = scatter[list("xyz")].dropna(how="any", inplace=False)
         surface, domain = self.create(scatter, **kwargs)

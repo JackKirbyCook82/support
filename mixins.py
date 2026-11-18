@@ -12,7 +12,7 @@ from abc import ABC
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
-__all__ = ["Mixin", "LoggingMixin"]
+__all__ = ["LoggingMixin", "Mixin"]
 __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
@@ -28,8 +28,11 @@ class Mixin(ABC):
         remaining = mro[index + 1:]
         if remaining != (ABC, object): raise MixinError()
 
-    def __new__(cls, *args, **kwargs): return super().__new__(cls)
-    def __init__(self, *args, **kwargs): super().__init__()
+    def __new__(cls, *args, **kwargs):
+        return super().__new__(cls)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__()
 
 
 class LoggingMixin(Mixin, ABC):

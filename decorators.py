@@ -20,8 +20,8 @@ __license__ = "MIT License"
 
 class Wrapper(ABC):
     def __init__(self, function):
-        update_wrapper(self, function)
-        self.__wrapped__ = function
+        update_wrapper(self, function, updated=())
+#        self.__wrapped__ = None
         self.__self__ = None
 
     def __call__(self, *args, **kwargs):
@@ -32,10 +32,12 @@ class Wrapper(ABC):
         if instance is None: return self
         bounded = copy.copy(self)
         bounded.instance = instance
-        update_wrapper(bounded, self.function)
-        attribute = self.function.__name__
-        setattr(instance, attribute, bounded)
         return bounded
+
+    def invoke(self, instance, *args, **kwargs):
+        if not isinstance(self.function, (Wrapper, Decorator)): function = self.function
+        else: function = self.function.__get__(instance, type(instance))
+        return function(*args, **kwargs)
 
     @abstractmethod
     def wrapper(self, *args, **kwargs): pass
@@ -52,7 +54,7 @@ class Decorator(ABC):
     def __init__(self, *arguments, **parameters):
         self.__parameters = dict(parameters)
         self.__arguments = list(arguments)
-        self.__wrapped__ = None
+#        self.__wrapped__ = None
         self.__self__ = None
 
     def __contains__(self, content):
@@ -76,9 +78,14 @@ class Decorator(ABC):
         bounded.instance = instance
         return bounded
 
+    def invoke(self, instance, *args, **kwargs):
+        if not isinstance(self.function, (Wrapper, Decorator)): function = self.function
+        else: function = self.function.__get__(instance, type(instance))
+        return function(*args, **kwargs)
+
     def wrapper(self, function):
         assert callable(function)
-        update_wrapper(self, function)
+        update_wrapper(self, function, updated=())
         return self
 
     @abstractmethod
