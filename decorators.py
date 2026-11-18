@@ -18,15 +18,10 @@ __copyright__ = "Copyright 2026, Jack Kirby Cook"
 __license__ = "MIT License"
 
 
-class Wrapper(ABC):
-    def __init__(self, function):
-        update_wrapper(self, function, updated=())
-#        self.__wrapped__ = None
+class Base(ABC):
+    def __init__(self):
+        self.__wrapped__ = None
         self.__self__ = None
-
-    def __call__(self, *args, **kwargs):
-        if self.instance is None: return self.wrapper(*args, **kwargs)
-        else: return self.wrapper(self.instance, *args, **kwargs)
 
     def __get__(self, instance, owner):
         if instance is None: return self
@@ -35,12 +30,11 @@ class Wrapper(ABC):
         return bounded
 
     def invoke(self, instance, *args, **kwargs):
-        if not isinstance(self.function, (Wrapper, Decorator)): function = self.function
-        else: function = self.function.__get__(instance, type(instance))
-        return function(*args, **kwargs)
-
-    @abstractmethod
-    def wrapper(self, *args, **kwargs): pass
+        function = self.function
+        if isinstance(function, Base):
+            function = function.__get__(instance, type(instance))
+            return function(*args, **kwargs)
+        return function(instance, *args, **kwargs)
 
     @property
     def function(self): return self.__wrapped__
@@ -50,12 +44,24 @@ class Wrapper(ABC):
     def instance(self, instance): self.__self__ = instance
 
 
-class Decorator(ABC):
+class Wrapper(Base):
+    def __init__(self, function):
+        super().__init__()
+        update_wrapper(self, function, updated=())
+
+    def __call__(self, *args, **kwargs):
+        if self.instance is None: return self.wrapper(*args, **kwargs)
+        else: return self.wrapper(self.instance, *args, **kwargs)
+
+    @abstractmethod
+    def wrapper(self, *args, **kwargs): pass
+
+
+class Decorator(Base):
     def __init__(self, *arguments, **parameters):
+        super().__init__()
         self.__parameters = dict(parameters)
         self.__arguments = list(arguments)
-#        self.__wrapped__ = None
-        self.__self__ = None
 
     def __contains__(self, content):
         if isinstance(content, int): return -len(self.arguments) <= content < len(self.arguments)
@@ -72,17 +78,6 @@ class Decorator(ABC):
         if self.instance is None: return self.decorator(*args, **kwargs)
         else: return self.decorator(self.instance, *args, **kwargs)
 
-    def __get__(self, instance, owner):
-        if instance is None: return self
-        bounded = copy.copy(self)
-        bounded.instance = instance
-        return bounded
-
-    def invoke(self, instance, *args, **kwargs):
-        if not isinstance(self.function, (Wrapper, Decorator)): function = self.function
-        else: function = self.function.__get__(instance, type(instance))
-        return function(*args, **kwargs)
-
     def wrapper(self, function):
         assert callable(function)
         update_wrapper(self, function, updated=())
@@ -95,11 +90,5 @@ class Decorator(ABC):
     def parameters(self): return self.__parameters
     @property
     def arguments(self): return self.__arguments
-    @property
-    def function(self): return self.__wrapped__
-    @property
-    def instance(self): return self.__self__
-    @instance.setter
-    def instance(self, instance): self.__self__ = instance
 
 

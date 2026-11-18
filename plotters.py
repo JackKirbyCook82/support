@@ -19,8 +19,6 @@ from types import NoneType, SimpleNamespace
 from collections import OrderedDict as ODict
 from mpl_toolkits.mplot3d import Axes3D
 
-from support.mixins import LoggingMixin
-
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
 __all__ = ["Plotter", "Plot", "Pallet"]
@@ -177,7 +175,7 @@ class Plot(object):
     def labels(self): return self.__labels
 
 
-class Plotter(LoggingMixin):
+class Plotter(object):
     def __init__(self, *args, plotsize=6, **kwargs):
         super().__init__(*args, **kwargs)
         self.__plotsize = int(plotsize)
@@ -197,7 +195,6 @@ class Plotter(LoggingMixin):
         for index, plot in enumerate(plots, start=1):
             ax = figure.add_subplot(rows, cols, index, projection="3d")
             plot.render(ax, *args, **kwargs)
-            self.console("Rendered", f"Plot[{str(plot)}]")
         plt.tight_layout()
         plt.show()
         return figure

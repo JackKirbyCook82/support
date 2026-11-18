@@ -23,9 +23,9 @@ __license__ = "MIT License"
 
 
 class EquationError(Exception): pass
-class EquationParameterError(EquationError): pass
-class EquationFunctionError(EquationError): pass
-class EquationCircularError(EquationError): pass
+class ParameterError(EquationError): pass
+class FunctionError(EquationError): pass
+class CircularError(EquationError): pass
 
 
 @dataclass
@@ -54,7 +54,7 @@ class EquationMeta(Meta):
                 signature = inspect.signature(value)
                 for parameter in signature.parameters.values():
                     kinds = (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
-                    if parameter.kind not in kinds: raise EquationParameterError()
+                    if parameter.kind not in kinds: raise ParameterError()
                 equations[key] = value
         cls.__localized__ = EquationNamespace(variables, defaults, equations)
         globalized = EquationNamespace()
@@ -98,9 +98,9 @@ class Equation(Mixin, metaclass=EquationMeta):
         def resolve(name):
             if name in domain: return domain[name]
             if name in cache: return cache[name]
-            if name in order: raise EquationCircularError()
+            if name in order: raise CircularError()
             try: function = self.functions[name]
-            except KeyError: raise EquationFunctionError()
+            except KeyError: raise FunctionError()
             order.append(name)
             try:
                 keywords = dict()
