@@ -24,14 +24,14 @@ class Pipeline(Decorator, ABC):
 
 
 class PipelineFunction(Pipeline):
-    def decorator(self, instance, inlet, *args, **kwargs):
-        outlet = self.function(instance, inlet, *args, **kwargs)
+    def decorator(self, instance, *args, **kwargs):
+        outlet = self.function(instance, *args, **kwargs)
         return outlet
 
 
 class PipelineGenerator(Pipeline):
-    def decorator(self, instance, inlet, *args, **kwargs):
-        generator = self.function(instance, inlet, *args, **kwargs)
+    def decorator(self, instance, *args, **kwargs):
+        generator = self.function(instance, *args, **kwargs)
         for outlet in generator:
             yield outlet
 

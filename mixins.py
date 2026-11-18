@@ -18,18 +18,18 @@ __license__ = "MIT License"
 __logger__ = logging.getLogger(__name__)
 
 
+class MixinError(Exception): pass
 class Mixin(ABC):
-    def __init_subclass__(cls, **kwargs):
-        try: super().__init_subclass__(**kwargs)
-        except TypeError: super().__init_subclass__()
+    def __init_subclass__(cls, /, **kwargs):
+        super().__init_subclass__(**kwargs)
+        mro = cls.__mro__
+        assert isinstance(mro, tuple)
+        index = mro.index(Mixin)
+        remaining = mro[index + 1:]
+        if remaining != (ABC, object): raise MixinError()
 
-    def __new__(cls, *args, **kwargs):
-        try: return super().__new__(cls, *args, **kwargs)
-        except TypeError: return super().__new__(cls)
-
-    def __init__(self, *args, **kwargs):
-        try: super().__init__(*args, **kwargs)
-        except TypeError: super().__init__()
+    def __new__(cls, *args, **kwargs): return super().__new__(cls)
+    def __init__(self, *args, **kwargs): super().__init__()
 
 
 class LoggingMixin(Mixin, ABC):
@@ -40,7 +40,7 @@ class LoggingMixin(Mixin, ABC):
         self.__logger = __logger__
 
     def console(self, *strings, title, **kwargs):
-        string = ", ".join(strings)
+        string = ", ".join(map(str, strings))
         string = f"{str(title)}: {str(self.name)}: {str(string)}"
         self.logger.info(string)
 
