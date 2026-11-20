@@ -70,6 +70,10 @@ class InterpolationCurve(Curve, register=Method.INTERPOLATION):
     def create(yaxis, zaxis, /, **kwargs): return make_interp_spline(yaxis, zaxis, k=3, bc_type="natural")
 
 
+class SurfaceError(Exception): pass
+class ExtrapolationError(SurfaceError): pass
+
+
 class Surface(ABC, metaclass=RegistryMeta):
     def __init_subclass__(cls, **kwargs): pass
     def __init__(self, scatter, /, **kwargs):
@@ -78,34 +82,34 @@ class Surface(ABC, metaclass=RegistryMeta):
         self.__surface = surface
         self.__domain = domain
 
-    def __call__(self, x, y):
+    def __call__(self, x, y, extrapolate=False):
         x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
-        assert not self.violation(x, y)
+        if self.extrapolated(x, y) and not extrapolate: raise ExtrapolationError()
         return self.surface.ev(x, y)
 
-    def z(self, x, y):
+    def z(self, x, y, extrapolate=False):
         x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
-        assert not self.violation(x, y)
+        if self.extrapolated(x, y) and not extrapolate: raise ExtrapolationError()
         return self.surface.ev(x, y)
 
-    def dzdx(self, x, y):
+    def dzdx(self, x, y, extrapolate=False):
         x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
-        assert not self.violation(x, y)
+        if self.extrapolated(x, y) and not extrapolate: raise ExtrapolationError()
         return self.surface.ev(x, y, dx=1, dy=0)
 
-    def dzdy(self, x, y):
+    def dzdy(self, x, y, extrapolate=False):
         x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
-        assert not self.violation(x, y)
+        if self.extrapolated(x, y) and not extrapolate: raise ExtrapolationError()
         return self.surface.ev(x, y, dx=0, dy=1)
 
-    def dz2dx2(self, x, y):
+    def dz2dx2(self, x, y, extrapolate=False):
         x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
-        assert not self.violation(x, y)
+        if self.extrapolated(x, y) and not extrapolate: raise ExtrapolationError()
         return self.surface.ev(x, y, dx=2, dy=0)
 
-    def dz2dy2(self, x, y):
+    def dz2dy2(self, x, y, extrapolate=False):
         x, y = np.asarray(x, dtype=float), np.asarray(y, dtype=float)
-        assert not self.violation(x, y)
+        if self.extrapolated(x, y) and not extrapolate: raise ExtrapolationError()
         return self.surface.ev(x, y, dx=0, dy=2)
 
     def boundary(self):
@@ -113,7 +117,7 @@ class Surface(ABC, metaclass=RegistryMeta):
         y = NumberRange([self.domain.y.min(), self.domain.y.max()])
         return Axes(x=x, y=y)
 
-    def violation(self, x, y):
+    def extrapolated(self, x, y):
         boundary = self.boundary()
         x = np.any((x < boundary.x.minimum) | (x > boundary.x.maximum))
         y = np.any((y < boundary.y.minimum) | (y > boundary.y.maximum))
@@ -188,15 +192,18 @@ class SurfaceCreator(LoggingMixin):
         self.__quantity = quantity
         self.__columns = columns
 
-    def __call__(self, scatter, *args, method, smoothing=None, weights=None, **kwargs):
+    def __call__(self, scatter, *args, method, smoothing=None, weights=None, extrapolate=False, **kwargs):
         if scatter is None: return None
         assert isinstance(scatter, pd.DataFrame)
         if scatter.empty: return None
+        xyz = scatter[self.columns].copy()
+        xyz = xyz.replace([np.inf, -np.inf], np.nan)
+        xyz = xyz.dropna(how="all")
+        if len(xyz) < self.quantity: return None
+        xyz = xyz[self.columns].rename(columns=dict(zip(self.columns, list("xyz"))))
         method = Method[str(method).upper()] if isinstance(method, str) else method
-        if len(scatter) < self.quantity: return None
-        xyz = scatter[self.columns].rename(columns=dict(zip(self.columns, list("xyz"))))
         parameters = dict(samplesize=self.samplesize, gridsize=self.gridsize)
-        parameters = parameters | dict(method=method, smoothing=smoothing, weights=weights)
+        parameters = parameters | dict(method=method, smoothing=smoothing, weights=weights, extrapolate=extrapolate)
         surface = Surface[method](xyz, **parameters)
         return surface
 
