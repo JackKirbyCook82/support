@@ -200,6 +200,7 @@ class SurfaceCreator(LoggingMixin):
         xyz = xyz.replace([np.inf, -np.inf], np.nan)
         xyz = xyz.dropna(how="all")
         if len(xyz) < self.quantity: return None
+
         xyz = xyz[self.columns].rename(columns=dict(zip(self.columns, list("xyz"))))
         method = Method[str(method).upper()] if isinstance(method, str) else method
         parameters = dict(samplesize=self.samplesize, gridsize=self.gridsize)
