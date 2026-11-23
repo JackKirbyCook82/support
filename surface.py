@@ -197,8 +197,7 @@ class SurfaceCreator(LoggingMixin):
         assert isinstance(scatter, pd.DataFrame)
         if scatter.empty: return None
         xyz = scatter[self.columns].copy()
-        xyz = xyz.replace([np.inf, -np.inf], np.nan)
-        xyz = xyz.dropna(how="all")
+        xyz = xyz.replace([np.inf, -np.inf], np.nan).dropna(how="all")
         if len(xyz) < self.quantity: return None
 
         xyz = xyz[self.columns].rename(columns=dict(zip(self.columns, list("xyz"))))
