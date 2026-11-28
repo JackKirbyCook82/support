@@ -11,7 +11,6 @@ from abc import ABC
 from types import NoneType
 
 from support.decorators import Decorator
-from support.meta import CollectionMeta
 
 __version__ = "1.0.0"
 __author__ = "Jack Kirby Cook"
